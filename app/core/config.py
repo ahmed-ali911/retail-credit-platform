@@ -24,6 +24,15 @@ class Settings(BaseSettings):
     # When true (used by the test suite), startup does not attempt to seed.
     disable_startup_seed: bool = False
 
+    # --- auth (Step 5) ---
+    jwt_secret_key: str = "dev-insecure-secret-change-me"
+    jwt_algorithm: str = "HS256"
+    access_token_expire_minutes: int = 30
+
+    # Bootstrap admin, created on startup if it does not exist.
+    admin_username: str = "admin"
+    admin_password: str = "admin"
+
 
 @lru_cache
 def get_settings() -> Settings:

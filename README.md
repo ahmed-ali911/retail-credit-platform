@@ -1,6 +1,6 @@
 # Retail Credit & Installment Sales Platform
 
-**Steps 1–4 — Customer & Assessment → priced Offer → active Contract → payments/allocation/late fees → settlement / cancellation / return.**
+**Steps 1–5 — application → assessment → offer → contract → payments/allocation/late fees → settlement/cancellation/return, all behind JWT auth + RBAC + an audit trail.**
 
 This is a **retail installment-sale** platform, not a cash-loan system. The
 company never disburses cash. A customer buys a product on credit terms; a
@@ -12,6 +12,7 @@ Customer → Product Purchase → Credit Assessment → Installment Sale → Rec
                                                   offer→contract    payments,                  settlement,
                                                                     allocation,                cancellation,
                                                                     overdue, late fees         return
+   Step 5: every endpoint above now requires a bearer token, is role-gated, and writes an AuditEvent
                                                   (no real payment gateway / collections workflow yet)
 ```
 
@@ -60,13 +61,22 @@ Customer → Product Purchase → Credit Assessment → Installment Sale → Rec
 | `ContractClosure` | **exactly one per contract**, always with a `reason` (`normal`/`early_settlement`/`cancellation`/`return`); signed `financial_adjustment` |
 | Re-close guard | a `closed` contract returns **409** on settle / cancel / return / quote |
 
+## What's in Step 5
+
+| Area | Included |
+|------|----------|
+| Users & roles | `User` (bcrypt hash, never plaintext) + 6-role enum; bootstrap `admin` seeded from `ADMIN_USERNAME`/`ADMIN_PASSWORD` on startup |
+| Auth | `POST /auth/login` → short-lived HS256 JWT (`sub`, `role`, `exp`); `POST /auth/register` (**admin only**); `GET /auth/me` |
+| RBAC | one reusable `require_roles(...)` dependency + an owner-or-roles check; **all** endpoints (except `/auth/login`, `/health`) need a token; sensitive routes are role-gated per the table below |
+| Ownership | a `customer`-role user (linked via `customers.user_id`) may read **their own** application / contract; someone else's → **403** |
+| Audit trail | `AuditEvent` written on every state-changing action; `GET /audit/events` (filter by `entity_type`/`entity_id`/`action`) — **admin & credit_manager only** |
+
 ### Explicitly out of scope (later steps)
-Real payment gateway integration, Collections workflow (contact logging,
-Promise-to-Pay, Collection Case), **maker-checker approval** for settlement /
-cancellation / return, **actual refund payment execution** (the amount is
-recorded, no money moves), **late-fee waiver execution** endpoint (the `waived`
-status exists but no maker-checker flow), ECL / provisioning, and an **actual
-scheduled job** (the assess-overdue endpoint is manually triggered).
+Maker-checker dual-approval (same user creating and approving a restricted
+action), external IdP / OAuth, password reset / email flows, rate limiting,
+refresh tokens / session revocation, Collections workflow, actual refund
+payment execution, ECL / provisioning, and an **actual scheduled job** (the
+assess-overdue endpoint is manually triggered).
 
 ---
 
@@ -83,11 +93,16 @@ docker compose up --build
 ```
 
 This starts Postgres, runs `alembic upgrade head`, seeds the business-rule
-parameters, and serves the API on **http://localhost:8000**.
+parameters, creates the bootstrap `admin` user (`ADMIN_USERNAME` /
+`ADMIN_PASSWORD`, default `admin`/`admin`), and serves the API on
+**http://localhost:8000**.
 
 - Swagger UI: http://localhost:8000/docs
 - OpenAPI JSON: http://localhost:8000/openapi.json
-- Health: http://localhost:8000/health
+- Health: http://localhost:8000/health (open — no token)
+
+Every other endpoint needs `Authorization: Bearer <token>` — see
+[Authentication & RBAC](#authentication--rbac-step-5).
 
 ## Running locally without Docker
 
@@ -101,6 +116,7 @@ docker compose up -d db
 export DATABASE_URL="postgresql+psycopg2://retail:retail@localhost:5432/retail_credit"
 alembic upgrade head
 python -m scripts.seed_config          # seed business-rule parameters
+python -m scripts.create_admin        # create the bootstrap admin (env: ADMIN_USERNAME/ADMIN_PASSWORD)
 uvicorn app.main:app --reload
 ```
 
@@ -124,6 +140,7 @@ Migrations:
 - [`0002_offers_contracts_schedule`](alembic/versions/0002_offers_contracts_schedule.py) — installment offers, sales orders, installment contracts, payment schedules, installments
 - [`0003_payments_late_fees`](alembic/versions/0003_payments_late_fees.py) — payments, payment allocations, late fee charges; `installments.principal_paid` / `profit_paid`
 - [`0004_contract_closure`](alembic/versions/0004_contract_closure.py) — `contract_closures` (one per contract)
+- [`0005_users_audit`](alembic/versions/0005_users_audit.py) — `users`, `audit_events`, nullable `customers.user_id`
 
 ---
 
@@ -390,6 +407,82 @@ collected via `/settle` and the breakdown lives on the quote).
 
 ---
 
+## Authentication & RBAC (Step 5)
+
+Every endpoint except `POST /auth/login` and `GET /health` requires
+`Authorization: Bearer <token>` (a **missing/invalid token → 401**). Sensitive
+routes additionally check the caller's role (**wrong role → 403**), enforced by
+one reusable dependency — `require_roles(...)` in
+[app/core/auth.py](app/core/auth.py) — not per-route code.
+
+### Getting a token
+
+```bash
+BASE=http://localhost:8000
+TOKEN=$(curl -s -X POST $BASE/auth/login -H 'content-type: application/json' \
+  -d '{"username": "admin", "password": "admin"}' \
+  | python -c 'import sys,json;print(json.load(sys.stdin)["access_token"])')
+
+curl -s $BASE/auth/me -H "Authorization: Bearer $TOKEN"          # sanity-check the token
+# admin only — create other users:
+curl -s -X POST $BASE/auth/register -H "Authorization: Bearer $TOKEN" \
+  -H 'content-type: application/json' \
+  -d '{"username": "sara.sales", "password": "s3cret12", "role": "sales_employee"}'
+```
+
+Tokens are HS256, `access_token_expire_minutes` (default 30), carrying
+`sub` (user id), `role`, `exp`. No refresh tokens / revocation this step.
+
+### Roles
+
+`admin` · `credit_officer` · `credit_manager` · `sales_employee` ·
+`finance_officer` · `customer`  (`admin` is allowed everywhere.)
+
+| Endpoint | Allowed roles |
+|---|---|
+| `POST /customers` | `sales_employee`, `admin` |
+| `POST /applications`, `POST /applications/{id}/submit` | `sales_employee`, `customer`, `admin` |
+| `GET /applications/{id}` | `sales_employee`, `credit_officer`, `credit_manager`, `admin`, **or the owning `customer`** |
+| `POST /applications/{id}/offer` | `sales_employee`, `credit_officer`, `admin` |
+| `POST /offers/{id}/accept` | `sales_employee`, `customer`, `admin` |
+| `POST /contracts/{id}/confirm-delivery` | `sales_employee`, `admin` |
+| `POST /contracts/{id}/payments` | `sales_employee`, `finance_officer`, `customer`, `admin` |
+| `POST /jobs/assess-overdue` | `admin` |
+| `GET /contracts/{id}/receivable`, `GET /contracts/{id}/settlement-quote` | `finance_officer`, `credit_manager`, `admin`, **or the owning `customer`** |
+| `POST /contracts/{id}/settle` / `/cancel` / `/return` | `finance_officer`, `credit_manager`, `admin` |
+| `GET`/`PUT` `/config/parameters` | `admin` |
+| `GET /audit/events` | `admin`, `credit_manager` |
+| `POST /auth/register` | `admin` |
+| other authenticated endpoints (`POST /products`, `GET /contracts/{id}`, `GET /offers/{id}`, `GET /customers/{id}`, `GET /products/{id}`, `GET /auth/me`) | any valid token |
+
+**Ownership.** A `customer`-role user is linked to a `Customer` via
+`customers.user_id` (set manually / by helper for now — no self-service signup).
+For the "or the owning `customer`" rows, a customer accessing **someone else's**
+record gets **403** (not 404).
+
+### Audit trail
+
+Every state-changing action writes one `AuditEvent`
+([app/models/audit.py](app/models/audit.py)):
+
+```
+id · user_id (nullable — system/job) · action · entity_type · entity_id (string)
+  · before_value (JSON|null) · after_value (JSON|null) · timestamp
+```
+
+`before`/`after` are **minimal snapshots** (e.g. `{"status": "draft"}` →
+`{"status": "approved", "decision": "approved"}`), not field-by-field diffs.
+Actions include `customer.created`, `application.created` / `application.submitted`,
+`offer.generated` / `offer.accepted`, `contract.created` / `contract.delivered` /
+`contract.settled` / `contract.cancelled` / `contract.returned`,
+`payment.recorded`, `overdue.assessed`, `late_fee.assessed`, `config.updated`,
+`user.registered`.
+
+`GET /audit/events?entity_type=installment_contract&entity_id=42` (also
+`action=`, `limit=`) — **admin & credit_manager only**.
+
+---
+
 ## API endpoints
 
 | Method | Path | Purpose |
@@ -415,14 +508,29 @@ collected via `/settle` and the breakdown lives on the quote).
 | `POST` | `/contracts/{id}/return` | **Step 4** — post-delivery only. Body `{notes?}`. 409 if `created` (→ `/cancel`) or `closed` |
 | `GET` | `/config/parameters` | List business-rule parameters |
 | `PUT` | `/config/parameters/{key}` | Update a business-rule parameter |
+| `POST` | `/auth/login` | **Step 5** — username + password → JWT (open, no token) |
+| `POST` | `/auth/register` | **Step 5** — create a user (**admin only**) |
+| `GET` | `/auth/me` | **Step 5** — current token's user id / username / role |
+| `GET` | `/audit/events` | **Step 5** — audit log, filterable (**admin / credit_manager**) |
 
 ### Example
+
+> **Auth:** get a token first and pass `-H "$AUTH"` on every call below
+> (`admin` works for all of them). The `POST /products` step also needs it.
+>
+> ```bash
+> BASE=http://localhost:8000
+> TOKEN=$(curl -s -X POST $BASE/auth/login -H 'content-type: application/json' \
+>   -d '{"username":"admin","password":"admin"}' \
+>   | python -c 'import sys,json;print(json.load(sys.stdin)["access_token"])')
+> AUTH="Authorization: Bearer $TOKEN"
+> ```
 
 ```bash
 BASE=http://localhost:8000
 
 # 1. customer + profile
-CUST=$(curl -s -X POST $BASE/customers -H 'content-type: application/json' -d '{
+CUST=$(curl -s -X POST $BASE/customers -H "$AUTH" -H 'content-type: application/json' -d '{
   "name": "Sara N.", "national_id": "299010112345",
   "phone": "+96550001111", "email": "sara@example.com",
   "risk_score": 700,
@@ -482,12 +590,16 @@ curl -s -X POST $BASE/jobs/assess-overdue -H 'content-type: application/json' \
 # --- Step 4: early settlement (or cancel / return) ---
 
 # 13. get an early-payoff quote (nothing is charged)
-PAYOFF=$(curl -s $BASE/contracts/$CONTRACT/settlement-quote | tee /dev/stderr \
+PAYOFF=$(curl -s $BASE/contracts/$CONTRACT/settlement-quote -H "$AUTH" | tee /dev/stderr \
   | python -c 'import sys,json;print(json.load(sys.stdin)["final_payoff_amount"])')
 
 # 14. settle for exactly the quoted amount -> ContractClosure, status "closed"
-curl -s -X POST $BASE/contracts/$CONTRACT/settle -H 'content-type: application/json' \
+curl -s -X POST $BASE/contracts/$CONTRACT/settle -H "$AUTH" -H 'content-type: application/json' \
   -d "{\"amount\": $PAYOFF, \"external_reference\": \"SETTLE-0001\"}" | python -m json.tool
+
+# 15. the audit trail for this contract (admin / credit_manager)
+curl -s "$BASE/audit/events?entity_type=installment_contract&entity_id=$CONTRACT" \
+  -H "$AUTH" | python -m json.tool
 
 # (alternatively, before delivery:  POST /contracts/$CONTRACT/cancel
 #  or, after delivery instead of settling:  POST /contracts/$CONTRACT/return )
@@ -566,29 +678,44 @@ pytest
 - `test_closed_contract_cannot_be_closed_again` (409 on settle/cancel/return/quote)
 - `test_exactly_one_closure_per_contract`
 
+**Step 5** — auth, RBAC & audit ([tests/test_auth.py](tests/test_auth.py),
+[tests/test_rbac.py](tests/test_rbac.py), [tests/test_audit.py](tests/test_audit.py)):
+
+- login succeeds / wrong password → 401 / unknown user → 401; bad token → 401
+- `POST /auth/register` is admin-only (403 for others, 401 unauthenticated)
+- no token → 401 and valid-token-wrong-role → 403, grouped by role pattern
+- correct role succeeds — Step 1–4 flows re-run with tokens (wiring intact)
+- `customer` can read their own application / contract receivable, **someone
+  else's → 403**
+- `contract.settled` / `config.updated` / `overdue.assessed` write a matching
+  `AuditEvent`; `GET /audit/events` filters and rejects non-admin/manager
+- (all existing Step 1–4 tests now run through an admin-authenticated client)
+
 ---
 
 ## Project layout
 
 ```
 app/
-  core/        config (env settings), database engine/session, date helpers
+  core/        config (env + JWT settings), database, date helpers,
+               security (bcrypt + JWT), auth (RBAC dependencies)
   models/      Customer, CustomerProfile, Product, CreditApplication,
                AssessmentResult, ConfigParameter,
                InstallmentOffer, SalesOrder, InstallmentContract,
                PaymentSchedule, Installment,
-               Payment, PaymentAllocation, LateFeeCharge, ContractClosure
+               Payment, PaymentAllocation, LateFeeCharge, ContractClosure,
+               User, AuditEvent
   schemas/     Pydantic request/response models
   services/    config_service (externalised rules), assessment (Step 1 engine),
                pricing (Step 2 declining-balance engine), offers (offer→contract),
                allocation (Step 3 pure waterfall), payments, overdue, receivable,
-               closure (Step 4 settlement / cancellation / return), errors
-  api/         customers, products, applications, offers (+ contracts),
-               payments (+ receivable + jobs), closure, config routers
-  main.py      FastAPI app + startup config seeding
-alembic/       migrations (0001_initial, 0002_offers_contracts_schedule,
-               0003_payments_late_fees, 0004_contract_closure)
+               closure (Step 4 settlement / cancellation / return),
+               audit, users, errors
+  api/         auth, customers, products, applications, offers (+ contracts),
+               payments (+ receivable + jobs), closure, config, audit routers
+  main.py      FastAPI app + startup seeding (config params + bootstrap admin)
+alembic/       migrations (0001_initial … 0005_users_audit)
 config/        business_rules.yaml  (fictitious placeholder defaults, Steps 1–4)
-scripts/       seed_config.py
+scripts/       seed_config.py, create_admin.py
 tests/
 ```

@@ -23,9 +23,13 @@ services:
     environment:
       DATABASE_URL: postgresql+psycopg2://retail:retail@db:5432/retail_credit
       BUSINESS_RULES_FILE: config/business_rules.yaml
+      # Step 5 auth — override in any real deployment.
+      JWT_SECRET_KEY: dev-insecure-secret-change-me
+      ADMIN_USERNAME: admin
+      ADMIN_PASSWORD: admin
     ports:
       - "8000:8000"
-    # Run migrations, then serve. Config parameters are seeded on app startup.
+    # Run migrations, then serve. Config params + bootstrap admin are seeded on startup.
     command: >
       sh -c "alembic upgrade head &&
              uvicorn app.main:app --host 0.0.0.0 --port 8000"

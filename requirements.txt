@@ -6,6 +6,8 @@ psycopg2-binary==2.9.10
 pydantic==2.10.4
 pydantic-settings==2.7.0
 PyYAML==6.0.2
+PyJWT==2.10.1
+bcrypt==4.2.1
 
 # --- test / dev ---
 pytest==8.3.4

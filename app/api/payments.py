@@ -3,8 +3,15 @@ from __future__ import annotations
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
+from app.core.auth import (
+    authorize_owner_or_roles,
+    contract_owner_customer_id,
+    get_current_user,
+    require_roles,
+)
 from app.core.database import get_db
 from app.models.contract import InstallmentContract
+from app.models.user import User, UserRole
 from app.schemas.payment import (
     AssessOverdueRequest,
     AssessOverdueResult,
@@ -15,10 +22,17 @@ from app.schemas.payment import (
 )
 from app.services import overdue as overdue_service
 from app.services import payments as payment_service
+from app.services.audit import record_event
 from app.services.errors import DomainError
 from app.services.receivable import build_receivable
 
 router = APIRouter(tags=["payments & receivable"])
+
+_RECEIVABLE_STAFF_ROLES = (
+    UserRole.finance_officer,
+    UserRole.credit_manager,
+    UserRole.admin,
+)
 
 
 def _get_contract(db: Session, contract_id: int) -> InstallmentContract:
@@ -30,7 +44,17 @@ def _get_contract(db: Session, contract_id: int) -> InstallmentContract:
 
 @router.post("/contracts/{contract_id}/payments", response_model=PaymentResult)
 def record_payment(
-    contract_id: int, payload: PaymentCreate, db: Session = Depends(get_db)
+    contract_id: int,
+    payload: PaymentCreate,
+    db: Session = Depends(get_db),
+    actor: User = Depends(
+        require_roles(
+            UserRole.sales_employee,
+            UserRole.finance_officer,
+            UserRole.customer,
+            UserRole.admin,
+        )
+    ),
 ):
     contract = _get_contract(db, contract_id)
     try:
@@ -44,6 +68,19 @@ def record_payment(
         raise HTTPException(status_code=exc.status_code, detail=exc.message)
 
     if not outcome.replayed:
+        record_event(
+            db,
+            user_id=actor.id,
+            action="payment.recorded",
+            entity_type="payment",
+            entity_id=outcome.payment.id,
+            after={
+                "contract_id": contract.id,
+                "amount": float(outcome.payment.amount),
+                "allocated_amount": float(outcome.payment.allocated_amount),
+                "status": outcome.payment.status.value,
+            },
+        )
         db.commit()
     db.refresh(outcome.payment)
     return PaymentResult(
@@ -53,17 +90,51 @@ def record_payment(
 
 
 @router.get("/contracts/{contract_id}/receivable", response_model=ReceivableOut)
-def get_receivable(contract_id: int, db: Session = Depends(get_db)):
+def get_receivable(
+    contract_id: int,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
     contract = _get_contract(db, contract_id)
+    authorize_owner_or_roles(
+        db, user,
+        staff_roles=_RECEIVABLE_STAFF_ROLES,
+        owner_customer_id=contract_owner_customer_id(db, contract),
+    )
     return build_receivable(contract)
 
 
 @router.post("/jobs/assess-overdue", response_model=AssessOverdueResult)
 def assess_overdue(
-    payload: AssessOverdueRequest | None = None, db: Session = Depends(get_db)
+    payload: AssessOverdueRequest | None = None,
+    db: Session = Depends(get_db),
+    actor: User = Depends(require_roles(UserRole.admin)),
 ):
     as_of = payload.as_of if payload else None
     summary = overdue_service.assess_overdue(db, as_of=as_of)
+
+    record_event(
+        db,
+        user_id=actor.id,
+        action="overdue.assessed",
+        entity_type="job",
+        entity_id=None,
+        after={
+            "as_of": summary.as_of.isoformat(),
+            "installments_marked_overdue": summary.installments_marked_overdue,
+            "late_fees_assessed": summary.late_fees_assessed,
+            "total_late_fee_amount": float(summary.total_late_fee_amount),
+        },
+    )
+    for charge in summary.charges:
+        record_event(
+            db,
+            user_id=actor.id,
+            action="late_fee.assessed",
+            entity_type="installment",
+            entity_id=charge["installment_id"],
+            after={"amount": charge["amount"], "dpd": charge["dpd"]},
+        )
     db.commit()
     return AssessOverdueResult(
         as_of=summary.as_of,

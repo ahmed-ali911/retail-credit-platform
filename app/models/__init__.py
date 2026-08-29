@@ -5,6 +5,8 @@ Importing this package imports every model so that `Base.metadata` is complete
 """
 from app.models.base import Base
 from app.models.config_parameter import ConfigParameter
+from app.models.user import User, UserRole
+from app.models.audit import AuditEvent
 from app.models.customer import Customer, CustomerProfile, CustomerStatus
 from app.models.product import Product, ProductCategory
 from app.models.credit_application import (
@@ -34,6 +36,9 @@ from app.models.closure import ClosureReason, ContractClosure
 __all__ = [
     "Base",
     "ConfigParameter",
+    "User",
+    "UserRole",
+    "AuditEvent",
     "Customer",
     "CustomerProfile",
     "CustomerStatus",

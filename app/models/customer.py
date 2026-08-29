@@ -32,8 +32,15 @@ class Customer(Base):
     # Stubbed until a real credit-bureau integration exists. Manually set.
     risk_score: Mapped[int | None] = mapped_column(Integer, nullable=True)
 
+    # Links this Customer to a login (role='customer') for ownership checks.
+    # Nullable and set manually / via helper for now — no self-service signup.
+    user_id: Mapped[int | None] = mapped_column(
+        ForeignKey("users.id"), nullable=True, index=True
+    )
+
     created_at: Mapped[datetime] = created_at_column()
 
+    user: Mapped["User | None"] = relationship()  # noqa: F821
     profile: Mapped["CustomerProfile | None"] = relationship(
         back_populates="customer", uselist=False, cascade="all, delete-orphan"
     )
