@@ -62,3 +62,26 @@ def approved_application(client, *, national_id="APP-OK", cash_price=1200,
     submitted = client.post(f"/applications/{app['id']}/submit").json()
     assert submitted["status"] == "approved", submitted
     return {"customer": customer, "product": product, "application": submitted}
+
+
+def active_contract(client, *, national_id="CT-1", cash_price=1200, tenor_months=12,
+                    down_payment_amount=300):
+    """Approved application -> offer -> accept -> delivery. Returns the pieces."""
+    ctx = approved_application(client, national_id=national_id, cash_price=cash_price,
+                               tenor_months=tenor_months)
+    app_id = ctx["application"]["id"]
+    offer = client.post(f"/applications/{app_id}/offer",
+                        json={"down_payment_amount": down_payment_amount}).json()
+    acc = client.post(f"/offers/{offer['id']}/accept", json={
+        "down_payment_confirmed": True,
+        "down_payment_reference": f"DP-{national_id}",
+    }).json()
+    contract_id = acc["contract_id"]
+    deliv = client.post(f"/contracts/{contract_id}/confirm-delivery")
+    assert deliv.status_code == 200, deliv.text
+    return {
+        **ctx,
+        "offer": offer,
+        "contract_id": contract_id,
+        "schedule": offer["schedule_preview"],
+    }

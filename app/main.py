@@ -9,6 +9,7 @@ from app.api import (
     config as config_api,
     customers,
     offers,
+    payments,
     products,
 )
 from app.core.config import get_settings
@@ -45,6 +46,7 @@ app.include_router(customers.router)
 app.include_router(products.router)
 app.include_router(applications.router)
 app.include_router(offers.router)
+app.include_router(payments.router)
 app.include_router(config_api.router)
 
 

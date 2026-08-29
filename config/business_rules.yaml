@@ -80,3 +80,37 @@ parameters:
     description: >
       FICTIONAL PLACEHOLDER. Number of days a presented offer remains acceptable
       before it is treated as expired.
+
+  # ---------------------------------------------------------------------------
+  # Step 3 — payments, overdue detection, late fees
+  # ---------------------------------------------------------------------------
+  late_fee_rate:
+    value: 0.02
+    type: float
+    description: >
+      CONFIRMED BUSINESS RULE (not a placeholder): a late fee is 2% of the
+      overdue installment's own total (principal_component + profit_component).
+      Exposed as config for operability, but the agreed value is 0.02.
+
+  late_fee_grace_period_days:
+    value: 10
+    type: int
+    description: >
+      PLACEHOLDER — open decision. Days past an installment's due date before a
+      late fee may be assessed. A fee is created only when DPD > this value.
+
+  late_fee_once_per_installment:
+    value: true
+    type: bool
+    description: >
+      PLACEHOLDER — open decision. When true (the Step 3 default), at most one
+      late fee is ever assessed per installment. Recurring re-charging while an
+      installment stays overdue is intentionally NOT implemented yet.
+
+  late_fee_max_per_contract:
+    value: 0
+    type: float
+    description: >
+      PLACEHOLDER — NOT WIRED UP. Intended future cap on total late fees per
+      contract. A value of 0 means "no cap". Step 3 does not read or enforce
+      this; it exists so the parameter name is reserved.

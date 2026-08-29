@@ -1,6 +1,6 @@
 # Retail Credit & Installment Sales Platform
 
-**Steps 1–2 — Customer & Assessment → priced Offer → Sales Order + active Installment Contract.**
+**Steps 1–3 — Customer & Assessment → priced Offer → active Contract → payments, allocation, receivable & late fees.**
 
 This is a **retail installment-sale** platform, not a cash-loan system. The
 company never disburses cash. A customer buys a product on credit terms; a
@@ -8,8 +8,10 @@ receivable is created; the customer pays it off in installments.
 
 ```
 Customer → Product Purchase → Credit Assessment → Installment Sale → Receivable → Collections → Closure
-           └──────────────── Step 1 ────────────┘ └──────── Step 2 ────────┘
-                                                  (stops before real payment processing)
+           └──────────────── Step 1 ────────────┘ └─── Step 2 ───┘ └── Step 3 ──┘
+                                                  offer→contract    payments, allocation,
+                                                                    overdue, late fees
+                                                  (no real payment gateway / collections workflow yet)
 ```
 
 ---
@@ -34,12 +36,25 @@ Customer → Product Purchase → Credit Assessment → Installment Sale → Rec
 | Sales Order & Contract | `SalesOrder` (what was sold) and `InstallmentContract` (how it's financed) — **separate linked tables** |
 | Payment Schedule | `PaymentSchedule` + `Installment` rows, each with `principal_component` + `profit_component` |
 | Delivery | `POST /contracts/{id}/confirm-delivery` moves Contract `created` → `active` |
-| Unearned Profit | `InstallmentContract.unearned_profit_balance` seeded to `total_profit` (decremented on payment — next step) |
+| Unearned Profit | `InstallmentContract.unearned_profit_balance` seeded to `total_profit` |
+
+## What's in Step 3
+
+| Area | Included |
+|------|----------|
+| Payment recording | `Payment` entity; `POST /contracts/{id}/payments` — **idempotent** on `external_reference` per contract |
+| Allocation Engine | `app/services/allocation.py` — pure waterfall: **oldest installment first**, then **Late Fee → Profit → Principal** within it |
+| Allocation audit | `PaymentAllocation` rows record how each payment split across installments/components |
+| Overdue / DPD | `app/services/overdue.py` via `POST /jobs/assess-overdue` (manual trigger, optional `as_of`) — marks installments `overdue`, assesses late fees |
+| Late fee | `LateFeeCharge` — **its own table**, never folded into profit; `2% × (principal + profit)` of the overdue installment; status `assessed`/`waived`/`paid` |
+| Receivable | `GET /contracts/{id}/receivable` — `outstanding_principal`, `outstanding_profit`, `outstanding_late_fees` (**kept separate**), installments paid / remaining |
 
 ### Explicitly out of scope (later steps)
-Payment gateway integration, installment payment processing/allocation, Receivables
-balance tracking, Collections, Late Fees, Early Settlement / rebate, Cancellation /
-Return, ECL / provisioning, and any external integration (bureau / payment gateway / ERP).
+Real payment gateway integration, Collections workflow (contact logging,
+Promise-to-Pay, Collection Case), Early Settlement / rebate, Cancellation / Return,
+**late-fee waiver execution** endpoint (the `waived` status exists but no
+maker-checker flow), ECL / provisioning, and an **actual scheduled job** (the
+assess-overdue endpoint is manually triggered).
 
 ---
 
@@ -95,6 +110,7 @@ Migrations:
 
 - [`0001_initial`](alembic/versions/0001_initial.py) — customers, profiles, products, credit applications, assessment results, config parameters
 - [`0002_offers_contracts_schedule`](alembic/versions/0002_offers_contracts_schedule.py) — installment offers, sales orders, installment contracts, payment schedules, installments
+- [`0003_payments_late_fees`](alembic/versions/0003_payments_late_fees.py) — payments, payment allocations, late fee charges; `installments.principal_paid` / `profit_paid`
 
 ---
 
@@ -134,6 +150,10 @@ Default (placeholder) parameters:
 | `tenor_profit_rate_table` | `{"6":0.04,"12":0.09,"18":0.135,"24":0.18,"36":0.30}` | **Step 2** — tenor (months) → total profit rate on financed principal; a `json`-typed parameter. A tenor with no entry is rejected at offer generation |
 | `minimum_down_payment_pct` | 0.15 | **Step 2** — minimum down payment as a fraction of cash price |
 | `offer_validity_days` | 7 | **Step 2** — days a presented offer stays acceptable |
+| `late_fee_rate` | 0.02 | **Step 3** — **confirmed business rule** (not a placeholder): 2% of the overdue installment's own `principal + profit` |
+| `late_fee_grace_period_days` | 10 | **Step 3, placeholder** — a fee is assessed only when `DPD > this` |
+| `late_fee_once_per_installment` | `true` | **Step 3, placeholder** — Step 3 always assesses at most once per installment; recurring re-charge is **not built**, so this flag currently has no behavioural effect |
+| `late_fee_max_per_contract` | 0 | **Step 3, placeholder — NOT WIRED UP.** Reserved for a future cap; `0` = no cap; nothing reads it |
 
 The rate table is stored as a single JSON parameter, so the tenor→rate mapping
 is edited as one unit (via `PUT /config/parameters/tenor_profit_rate_table` with
@@ -223,6 +243,74 @@ created.
 
 ---
 
+## Payments, Allocation & Overdue (Step 3)
+
+### Allocation waterfall
+
+A payment is allocated by **two rules applied together**:
+
+1. **Oldest installment first** — the oldest unpaid installment is settled *in
+   full* before any amount reaches a newer one.
+2. **Within an installment: Late Fee → Profit → Principal.**
+
+Rule 1 outranks rule 2 — the oldest installment's **principal** is paid before
+the next installment's **profit**. (`app/services/allocation.py` is a pure
+function; the spanning-two-installments case is pinned in
+[tests/test_allocation.py](tests/test_allocation.py).)
+
+Each allocation:
+- advances `Installment.principal_paid` / `profit_paid` and its status
+  (`pending → partially_paid → paid`; an `overdue` installment stays `overdue`
+  until fully paid);
+- draws `InstallmentContract.unearned_profit_balance` down by the profit paid;
+- settles `LateFeeCharge` rows (→ `paid`) for the late-fee portion;
+- is recorded as a `PaymentAllocation` audit row.
+
+Payments are **idempotent**: `external_reference` is unique per contract, and
+replaying it returns the original result (`replayed: true`) without
+re-allocating. An overpayment is applied as far as it can go; the remainder sits
+on the payment as `unallocated_amount` (status `overpaid`).
+
+### Overdue & late fees
+
+`POST /jobs/assess-overdue` (manual trigger — **not** a real scheduled job;
+accepts an optional `as_of` date for testing). For each past-due installment on
+an `active` contract it:
+- marks the installment `overdue` (if not fully paid);
+- if `DPD > late_fee_grace_period_days` **and** no fee has been assessed yet,
+  creates a `LateFeeCharge` = `late_fee_rate × (principal_component +
+  profit_component)` of **that installment**, status `assessed`.
+
+**Late fee ≠ profit.** It is a separate table (`LateFeeCharge`); it is never
+added to `profit_component` or `unearned_profit_balance`.
+
+Open / placeholder parameters, all clearly marked in
+[config/business_rules.yaml](config/business_rules.yaml):
+
+| Parameter | Status this step |
+|-----------|------------------|
+| `late_fee_grace_period_days` (10) | placeholder — configurable |
+| `late_fee_once_per_installment` (`true`) | recurring re-charge **not built**; a fee is assessed at most once per installment regardless |
+| `late_fee_max_per_contract` (0) | **not wired up** — reserved name only, nothing reads it |
+| late-fee **waiver** workflow | not built — `LateFeeCharge.status` supports `waived` for a future maker-checker endpoint |
+
+### Receivable
+
+`GET /contracts/{id}/receivable`:
+
+```
+outstanding_principal          Σ (principal_component − principal_paid)
+outstanding_profit             Σ (profit_component  − profit_paid)
+outstanding_receivable         outstanding_principal + outstanding_profit   ← late fees NOT included
+outstanding_late_fees          Σ LateFeeCharge.outstanding   (separate ledger)
+total_installments_paid / total_installments_remaining
+```
+
+Per the open-decision note, the single Receivable figure is **principal + profit
+only**; late fees are summed separately so the distinction stays visible.
+
+---
+
 ## API endpoints
 
 | Method | Path | Purpose |
@@ -237,8 +325,11 @@ created.
 | `POST` | `/applications/{id}/offer` | **Step 2** — price an **approved** application → `InstallmentOffer`. Body: `{down_payment_amount, tenor_months?}` (tenor defaults to the application's). Supersedes any prior open offer |
 | `GET` | `/offers/{id}` | **Step 2** — offer with pricing + schedule preview |
 | `POST` | `/offers/{id}/accept` | **Step 2** — body `{down_payment_confirmed, down_payment_reference?, down_payment_amount?}`. On `true` → creates Sales Order + Contract + Schedule |
-| `GET` | `/contracts/{id}` | **Step 2** — contract with sales order + installments |
+| `GET` | `/contracts/{id}` | **Step 2** — contract with sales order + installments (+ paid amounts & late fees from Step 3) |
 | `POST` | `/contracts/{id}/confirm-delivery` | **Step 2** — Contract `created` → `active` |
+| `POST` | `/contracts/{id}/payments` | **Step 3** — record a payment. Body `{amount, external_reference}`. Idempotent per `external_reference`; runs the allocation waterfall |
+| `GET` | `/contracts/{id}/receivable` | **Step 3** — outstanding principal / profit / late fees (kept separate) + installment counts |
+| `POST` | `/jobs/assess-overdue` | **Step 3** — manual trigger. Body `{as_of?}`. Marks overdue installments, assesses late fees |
 | `GET` | `/config/parameters` | List business-rule parameters |
 | `PUT` | `/config/parameters/{key}` | Update a business-rule parameter |
 
@@ -291,6 +382,19 @@ CONTRACT=$(curl -s -X POST $BASE/offers/$OFFER/accept -H 'content-type: applicat
 
 # 9. confirm delivery -> Contract status "active"
 curl -s -X POST $BASE/contracts/$CONTRACT/confirm-delivery | python -m json.tool
+
+# --- Step 3: payments, overdue, receivable ---
+
+# 10. record a payment (idempotency key required); runs the allocation waterfall
+curl -s -X POST $BASE/contracts/$CONTRACT/payments -H 'content-type: application/json' \
+  -d '{"amount": 87.46, "external_reference": "PAY-0001"}' | python -m json.tool
+
+# 11. the outstanding Receivable (principal + profit; late fees shown separately)
+curl -s $BASE/contracts/$CONTRACT/receivable | python -m json.tool
+
+# 12. assess overdue installments / late fees (as_of lets you simulate a run date)
+curl -s -X POST $BASE/jobs/assess-overdue -H 'content-type: application/json' \
+  -d '{"as_of": "2026-12-15"}' | python -m json.tool
 ```
 
 ---
@@ -336,6 +440,21 @@ pytest
 - plus down-payment-minimum enforcement, unsupported tenor, and
   accept-without-confirmation creating nothing
 
+**Step 3** — payments, allocation & overdue ([tests/test_allocation.py](tests/test_allocation.py),
+[tests/test_payments_flow.py](tests/test_payments_flow.py),
+[tests/test_overdue.py](tests/test_overdue.py)):
+
+- allocation: single full payment, partial payment, and the
+  **payment-spans-two-installments** case proving oldest-first beats
+  profit-before-principal
+- `test_idempotent_replay_does_not_double_allocate` — replaying an
+  `external_reference` returns the original and doesn't re-allocate
+- overdue: inside grace → no fee; past grace → **exactly 2%** of that
+  installment's total; running the job twice doesn't double-charge
+- `test_grace_period_config_change_changes_whether_fee_triggers`
+- `test_late_fee_is_paid_before_profit_and_principal` + receivable stays
+  reconciled (principal + profit drop by exactly what was allocated)
+
 ---
 
 ## Project layout
@@ -346,14 +465,18 @@ app/
   models/      Customer, CustomerProfile, Product, CreditApplication,
                AssessmentResult, ConfigParameter,
                InstallmentOffer, SalesOrder, InstallmentContract,
-               PaymentSchedule, Installment
+               PaymentSchedule, Installment,
+               Payment, PaymentAllocation, LateFeeCharge
   schemas/     Pydantic request/response models
   services/    config_service (externalised rules), assessment (Step 1 engine),
-               pricing (Step 2 declining-balance engine), offers (offer→contract), errors
-  api/         customers, products, applications, offers (+ contracts), config routers
+               pricing (Step 2 declining-balance engine), offers (offer→contract),
+               allocation (Step 3 pure waterfall), payments, overdue, receivable, errors
+  api/         customers, products, applications, offers (+ contracts),
+               payments (+ receivable + jobs), config routers
   main.py      FastAPI app + startup config seeding
-alembic/       migrations (0001_initial, 0002_offers_contracts_schedule)
-config/        business_rules.yaml  (fictitious placeholder defaults)
+alembic/       migrations (0001_initial, 0002_offers_contracts_schedule,
+               0003_payments_late_fees)
+config/        business_rules.yaml  (fictitious placeholder defaults + Step 3 rules)
 scripts/       seed_config.py
 tests/
 ```

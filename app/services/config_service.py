@@ -38,6 +38,11 @@ KEY_RISK_REFER_MIN = "risk_score_refer_min"
 KEY_TENOR_PROFIT_RATE_TABLE = "tenor_profit_rate_table"
 KEY_MIN_DOWN_PAYMENT_PCT = "minimum_down_payment_pct"
 KEY_OFFER_VALIDITY_DAYS = "offer_validity_days"
+# --- payments / overdue / late fees (Step 3) ---
+KEY_LATE_FEE_RATE = "late_fee_rate"
+KEY_LATE_FEE_GRACE_DAYS = "late_fee_grace_period_days"
+KEY_LATE_FEE_ONCE_PER_INSTALLMENT = "late_fee_once_per_installment"
+KEY_LATE_FEE_MAX_PER_CONTRACT = "late_fee_max_per_contract"  # placeholder, NOT enforced
 
 
 def _cast(raw: str, value_type: str):

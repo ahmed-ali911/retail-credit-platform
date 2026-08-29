@@ -22,6 +22,13 @@ from app.models.contract import (
     InstallmentStatus,
     PaymentSchedule,
 )
+from app.models.payment import (
+    LateFeeCharge,
+    LateFeeStatus,
+    Payment,
+    PaymentAllocation,
+    PaymentStatus,
+)
 
 __all__ = [
     "Base",
@@ -43,4 +50,9 @@ __all__ = [
     "InstallmentContract",
     "InstallmentStatus",
     "PaymentSchedule",
+    "LateFeeCharge",
+    "LateFeeStatus",
+    "Payment",
+    "PaymentAllocation",
+    "PaymentStatus",
 ]
