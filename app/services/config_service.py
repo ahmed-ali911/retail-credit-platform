@@ -43,6 +43,12 @@ KEY_LATE_FEE_RATE = "late_fee_rate"
 KEY_LATE_FEE_GRACE_DAYS = "late_fee_grace_period_days"
 KEY_LATE_FEE_ONCE_PER_INSTALLMENT = "late_fee_once_per_installment"
 KEY_LATE_FEE_MAX_PER_CONTRACT = "late_fee_max_per_contract"  # placeholder, NOT enforced
+# --- closure: settlement / cancellation / return (Step 4) — ALL placeholders ---
+KEY_EARLY_SETTLEMENT_REBATE_PCT = "early_settlement_profit_rebate_pct"
+KEY_DP_REFUND_PCT_CANCELLATION = "down_payment_refund_pct_cancellation"
+KEY_DP_REFUND_PCT_RETURN = "down_payment_refund_pct_return"
+KEY_OWNERSHIP_TRANSFERS_ON_DELIVERY = "ownership_transfers_on_delivery"
+KEY_SETTLEMENT_QUOTE_VALIDITY_DAYS = "settlement_quote_validity_days"
 
 
 def _cast(raw: str, value_type: str):

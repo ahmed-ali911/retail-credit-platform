@@ -114,3 +114,48 @@ parameters:
       PLACEHOLDER — NOT WIRED UP. Intended future cap on total late fees per
       contract. A value of 0 means "no cap". Step 3 does not read or enforce
       this; it exists so the parameter name is reserved.
+
+  # ---------------------------------------------------------------------------
+  # Step 4 — contract closure: early settlement, cancellation, return
+  # Every value here is a FICTIONAL PLACEHOLDER. None of these represents a
+  # confirmed commercial or legal policy; they exist so the formulas are
+  # config-driven and swappable.
+  # ---------------------------------------------------------------------------
+  early_settlement_profit_rebate_pct:
+    value: 0.5
+    type: float
+    description: >
+      PLACEHOLDER — NOT CONFIRMED POLICY. Fraction of the remaining unearned
+      profit that is WAIVED when a customer settles early. 0.5 = half waived,
+      half still charged. profit_rebate_amount = unearned_profit_balance * this.
+
+  down_payment_refund_pct_cancellation:
+    value: 1.0
+    type: float
+    description: >
+      PLACEHOLDER — NOT CONFIRMED POLICY. Fraction of the down payment refunded
+      when a contract is cancelled BEFORE delivery. 1.0 = full refund.
+
+  down_payment_refund_pct_return:
+    value: 0.0
+    type: float
+    description: >
+      PLACEHOLDER — NOT CONFIRMED POLICY. Fraction of the down payment refunded
+      when a delivered contract is returned. 0.0 = no down-payment refund.
+
+  ownership_transfers_on_delivery:
+    value: true
+    type: bool
+    description: >
+      PLACEHOLDER — NOT A LEGAL POSITION. Assumption about whether product
+      ownership passes to the customer at delivery. No logic branches on this
+      yet; it is only echoed back in the return response so the assumption in
+      effect is visible.
+
+  settlement_quote_validity_days:
+    value: 3
+    type: int
+    description: >
+      PLACEHOLDER. Days a generated settlement quote is considered valid. The
+      /settle endpoint always regenerates and re-compares the payoff amount, so
+      this is informational (surfaced as quote_expiry).

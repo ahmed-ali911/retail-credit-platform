@@ -6,6 +6,7 @@ from fastapi import FastAPI
 
 from app.api import (
     applications,
+    closure,
     config as config_api,
     customers,
     offers,
@@ -47,6 +48,7 @@ app.include_router(products.router)
 app.include_router(applications.router)
 app.include_router(offers.router)
 app.include_router(payments.router)
+app.include_router(closure.router)
 app.include_router(config_api.router)
 
 

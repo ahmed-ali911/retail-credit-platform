@@ -15,7 +15,7 @@ _ZERO = Decimal("0.00")
 class ContractStatus(str, enum.Enum):
     created = "created"   # contract exists, product not yet delivered
     active = "active"     # delivered — schedule is live
-    closed = "closed"     # future step
+    closed = "closed"     # ended — see the contract's ContractClosure for the reason
 
 
 class InstallmentStatus(str, enum.Enum):
@@ -73,6 +73,13 @@ class InstallmentContract(Base):
         order_by="LateFeeCharge.assessed_at",
         cascade="all, delete-orphan",
     )
+    closure: Mapped["ContractClosure | None"] = relationship(  # noqa: F821
+        back_populates="contract", uselist=False, cascade="all, delete-orphan"
+    )
+
+    @property
+    def is_closed(self) -> bool:
+        return self.status == ContractStatus.closed
 
 
 class PaymentSchedule(Base):

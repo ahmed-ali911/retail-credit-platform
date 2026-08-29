@@ -6,6 +6,7 @@ from pydantic import BaseModel, ConfigDict
 
 from app.models.contract import ContractStatus, InstallmentStatus
 from app.models.payment import LateFeeStatus
+from app.schemas.closure import ContractClosureOut
 
 
 class SalesOrderOut(BaseModel):
@@ -62,6 +63,7 @@ class ContractOut(BaseModel):
     sales_order: SalesOrderOut
     installments: list[InstallmentOut]
     late_fee_charges: list[LateFeeChargeOut] = []
+    closure: ContractClosureOut | None = None
 
 
 class AcceptResult(BaseModel):

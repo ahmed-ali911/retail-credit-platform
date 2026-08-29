@@ -29,6 +29,7 @@ from app.models.payment import (
     PaymentAllocation,
     PaymentStatus,
 )
+from app.models.closure import ClosureReason, ContractClosure
 
 __all__ = [
     "Base",
@@ -55,4 +56,6 @@ __all__ = [
     "Payment",
     "PaymentAllocation",
     "PaymentStatus",
+    "ClosureReason",
+    "ContractClosure",
 ]

@@ -1,6 +1,6 @@
 # Retail Credit & Installment Sales Platform
 
-**Steps 1–3 — Customer & Assessment → priced Offer → active Contract → payments, allocation, receivable & late fees.**
+**Steps 1–4 — Customer & Assessment → priced Offer → active Contract → payments/allocation/late fees → settlement / cancellation / return.**
 
 This is a **retail installment-sale** platform, not a cash-loan system. The
 company never disburses cash. A customer buys a product on credit terms; a
@@ -8,9 +8,10 @@ receivable is created; the customer pays it off in installments.
 
 ```
 Customer → Product Purchase → Credit Assessment → Installment Sale → Receivable → Collections → Closure
-           └──────────────── Step 1 ────────────┘ └─── Step 2 ───┘ └── Step 3 ──┘
-                                                  offer→contract    payments, allocation,
-                                                                    overdue, late fees
+           └──────────────── Step 1 ────────────┘ └─── Step 2 ───┘ └── Step 3 ──┘              └ Step 4 ┘
+                                                  offer→contract    payments,                  settlement,
+                                                                    allocation,                cancellation,
+                                                                    overdue, late fees         return
                                                   (no real payment gateway / collections workflow yet)
 ```
 
@@ -49,12 +50,23 @@ Customer → Product Purchase → Credit Assessment → Installment Sale → Rec
 | Late fee | `LateFeeCharge` — **its own table**, never folded into profit; `2% × (principal + profit)` of the overdue installment; status `assessed`/`waived`/`paid` |
 | Receivable | `GET /contracts/{id}/receivable` — `outstanding_principal`, `outstanding_profit`, `outstanding_late_fees` (**kept separate**), installments paid / remaining |
 
+## What's in Step 4
+
+| Area | Included |
+|------|----------|
+| Early settlement | `GET /contracts/{id}/settlement-quote` (computes, charges nothing) + `POST /contracts/{id}/settle` (regenerates & re-compares the payoff, then closes) |
+| Cancellation | `POST /contracts/{id}/cancel` — **pre-delivery only** (`created`); computes the configured down-payment refund |
+| Return | `POST /contracts/{id}/return` — **post-delivery only** (`active`); settlement-shape payoff + return down-payment refund → signed net adjustment |
+| `ContractClosure` | **exactly one per contract**, always with a `reason` (`normal`/`early_settlement`/`cancellation`/`return`); signed `financial_adjustment` |
+| Re-close guard | a `closed` contract returns **409** on settle / cancel / return / quote |
+
 ### Explicitly out of scope (later steps)
 Real payment gateway integration, Collections workflow (contact logging,
-Promise-to-Pay, Collection Case), Early Settlement / rebate, Cancellation / Return,
-**late-fee waiver execution** endpoint (the `waived` status exists but no
-maker-checker flow), ECL / provisioning, and an **actual scheduled job** (the
-assess-overdue endpoint is manually triggered).
+Promise-to-Pay, Collection Case), **maker-checker approval** for settlement /
+cancellation / return, **actual refund payment execution** (the amount is
+recorded, no money moves), **late-fee waiver execution** endpoint (the `waived`
+status exists but no maker-checker flow), ECL / provisioning, and an **actual
+scheduled job** (the assess-overdue endpoint is manually triggered).
 
 ---
 
@@ -111,6 +123,7 @@ Migrations:
 - [`0001_initial`](alembic/versions/0001_initial.py) — customers, profiles, products, credit applications, assessment results, config parameters
 - [`0002_offers_contracts_schedule`](alembic/versions/0002_offers_contracts_schedule.py) — installment offers, sales orders, installment contracts, payment schedules, installments
 - [`0003_payments_late_fees`](alembic/versions/0003_payments_late_fees.py) — payments, payment allocations, late fee charges; `installments.principal_paid` / `profit_paid`
+- [`0004_contract_closure`](alembic/versions/0004_contract_closure.py) — `contract_closures` (one per contract)
 
 ---
 
@@ -154,6 +167,11 @@ Default (placeholder) parameters:
 | `late_fee_grace_period_days` | 10 | **Step 3, placeholder** — a fee is assessed only when `DPD > this` |
 | `late_fee_once_per_installment` | `true` | **Step 3, placeholder** — Step 3 always assesses at most once per installment; recurring re-charge is **not built**, so this flag currently has no behavioural effect |
 | `late_fee_max_per_contract` | 0 | **Step 3, placeholder — NOT WIRED UP.** Reserved for a future cap; `0` = no cap; nothing reads it |
+| `early_settlement_profit_rebate_pct` | 0.5 | **Step 4, placeholder — not confirmed policy.** Fraction of remaining unearned profit **waived** on early settlement |
+| `down_payment_refund_pct_cancellation` | 1.0 | **Step 4, placeholder — not confirmed policy.** Fraction of the down payment refunded on **pre-delivery cancellation** |
+| `down_payment_refund_pct_return` | 0.0 | **Step 4, placeholder — not confirmed policy.** Fraction of the down payment refunded on **post-delivery return** |
+| `ownership_transfers_on_delivery` | `true` | **Step 4, placeholder — not a legal position.** No logic branches on it; only echoed back in the return response |
+| `settlement_quote_validity_days` | 3 | **Step 4, placeholder** — informational `quote_expiry`; `/settle` always regenerates & re-compares |
 
 The rate table is stored as a single JSON parameter, so the tenor→rate mapping
 is edited as one unit (via `PUT /config/parameters/tenor_profit_rate_table` with
@@ -311,6 +329,67 @@ only**; late fees are summed separately so the distinction stays visible.
 
 ---
 
+## Contract closure — settlement / cancellation / return (Step 4)
+
+Three ways a contract ends before normal maturity. **Every** path writes exactly
+one [`ContractClosure`](app/models/closure.py) (with a `reason`) and sets the
+contract to `closed`; a `closed` contract returns **409** on any of these again.
+
+> Every formula below is driven by a **fictitious placeholder** config value —
+> none is confirmed commercial or legal policy. See
+> [config/business_rules.yaml](config/business_rules.yaml).
+
+### Early settlement — contract must be `active`
+
+`GET /contracts/{id}/settlement-quote` computes (charges nothing):
+
+```
+outstanding_principal   Σ unpaid principal_component
+outstanding_late_fees   Σ unpaid LateFeeCharge            ← its own line, never merged into principal/profit
+unearned_profit_total   contract.unearned_profit_balance
+profit_rebate_amount    unearned_profit_total × early_settlement_profit_rebate_pct   (placeholder 0.5)
+profit_still_charged    unearned_profit_total − profit_rebate_amount
+final_payoff_amount     outstanding_principal + outstanding_late_fees + profit_still_charged
+quote_expiry            now + settlement_quote_validity_days   (informational)
+```
+
+`POST /contracts/{id}/settle` `{amount, external_reference}` — **regenerates the
+quote server-side** and rejects (422) if `amount` ≠ the fresh `final_payoff_amount`
+(stale client quotes don't pass). On match: every remaining installment → `paid`,
+unpaid late fees → `paid`, `unearned_profit_balance` → 0, Receivable → 0,
+`ContractClosure(reason=early_settlement)`, contract → `closed`.
+
+### Cancellation — contract must be `created` (pre-delivery)
+
+`POST /contracts/{id}/cancel` — `down_payment_refund = down_payment_amount ×
+down_payment_refund_pct_cancellation` (placeholder 1.0).
+`ContractClosure(reason=cancellation, financial_adjustment = +refund)`.
+If the contract is already `active`, **409** pointing at `/return`.
+
+### Return — contract must be `active` (post-delivery)
+
+`POST /contracts/{id}/return` — reuses the **settlement-quote shape** for the
+principal / profit / late-fee side, plus `down_payment_refund_pct_return`
+(placeholder 0.0):
+
+```
+net_adjustment = down_payment_refund − settlement_shape_payoff
+```
+
+`ContractClosure(reason=return, financial_adjustment = net_adjustment)`. The
+response echoes `ownership_transfers_on_delivery` (placeholder `true`) so the
+assumption in effect is visible — **no logic branches on it**. If the contract is
+still `created`, **409** pointing at `/cancel`.
+
+### `ContractClosure.financial_adjustment` sign convention
+
+Signed **from the customer's point of view**: `> 0` → net cash owed **to** the
+customer (refund / rebate); `< 0` → net cash the customer **still owes**;
+`null` → no monetary adjustment recorded (plain early settlement — the payoff is
+collected via `/settle` and the breakdown lives on the quote).
+
+---
+
 ## API endpoints
 
 | Method | Path | Purpose |
@@ -330,6 +409,10 @@ only**; late fees are summed separately so the distinction stays visible.
 | `POST` | `/contracts/{id}/payments` | **Step 3** — record a payment. Body `{amount, external_reference}`. Idempotent per `external_reference`; runs the allocation waterfall |
 | `GET` | `/contracts/{id}/receivable` | **Step 3** — outstanding principal / profit / late fees (kept separate) + installment counts |
 | `POST` | `/jobs/assess-overdue` | **Step 3** — manual trigger. Body `{as_of?}`. Marks overdue installments, assesses late fees |
+| `GET` | `/contracts/{id}/settlement-quote` | **Step 4** — early-payoff quote (computes only). 409 if not `active` / already `closed` |
+| `POST` | `/contracts/{id}/settle` | **Step 4** — body `{amount, external_reference}`. Re-checks amount vs fresh quote, then closes (`reason=early_settlement`) |
+| `POST` | `/contracts/{id}/cancel` | **Step 4** — pre-delivery only. Body `{notes?}`. 409 if `active` (→ `/return`) or `closed` |
+| `POST` | `/contracts/{id}/return` | **Step 4** — post-delivery only. Body `{notes?}`. 409 if `created` (→ `/cancel`) or `closed` |
 | `GET` | `/config/parameters` | List business-rule parameters |
 | `PUT` | `/config/parameters/{key}` | Update a business-rule parameter |
 
@@ -395,6 +478,19 @@ curl -s $BASE/contracts/$CONTRACT/receivable | python -m json.tool
 # 12. assess overdue installments / late fees (as_of lets you simulate a run date)
 curl -s -X POST $BASE/jobs/assess-overdue -H 'content-type: application/json' \
   -d '{"as_of": "2026-12-15"}' | python -m json.tool
+
+# --- Step 4: early settlement (or cancel / return) ---
+
+# 13. get an early-payoff quote (nothing is charged)
+PAYOFF=$(curl -s $BASE/contracts/$CONTRACT/settlement-quote | tee /dev/stderr \
+  | python -c 'import sys,json;print(json.load(sys.stdin)["final_payoff_amount"])')
+
+# 14. settle for exactly the quoted amount -> ContractClosure, status "closed"
+curl -s -X POST $BASE/contracts/$CONTRACT/settle -H 'content-type: application/json' \
+  -d "{\"amount\": $PAYOFF, \"external_reference\": \"SETTLE-0001\"}" | python -m json.tool
+
+# (alternatively, before delivery:  POST /contracts/$CONTRACT/cancel
+#  or, after delivery instead of settling:  POST /contracts/$CONTRACT/return )
 ```
 
 ---
@@ -455,6 +551,21 @@ pytest
 - `test_late_fee_is_paid_before_profit_and_principal` + receivable stays
   reconciled (principal + profit drop by exactly what was allocated)
 
+**Step 4** — closure ([tests/test_closure.py](tests/test_closure.py)):
+
+- `test_settlement_quote_reconciles_on_partially_paid_contract` — `principal +
+  late fees + profit_still_charged == final_payoff`, and `rebate + still_charged
+  == unearned_profit_total`
+- `test_settle_with_exact_quoted_amount_closes_and_zeroes_receivable`
+- `test_settle_with_wrong_amount_is_rejected` (422, contract untouched)
+- `test_rebate_pct_config_change_changes_quoted_payoff`
+- `test_cancel_before_delivery_computes_refund_and_closes` /
+  `test_cancel_after_delivery_returns_409_pointing_at_return`
+- `test_return_after_delivery_computes_adjustment_and_closes` (echoes
+  `ownership_transfers_on_delivery`) / `test_return_before_delivery_returns_409_pointing_at_cancel`
+- `test_closed_contract_cannot_be_closed_again` (409 on settle/cancel/return/quote)
+- `test_exactly_one_closure_per_contract`
+
 ---
 
 ## Project layout
@@ -466,17 +577,18 @@ app/
                AssessmentResult, ConfigParameter,
                InstallmentOffer, SalesOrder, InstallmentContract,
                PaymentSchedule, Installment,
-               Payment, PaymentAllocation, LateFeeCharge
+               Payment, PaymentAllocation, LateFeeCharge, ContractClosure
   schemas/     Pydantic request/response models
   services/    config_service (externalised rules), assessment (Step 1 engine),
                pricing (Step 2 declining-balance engine), offers (offer→contract),
-               allocation (Step 3 pure waterfall), payments, overdue, receivable, errors
+               allocation (Step 3 pure waterfall), payments, overdue, receivable,
+               closure (Step 4 settlement / cancellation / return), errors
   api/         customers, products, applications, offers (+ contracts),
-               payments (+ receivable + jobs), config routers
+               payments (+ receivable + jobs), closure, config routers
   main.py      FastAPI app + startup config seeding
 alembic/       migrations (0001_initial, 0002_offers_contracts_schedule,
-               0003_payments_late_fees)
-config/        business_rules.yaml  (fictitious placeholder defaults + Step 3 rules)
+               0003_payments_late_fees, 0004_contract_closure)
+config/        business_rules.yaml  (fictitious placeholder defaults, Steps 1–4)
 scripts/       seed_config.py
 tests/
 ```

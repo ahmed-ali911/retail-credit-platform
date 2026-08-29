@@ -64,9 +64,12 @@ def approved_application(client, *, national_id="APP-OK", cash_price=1200,
     return {"customer": customer, "product": product, "application": submitted}
 
 
-def active_contract(client, *, national_id="CT-1", cash_price=1200, tenor_months=12,
-                    down_payment_amount=300):
-    """Approved application -> offer -> accept -> delivery. Returns the pieces."""
+def make_contract(client, *, national_id="CT-1", cash_price=1200, tenor_months=12,
+                  down_payment_amount=300, deliver=True):
+    """Approved application -> offer -> accept -> (optionally) delivery.
+
+    With deliver=False the contract is left in status 'created'.
+    """
     ctx = approved_application(client, national_id=national_id, cash_price=cash_price,
                                tenor_months=tenor_months)
     app_id = ctx["application"]["id"]
@@ -77,11 +80,21 @@ def active_contract(client, *, national_id="CT-1", cash_price=1200, tenor_months
         "down_payment_reference": f"DP-{national_id}",
     }).json()
     contract_id = acc["contract_id"]
-    deliv = client.post(f"/contracts/{contract_id}/confirm-delivery")
-    assert deliv.status_code == 200, deliv.text
+    if deliver:
+        deliv = client.post(f"/contracts/{contract_id}/confirm-delivery")
+        assert deliv.status_code == 200, deliv.text
     return {
         **ctx,
         "offer": offer,
         "contract_id": contract_id,
+        "down_payment_amount": down_payment_amount,
         "schedule": offer["schedule_preview"],
     }
+
+
+def active_contract(client, **kw):
+    return make_contract(client, deliver=True, **kw)
+
+
+def created_contract(client, **kw):
+    return make_contract(client, deliver=False, **kw)
