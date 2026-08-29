@@ -1,0 +1,50 @@
+# -----------------------------------------------------------------------------
+# Business-rule parameters for the Credit Assessment Engine.
+#
+# These are SEED values. On application startup any key below that does not yet
+# exist in the `config_parameters` table is inserted. Existing rows are left
+# untouched, so operational edits (via the DB or a future admin screen) win.
+#
+# >>> ALL NUMBERS HERE ARE FICTIONAL PLACEHOLDERS FOR DEMONSTRATION ONLY. <<<
+# They are not derived from, and must not be read as, any real consumer-credit
+# policy or regulation in Kuwait or anywhere else.
+# -----------------------------------------------------------------------------
+parameters:
+  minimum_monthly_income:
+    value: 300
+    type: float
+    description: >
+      FICTIONAL PLACEHOLDER. Applicant monthly income below this value fails
+      assessment outright (decision = rejected).
+
+  maximum_debt_burden_ratio:
+    value: 0.40
+    type: float
+    description: >
+      FICTIONAL PLACEHOLDER. Maximum allowed
+      (existing_monthly_obligations + estimated_installment) / monthly_income.
+      Breaching it routes the application to manual review (decision = referred).
+
+  installment_estimation_factor:
+    value: 1.0
+    type: float
+    description: >
+      FICTIONAL PLACEHOLDER. Until the installment-sale pricing methodology is
+      decided, the monthly installment is estimated as
+      (requested_amount * factor) / requested_tenor_months. A factor of 1.0 means
+      a plain straight-line split of the requested amount with no profit/markup.
+
+  risk_score_auto_approve_min:
+    value: 650
+    type: int
+    description: >
+      FICTIONAL PLACEHOLDER. Customer risk_score at or above this is eligible for
+      auto-approval (subject to the income and DBR rules also passing).
+
+  risk_score_refer_min:
+    value: 600
+    type: int
+    description: >
+      FICTIONAL PLACEHOLDER. Customer risk_score at or above this but below
+      risk_score_auto_approve_min is routed to manual review (decision = referred).
+      Below this value the application is rejected.

@@ -1,0 +1,27 @@
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+.env
+*.sqlite3
+*.db
+.pytest_cache/
+.coverage
+htmlcov/
+.DS_Store
+.idea/
+.vscode/
+
+# secrets / local env
+.env.*
+!.env.example
+*.pem
+*.key
+secrets.*
+
+# database dumps
+*.dump
+*.sql
+*.sql.gz
+*.bak
