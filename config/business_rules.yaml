@@ -48,3 +48,35 @@ parameters:
       FICTIONAL PLACEHOLDER. Customer risk_score at or above this but below
       risk_score_auto_approve_min is routed to manual review (decision = referred).
       Below this value the application is rejected.
+
+  # ---------------------------------------------------------------------------
+  # Step 2 — Installment pricing / profit engine
+  # ---------------------------------------------------------------------------
+  tenor_profit_rate_table:
+    type: json
+    value:
+      "6": 0.04
+      "12": 0.09
+      "18": 0.135
+      "24": 0.18
+      "36": 0.30
+    description: >
+      FICTIONAL PLACEHOLDER. Maps tenor (whole months, as string keys) to the
+      TOTAL profit rate applied over the life of the plan, charged on the
+      financed principal (cash_price - down_payment). These are invented demo
+      numbers, not real commercial installment rates. A requested tenor with no
+      entry here is rejected at offer generation.
+
+  minimum_down_payment_pct:
+    value: 0.15
+    type: float
+    description: >
+      FICTIONAL PLACEHOLDER. Minimum down payment as a fraction of the product
+      cash price. An offer request below this is rejected.
+
+  offer_validity_days:
+    value: 7
+    type: int
+    description: >
+      FICTIONAL PLACEHOLDER. Number of days a presented offer remains acceptable
+      before it is treated as expired.

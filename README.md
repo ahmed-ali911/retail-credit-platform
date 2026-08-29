@@ -1,6 +1,6 @@
 # Retail Credit & Installment Sales Platform
 
-**Step 1 — Scaffolding, Customer, Application Origination, Credit Assessment.**
+**Steps 1–2 — Customer & Assessment → priced Offer → Sales Order + active Installment Contract.**
 
 This is a **retail installment-sale** platform, not a cash-loan system. The
 company never disburses cash. A customer buys a product on credit terms; a
@@ -8,12 +8,9 @@ receivable is created; the customer pays it off in installments.
 
 ```
 Customer → Product Purchase → Credit Assessment → Installment Sale → Receivable → Collections → Closure
-                              ^^^^^^^^^^^^^^^^^^^
-                              this repo stops here (Step 1)
+           └──────────────── Step 1 ────────────┘ └──────── Step 2 ────────┘
+                                                  (stops before real payment processing)
 ```
-
-Everything from **Offer Management / Sales Order / Installment Contract**
-onward is deliberately **not** built yet.
 
 ---
 
@@ -23,14 +20,26 @@ onward is deliberately **not** built yet.
 |------|----------|
 | Project scaffolding | FastAPI layout, Docker Compose Postgres, Alembic, externalised config |
 | Customer | `Customer` + separate `CustomerProfile` (two tables, not merged) |
-| Product | Minimal: `id, name, category, cash_price, installment_eligible`. **Cash price only** — no installment price / margin / amortization |
-| Application origination | `CreditApplication` as its own entity (never merged with a future Sales Order / Contract) |
+| Product | Minimal: `id, name, category, cash_price, installment_eligible`. **Cash price only** |
+| Application origination | `CreditApplication` as its own entity (never merged with Sales Order / Contract) |
 | Credit Assessment Engine | Rules-based, every threshold read from config, returns `approved` / `rejected` / `referred` + audit reasons |
 
-### Explicitly out of scope
-Offer Management, Sales Order, Installment Contract, Payment Schedule, Payments,
-Receivables, Collections, Late Fees, ECL, and any external integration
-(bureau / payment gateway / ERP).
+## What's in Step 2
+
+| Area | Included |
+|------|----------|
+| Pricing / Profit Engine | `app/services/pricing.py` — tenor→rate table from config, declining-balance profit amortization |
+| Installment Offer | `InstallmentOffer` generated from an **approved** application; validity window; schedule preview |
+| Offer acceptance | Down payment recorded (stubbed — no gateway); on accept → Sales Order + Contract + Schedule |
+| Sales Order & Contract | `SalesOrder` (what was sold) and `InstallmentContract` (how it's financed) — **separate linked tables** |
+| Payment Schedule | `PaymentSchedule` + `Installment` rows, each with `principal_component` + `profit_component` |
+| Delivery | `POST /contracts/{id}/confirm-delivery` moves Contract `created` → `active` |
+| Unearned Profit | `InstallmentContract.unearned_profit_balance` seeded to `total_profit` (decremented on payment — next step) |
+
+### Explicitly out of scope (later steps)
+Payment gateway integration, installment payment processing/allocation, Receivables
+balance tracking, Collections, Late Fees, Early Settlement / rebate, Cancellation /
+Return, ECL / provisioning, and any external integration (bureau / payment gateway / ERP).
 
 ---
 
@@ -82,7 +91,10 @@ alembic revision --autogenerate -m "..."  # create a new migration
 alembic downgrade -1                      # roll back one
 ```
 
-The initial schema is [alembic/versions/0001_initial.py](alembic/versions/0001_initial.py).
+Migrations:
+
+- [`0001_initial`](alembic/versions/0001_initial.py) — customers, profiles, products, credit applications, assessment results, config parameters
+- [`0002_offers_contracts_schedule`](alembic/versions/0002_offers_contracts_schedule.py) — installment offers, sales orders, installment contracts, payment schedules, installments
 
 ---
 
@@ -116,9 +128,17 @@ Default (placeholder) parameters:
 |-----|-------|---------|
 | `minimum_monthly_income` | 300 | below → **rejected** |
 | `maximum_debt_burden_ratio` | 0.40 | `(obligations + est. installment) / income` above this → **referred** |
-| `installment_estimation_factor` | 1.0 | est. installment = `requested_amount * factor / tenor_months` (straight-line, no profit — pricing is a later step) |
+| `installment_estimation_factor` | 1.0 | est. installment = `requested_amount * factor / tenor_months` (straight-line, no profit) |
 | `risk_score_auto_approve_min` | 650 | score ≥ → approve-eligible |
 | `risk_score_refer_min` | 600 | 600–649 → **referred**, < 600 → **rejected** |
+| `tenor_profit_rate_table` | `{"6":0.04,"12":0.09,"18":0.135,"24":0.18,"36":0.30}` | **Step 2** — tenor (months) → total profit rate on financed principal; a `json`-typed parameter. A tenor with no entry is rejected at offer generation |
+| `minimum_down_payment_pct` | 0.15 | **Step 2** — minimum down payment as a fraction of cash price |
+| `offer_validity_days` | 7 | **Step 2** — days a presented offer stays acceptable |
+
+The rate table is stored as a single JSON parameter, so the tenor→rate mapping
+is edited as one unit (via `PUT /config/parameters/tenor_profit_rate_table` with
+a JSON object body, or directly in the row). `ConfigService` gained
+`get_json()` / a `json` value-type for this.
 
 ---
 
@@ -142,6 +162,67 @@ config values used.
 
 ---
 
+## Installment Pricing / Profit Engine (Step 2)
+
+[app/services/pricing.py](app/services/pricing.py). This is a **sale**, not a
+loan — the markup is **profit**, fixed at contract time, and is never called
+"interest".
+
+**Amounts**
+
+```
+principal_financed     = cash_price − down_payment
+profit_rate            = tenor_profit_rate_table[tenor]          (from config)
+total_profit           = principal_financed × profit_rate        (whole of term)
+installment_sale_price = cash_price + total_profit
+amount_financed        = installment_sale_price − down_payment  = principal_financed + total_profit
+```
+
+**Declining-balance profit recognition**
+
+Principal is repaid in equal monthly amounts, so the outstanding principal falls
+linearly. Profit is recognised **in proportion to that outstanding principal**:
+installment `i` of `N` carries weight `N − i + 1`, i.e.
+
+```
+profit_component[i] = total_profit × (N − i + 1) / (N(N+1)/2)
+```
+
+Early installments therefore carry more profit than later ones (the
+reducing-balance shape); profit-per-installment **never increases** down the
+schedule. Both columns use **cumulative rounding** — the rounded running totals
+land exactly on `principal_financed` and `total_profit` at the final
+installment, so a generated schedule reconciles with **zero rounding drift**.
+
+Each `Installment` stores `principal_component` and `profit_component`
+separately. The contract's `unearned_profit_balance` starts at `total_profit`
+and is drawn down as profit components are paid (payment processing is the next
+step).
+
+The `tenor → rate` table, the down-payment minimum, and the offer validity
+window are all read from `ConfigService` — nothing is hardcoded in the engine.
+
+---
+
+## Offer → Contract flow (Step 2)
+
+```
+approved CreditApplication
+   └─ POST /applications/{id}/offer      → InstallmentOffer (status: presented, valid_until)
+        └─ POST /offers/{id}/accept      → records down payment, then creates:
+             ├─ SalesOrder               (application, product, sale_price, down_payment)
+             └─ InstallmentContract      (tenor, total_profit, unearned_profit_balance; status: created)
+                  └─ PaymentSchedule + N × Installment   (declining-balance breakdown, status: pending)
+        └─ POST /contracts/{id}/confirm-delivery   → Contract status: created → active (+ activated_at)
+```
+
+`SalesOrder` and `InstallmentContract` are **separate linked tables** — *what was
+sold* vs *how it is financed*. Accepting with `down_payment_confirmed: false` (or
+omitted) changes nothing: the offer stays `presented` and no order/contract is
+created.
+
+---
+
 ## API endpoints
 
 | Method | Path | Purpose |
@@ -153,6 +234,11 @@ config values used.
 | `POST` | `/applications` | Create an application (`channel` required: `online` \| `branch`); starts as `draft` |
 | `POST` | `/applications/{id}/submit` | `draft → submitted → under_assessment` → run assessment → `approved`/`rejected`/`referred` |
 | `GET` | `/applications/{id}` | Application with current status + assessment result/reasons |
+| `POST` | `/applications/{id}/offer` | **Step 2** — price an **approved** application → `InstallmentOffer`. Body: `{down_payment_amount, tenor_months?}` (tenor defaults to the application's). Supersedes any prior open offer |
+| `GET` | `/offers/{id}` | **Step 2** — offer with pricing + schedule preview |
+| `POST` | `/offers/{id}/accept` | **Step 2** — body `{down_payment_confirmed, down_payment_reference?, down_payment_amount?}`. On `true` → creates Sales Order + Contract + Schedule |
+| `GET` | `/contracts/{id}` | **Step 2** — contract with sales order + installments |
+| `POST` | `/contracts/{id}/confirm-delivery` | **Step 2** — Contract `created` → `active` |
 | `GET` | `/config/parameters` | List business-rule parameters |
 | `PUT` | `/config/parameters/{key}` | Update a business-rule parameter |
 
@@ -183,11 +269,28 @@ APP=$(curl -s -X POST $BASE/applications -H 'content-type: application/json' -d 
   \"requested_amount\": 1200, \"requested_tenor_months\": 12, \"channel\": \"online\"
 }" | python -c 'import sys,json;print(json.load(sys.stdin)["id"])')
 
-# 4. submit -> triggers assessment
+# 4. submit -> triggers assessment (needs to land on "approved" to continue)
 curl -s -X POST $BASE/applications/$APP/submit | python -m json.tool
 
 # 5. read back status + reasons
 curl -s $BASE/applications/$APP | python -m json.tool
+
+# --- Step 2: offer -> contract ---
+
+# 6. generate a priced offer (down payment >= 15% of cash price)
+OFFER=$(curl -s -X POST $BASE/applications/$APP/offer -H 'content-type: application/json' \
+  -d '{"down_payment_amount": 300}' | python -c 'import sys,json;print(json.load(sys.stdin)["id"])')
+
+# 7. inspect the offer + declining-balance schedule preview
+curl -s $BASE/offers/$OFFER | python -m json.tool
+
+# 8. accept with down payment confirmed -> Sales Order + Contract + Schedule
+CONTRACT=$(curl -s -X POST $BASE/offers/$OFFER/accept -H 'content-type: application/json' \
+  -d '{"down_payment_confirmed": true, "down_payment_reference": "DP-REF-123"}' \
+  | python -c 'import sys,json;print(json.load(sys.stdin)["contract_id"])')
+
+# 9. confirm delivery -> Contract status "active"
+curl -s -X POST $BASE/contracts/$CONTRACT/confirm-delivery | python -m json.tool
 ```
 
 ---
@@ -208,17 +311,30 @@ export TEST_DATABASE_URL="postgresql+psycopg2://retail:retail@localhost:5432/ret
 pytest
 ```
 
-Coverage includes the four required cases:
+**Step 1** — assessment:
 
 - `test_application_approved_under_default_config`
 - `test_rejected_when_income_below_configured_minimum`
 - `test_referred_when_dbr_threshold_breached`
 - `test_changing_min_income_flips_outcome` / `test_changing_max_dbr_flips_outcome` —
-  identical application, one config value changed, different decision (proves the
-  rules are externalised, not hardcoded)
+  identical application, one config value changed, different decision
+- plus customer/profile separation, application lifecycle, status guards, precedence, config API
 
-plus customer/profile separation, application lifecycle, status-transition guards,
-precedence, and the config API.
+**Step 2** — pricing & offer flow ([tests/test_pricing.py](tests/test_pricing.py),
+[tests/test_offer_flow.py](tests/test_offer_flow.py)):
+
+- `test_schedule_reconciles_exactly` — schedule sums to `amount_financed` +
+  `total_profit` with zero drift, for 12 / 18 / 24 / 36-month tenors
+- `test_profit_recognition_declines_over_time` — profit-per-installment never
+  increases, and `profits[0] > profits[-1]`, for two tenors
+- `test_full_flow_offer_to_active_contract` — approved application → offer →
+  accept with down payment → Sales Order + Contract + 12 installments → confirm
+  delivery → Contract `active`
+- `test_offer_requires_approved_application` — rejected application → offer 409s
+- `test_rate_table_config_change_changes_total_profit` — editing the tenor→rate
+  table changes the resulting offer's `total_profit` (rate table isn't hardcoded)
+- plus down-payment-minimum enforcement, unsupported tenor, and
+  accept-without-confirmation creating nothing
 
 ---
 
@@ -226,14 +342,17 @@ precedence, and the config API.
 
 ```
 app/
-  core/        config (env settings), database engine/session
+  core/        config (env settings), database engine/session, date helpers
   models/      Customer, CustomerProfile, Product, CreditApplication,
-               AssessmentResult, ConfigParameter
+               AssessmentResult, ConfigParameter,
+               InstallmentOffer, SalesOrder, InstallmentContract,
+               PaymentSchedule, Installment
   schemas/     Pydantic request/response models
-  services/    config_service (externalised rules), assessment (the engine)
-  api/         customers, products, applications, config routers
+  services/    config_service (externalised rules), assessment (Step 1 engine),
+               pricing (Step 2 declining-balance engine), offers (offer→contract), errors
+  api/         customers, products, applications, offers (+ contracts), config routers
   main.py      FastAPI app + startup config seeding
-alembic/       migrations (0001_initial)
+alembic/       migrations (0001_initial, 0002_offers_contracts_schedule)
 config/        business_rules.yaml  (fictitious placeholder defaults)
 scripts/       seed_config.py
 tests/

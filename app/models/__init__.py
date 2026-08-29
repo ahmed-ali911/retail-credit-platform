@@ -13,6 +13,15 @@ from app.models.credit_application import (
     AssessmentResult,
     CreditApplication,
 )
+from app.models.offer import InstallmentOffer, OfferStatus
+from app.models.sales_order import SalesOrder
+from app.models.contract import (
+    ContractStatus,
+    Installment,
+    InstallmentContract,
+    InstallmentStatus,
+    PaymentSchedule,
+)
 
 __all__ = [
     "Base",
@@ -26,4 +35,12 @@ __all__ = [
     "ApplicationStatus",
     "AssessmentResult",
     "CreditApplication",
+    "InstallmentOffer",
+    "OfferStatus",
+    "SalesOrder",
+    "ContractStatus",
+    "Installment",
+    "InstallmentContract",
+    "InstallmentStatus",
+    "PaymentSchedule",
 ]

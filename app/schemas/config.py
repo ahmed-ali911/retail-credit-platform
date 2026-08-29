@@ -11,6 +11,6 @@ class ConfigParameterOut(BaseModel):
 
 
 class ConfigParameterUpdate(BaseModel):
-    value: str | int | float | bool
+    value: bool | int | float | dict | list | str
     value_type: str | None = None
     description: str | None = None

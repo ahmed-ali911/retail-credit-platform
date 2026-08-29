@@ -18,6 +18,7 @@ documentation.
 """
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 import yaml
@@ -26,13 +27,17 @@ from sqlalchemy.orm import Session
 
 from app.models.config_parameter import ConfigParameter
 
-# Canonical keys used by the assessment engine. Nothing else should hardcode
-# these strings.
+# Canonical keys. Nothing outside this module should hardcode these strings.
+# --- assessment engine (Step 1) ---
 KEY_MIN_INCOME = "minimum_monthly_income"
 KEY_MAX_DBR = "maximum_debt_burden_ratio"
 KEY_INSTALLMENT_FACTOR = "installment_estimation_factor"
 KEY_RISK_AUTO_APPROVE_MIN = "risk_score_auto_approve_min"
 KEY_RISK_REFER_MIN = "risk_score_refer_min"
+# --- pricing / offers (Step 2) ---
+KEY_TENOR_PROFIT_RATE_TABLE = "tenor_profit_rate_table"
+KEY_MIN_DOWN_PAYMENT_PCT = "minimum_down_payment_pct"
+KEY_OFFER_VALIDITY_DAYS = "offer_validity_days"
 
 
 def _cast(raw: str, value_type: str):
@@ -42,7 +47,15 @@ def _cast(raw: str, value_type: str):
         return float(raw)
     if value_type == "bool":
         return str(raw).strip().lower() in {"1", "true", "yes", "on"}
+    if value_type == "json":
+        return json.loads(raw)
     return raw
+
+
+def _serialize(value, value_type: str | None) -> str:
+    if value_type == "json" or isinstance(value, (dict, list)):
+        return json.dumps(value)
+    return str(value)
 
 
 class ConfigService:
@@ -66,6 +79,10 @@ class ConfigService:
     def get_int(self, key: str) -> int:
         return int(self.get(key))
 
+    def get_json(self, key: str):
+        param = self.get_raw(key)
+        return json.loads(param.value)
+
     def all(self) -> dict:
         rows = self.db.execute(select(ConfigParameter)).scalars().all()
         return {r.key: _cast(r.value, r.value_type) for r in rows}
@@ -74,16 +91,17 @@ class ConfigService:
     def set(self, key: str, value, value_type: str | None = None,
             description: str | None = None) -> ConfigParameter:
         param = self.db.get(ConfigParameter, key)
+        resolved_type = value_type or (param.value_type if param else None) or _infer_type(value)
         if param is None:
             param = ConfigParameter(
                 key=key,
-                value=str(value),
-                value_type=value_type or _infer_type(value),
+                value=_serialize(value, resolved_type),
+                value_type=resolved_type,
                 description=description,
             )
             self.db.add(param)
         else:
-            param.value = str(value)
+            param.value = _serialize(value, resolved_type)
             if value_type:
                 param.value_type = value_type
             if description is not None:
@@ -103,11 +121,12 @@ class ConfigService:
         for key, spec in params.items():
             if self.db.get(ConfigParameter, key) is not None:
                 continue
+            value_type = spec.get("type", "str")
             self.db.add(
                 ConfigParameter(
                     key=key,
-                    value=str(spec["value"]),
-                    value_type=spec.get("type", "str"),
+                    value=_serialize(spec["value"], value_type),
+                    value_type=value_type,
                     description=(spec.get("description") or "").strip() or None,
                 )
             )
@@ -124,4 +143,6 @@ def _infer_type(value) -> str:
         return "int"
     if isinstance(value, float):
         return "float"
+    if isinstance(value, (dict, list)):
+        return "json"
     return "str"

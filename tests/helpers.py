@@ -48,3 +48,17 @@ def make_application(client, customer_id, product_id, *, requested_amount=1200,
     })
     assert resp.status_code == 201, resp.text
     return resp.json()
+
+
+def approved_application(client, *, national_id="APP-OK", cash_price=1200,
+                         tenor_months=12, risk_score=700, monthly_income=5000):
+    """Customer + product + a submitted application that lands on 'approved'."""
+    customer = make_customer(client, national_id=national_id, risk_score=risk_score,
+                             monthly_income=monthly_income, existing_obligations=100)
+    product = make_product(client, cash_price=cash_price)
+    app = make_application(client, customer["id"], product["id"],
+                           requested_amount=cash_price,
+                           requested_tenor_months=tenor_months)
+    submitted = client.post(f"/applications/{app['id']}/submit").json()
+    assert submitted["status"] == "approved", submitted
+    return {"customer": customer, "product": product, "application": submitted}
