@@ -1,6 +1,6 @@
 # Retail Credit & Installment Sales Platform
 
-**Steps 1–6 — application → assessment → offer → contract → payments → settlement/cancellation/return, with Collections + a maker-checker control, all behind JWT auth + RBAC + an audit trail.**
+**Steps 1–7 — a FastAPI backend (application → assessment → offer → contract → payments → collections → maker-checker, behind JWT auth + RBAC + audit) and a React staff web app for the core flow.**
 
 This is a **retail installment-sale** platform, not a cash-loan system. The
 company never disburses cash. A customer buys a product on credit terms; a
@@ -83,18 +83,45 @@ Customer → Product Purchase → Credit Assessment → Installment Sale → Rec
 | Applied to | **late-fee waivers** (`POST /late-fees/{id}/request-waiver` → approve → `LateFeeCharge.status = waived`) and **config changes** (see behaviour change below) |
 | ⚠️ Behaviour change | `PUT /config/parameters/{key}` **no longer applies immediately** — it now returns **202** with a pending `ApprovalRequest`; a *different* `credit_manager`/`admin` must approve it before the value (and the `config.updated` audit event) actually change |
 
+## What's in Step 7 — Staff web app (`frontend/`)
+
+First real UI for internal staff, covering **only the core flow**
+(backend is untouched). React + Vite + TypeScript in [`frontend/`](frontend/).
+
+| Screen | What it does |
+|--------|--------------|
+| Login | `POST /auth/login` → token in `localStorage`; shell shows `username (role)` from `/auth/me`, logout, nav. 401 from any call → back to login |
+| Create Customer / Product | minimal forms matching `CustomerCreate` / `ProductCreate`; carries the new id forward into "New Application" |
+| New Application | one form → `POST /applications` then `/submit`; renders the **assessment panel** — decision, `debt_burden_ratio` (4dp), and every `triggered_rules` entry with its reason (the screen a Credit Officer reads) |
+| Offer | from an approved application, enter `down_payment_amount` → `POST …/offer`; shows cash price / down payment / installment sale price / total profit and the full **schedule table** (principal flat, profit declining); "Accept & confirm down payment" → contract |
+| Contract | status, sales-order summary, installment table with per-row paid/pending/overdue; "Confirm Delivery" (only while `created`); "Record Payment" → refreshes the table and the `GET …/receivable` figures |
+
+Colour is centralised as CSS custom properties in
+[`frontend/src/styles/tokens.css`](frontend/src/styles/tokens.css) (the palette
+from the brief, plus a separate `--color-danger` red for rejections) and used
+everywhere via `var(--…)` — never hardcoded hex.
+
 ### Explicitly out of scope (later steps)
-Maker-checker on contract settlement / cancellation / return (same pattern,
-not wired this step), collections escalation rules, SMS/email actually being
-sent, promise-to-pay follow-up reminders, external IdP / OAuth, refresh tokens,
-actual refund payment execution, ECL / provisioning, and an **actual scheduled
-job** (assess-overdue is still manually triggered).
+
+**Backend:** maker-checker on contract settlement / cancellation / return,
+collections escalation rules, SMS/email actually being sent, promise-to-pay
+follow-up reminders, external IdP / OAuth, refresh tokens, actual refund payment
+execution, ECL / provisioning, an **actual scheduled job** (assess-overdue is
+still manually triggered).
+
+**Frontend (Step 7):** Collections UI, maker-checker approval UI, settlement /
+cancellation / return UI, config-parameter management UI, audit-log viewer, a
+customer-facing self-service portal, visual polish, mobile responsiveness,
+i18n / Arabic UI (backend and this UI are English-only for now). Token storage
+is `localStorage` — acceptable for an internal tool this step, **to be
+reconsidered** (httpOnly cookie / silent refresh) in a later step.
 
 ---
 
 ## Tech stack
 
-Python 3.11 · FastAPI · PostgreSQL · SQLAlchemy 2.x · Alembic · Pytest · Docker Compose
+**Backend** Python 3.11 · FastAPI · PostgreSQL · SQLAlchemy 2.x · Alembic · PyJWT · bcrypt · Pytest · Docker Compose
+**Frontend** ([`frontend/`](frontend/)) React 18 · Vite 5 · TypeScript · react-router · Vitest + React Testing Library
 
 ---
 
@@ -125,12 +152,42 @@ pip install -r requirements.txt
 # start only Postgres from compose
 docker compose up -d db
 
-export DATABASE_URL="postgresql+psycopg2://retail:retail@localhost:5432/retail_credit"
+export DATABASE_URL="postgresql+psycopg2://retail:retail@localhost:5544/retail_credit"
 alembic upgrade head
 python -m scripts.seed_config          # seed business-rule parameters
 python -m scripts.create_admin        # create the bootstrap admin (env: ADMIN_USERNAME/ADMIN_PASSWORD)
 uvicorn app.main:app --reload
 ```
+
+## Running the frontend + backend together
+
+The staff UI lives in [`frontend/`](frontend/) (React + Vite). It talks to the
+backend through the Vite dev server's `/api` proxy, so **no CORS setup and no
+backend change** is needed.
+
+```bash
+# terminal 1 — backend (either "docker compose up --build" or the local recipe above)
+#   serving on http://localhost:8000
+
+# terminal 2 — frontend
+cd frontend
+cp .env.example .env          # VITE_API_URL=http://localhost:8000 (the proxy target)
+npm install
+npm run dev                   # http://localhost:5173
+```
+
+Open **http://localhost:5173**, sign in with the bootstrap admin
+(`admin` / `admin` by default), and walk the flow:
+Create Customer → Create Product → New Application (see the assessment result) →
+Generate Offer → Accept → Confirm Delivery → Record Payment.
+
+```bash
+cd frontend && npm test        # Vitest + React Testing Library
+```
+
+> **Token storage note:** the token is kept in `localStorage` — fine for this
+> internal-tool step, but **not** the long-term approach; a later step should
+> move to an httpOnly cookie + silent refresh.
 
 ---
 
@@ -710,7 +767,7 @@ use only portable column types, so the same ORM/service code is exercised. To ru
 against Postgres:
 
 ```bash
-export TEST_DATABASE_URL="postgresql+psycopg2://retail:retail@localhost:5432/retail_credit_test"
+export TEST_DATABASE_URL="postgresql+psycopg2://retail:retail@localhost:5544/retail_credit_test"
 pytest
 ```
 
@@ -799,6 +856,20 @@ pytest
   immediately (`test_direct_put_does_not_change_value_without_approval`); the two
   Step 5 config-direct-update tests were rewritten for the new flow
 
+### Frontend (Step 7) — `cd frontend && npm test`
+
+Vitest + React Testing Library, API mocked at `fetch`:
+
+- **`src/test/login.test.tsx`** — sign in with valid credentials → lands on the
+  dashboard, token in `localStorage`; wrong password → error, stays on login
+- **`src/test/application-assessment.test.tsx`** — submit an application →
+  the screen renders the decision, `debt_burden_ratio` (4dp), and each
+  triggered-rule reason; an approved app shows "no rules triggered" + the
+  "generate an offer" link
+- **`src/test/offer-schedule.test.tsx`** — the schedule table renders each
+  installment and shows **profit declining row-over-row** with principal flat,
+  and totals the columns
+
 ---
 
 ## Project layout
@@ -827,5 +898,14 @@ app/
 alembic/       migrations (0001_initial … 0006_collections_approvals)
 config/        business_rules.yaml  (fictitious placeholder defaults, Steps 1–4)
 scripts/       seed_config.py, create_admin.py
-tests/
+tests/         backend pytest suite
+
+frontend/      React + Vite staff web app (Step 7)
+  src/api/     fetch wrapper (token + 401 handling), response types
+  src/auth/    AuthContext, RequireAuth route guard
+  src/components/  Shell, ScheduleTable, AssessmentPanel, StatusBadge, ui
+  src/pages/   Login, Dashboard, CreateCustomer, CreateProduct,
+               NewApplication, Offer, Contract
+  src/styles/  tokens.css (the colour system) + app.css
+  src/test/    Vitest + RTL
 ```

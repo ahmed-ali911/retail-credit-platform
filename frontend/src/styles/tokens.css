@@ -1,0 +1,24 @@
+/* Design tokens — the single source of truth for colour.
+   Adjust here, not in component styles. */
+:root {
+  --color-primary-dark: #0f2350; /* headers, nav, primary button hover/active */
+  --color-primary: #2c5fd6; /* primary buttons, links, active states */
+  --color-secondary: #2fb8c6; /* positive / terminal-good: Approved, Paid, Active */
+  --color-accent: #6bb6e8; /* secondary backgrounds, info highlights */
+  --color-accent-soft: #a8d8f0; /* subtle card backgrounds, borders, hover */
+  --color-warm: #9c7b4f; /* rare warm accent — small warnings only */
+  --color-natural: #6e9b5e; /* rare secondary accent — small positive collections */
+  --color-bg: #f7fbfd; /* page background */
+  --color-text: #12233f; /* primary text — near-navy, not pure black */
+
+  /* Not sampled from the palette: a plain, unambiguous rejection/error red.
+     Used only for rejected/failed states. */
+  --color-danger: #c0392b;
+
+  /* derived neutrals */
+  --color-surface: #ffffff;
+  --color-muted: #5b6b82;
+  --color-border: #d8e6ef;
+  --radius: 8px;
+  --shadow: 0 1px 3px rgba(15, 35, 80, 0.08), 0 1px 2px rgba(15, 35, 80, 0.06);
+}
