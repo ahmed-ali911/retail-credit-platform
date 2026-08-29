@@ -1,6 +1,6 @@
 # Retail Credit & Installment Sales Platform
 
-**Steps 1–5 — application → assessment → offer → contract → payments/allocation/late fees → settlement/cancellation/return, all behind JWT auth + RBAC + an audit trail.**
+**Steps 1–6 — application → assessment → offer → contract → payments → settlement/cancellation/return, with Collections + a maker-checker control, all behind JWT auth + RBAC + an audit trail.**
 
 This is a **retail installment-sale** platform, not a cash-loan system. The
 company never disburses cash. A customer buys a product on credit terms; a
@@ -8,12 +8,13 @@ receivable is created; the customer pays it off in installments.
 
 ```
 Customer → Product Purchase → Credit Assessment → Installment Sale → Receivable → Collections → Closure
-           └──────────────── Step 1 ────────────┘ └─── Step 2 ───┘ └── Step 3 ──┘              └ Step 4 ┘
-                                                  offer→contract    payments,                  settlement,
-                                                                    allocation,                cancellation,
-                                                                    overdue, late fees         return
-   Step 5: every endpoint above now requires a bearer token, is role-gated, and writes an AuditEvent
-                                                  (no real payment gateway / collections workflow yet)
+           └──────────────── Step 1 ────────────┘ └─── Step 2 ───┘ └── Step 3 ──┘  └ Step 6 ┘   └ Step 4 ┘
+                                                  offer→contract    payments,      cases,       settlement,
+                                                                    allocation,    activities,  cancellation,
+                                                                    overdue, fees  promises     return
+   Step 5: every endpoint requires a bearer token, is role-gated, and writes an AuditEvent.
+   Step 6: late-fee waivers and config changes now go through a dual-approval (maker-checker) workflow.
+                                                  (no real payment gateway; SMS/email not actually sent)
 ```
 
 ---
@@ -71,12 +72,23 @@ Customer → Product Purchase → Credit Assessment → Installment Sale → Rec
 | Ownership | a `customer`-role user (linked via `customers.user_id`) may read **their own** application / contract; someone else's → **403** |
 | Audit trail | `AuditEvent` written on every state-changing action; `GET /audit/events` (filter by `entity_type`/`entity_id`/`action`) — **admin & credit_manager only** |
 
+## What's in Step 6
+
+| Area | Included |
+|------|----------|
+| New role | `collections_officer` added to `UserRole` |
+| Collections | `CollectionCase` (**≤ 1 open per contract** — partial unique index + service check) + `CollectionActivity` (`call`/`sms`/`email`/`visit`/`promise_to_pay`/`other`) |
+| Auto case lifecycle | `assess-overdue` **opens** a case when it first marks an installment overdue; a payment that clears the last overdue installment **closes** it — both hooked into the existing Step 3 services, no poller |
+| Maker-checker | generic `ApprovalRequest`; **`decided_by` ≠ `requested_by`** enforced in the service layer (409, any role) |
+| Applied to | **late-fee waivers** (`POST /late-fees/{id}/request-waiver` → approve → `LateFeeCharge.status = waived`) and **config changes** (see behaviour change below) |
+| ⚠️ Behaviour change | `PUT /config/parameters/{key}` **no longer applies immediately** — it now returns **202** with a pending `ApprovalRequest`; a *different* `credit_manager`/`admin` must approve it before the value (and the `config.updated` audit event) actually change |
+
 ### Explicitly out of scope (later steps)
-Maker-checker dual-approval (same user creating and approving a restricted
-action), external IdP / OAuth, password reset / email flows, rate limiting,
-refresh tokens / session revocation, Collections workflow, actual refund
-payment execution, ECL / provisioning, and an **actual scheduled job** (the
-assess-overdue endpoint is manually triggered).
+Maker-checker on contract settlement / cancellation / return (same pattern,
+not wired this step), collections escalation rules, SMS/email actually being
+sent, promise-to-pay follow-up reminders, external IdP / OAuth, refresh tokens,
+actual refund payment execution, ECL / provisioning, and an **actual scheduled
+job** (assess-overdue is still manually triggered).
 
 ---
 
@@ -141,6 +153,7 @@ Migrations:
 - [`0003_payments_late_fees`](alembic/versions/0003_payments_late_fees.py) — payments, payment allocations, late fee charges; `installments.principal_paid` / `profit_paid`
 - [`0004_contract_closure`](alembic/versions/0004_contract_closure.py) — `contract_closures` (one per contract)
 - [`0005_users_audit`](alembic/versions/0005_users_audit.py) — `users`, `audit_events`, nullable `customers.user_id`
+- [`0006_collections_approvals`](alembic/versions/0006_collections_approvals.py) — `collection_cases` (+ partial unique open-case index), `collection_activities`, `approval_requests`
 
 ---
 
@@ -151,7 +164,7 @@ YAML file ([config/business_rules.yaml](config/business_rules.yaml)).**
 
 | | YAML file only | **DB table (chosen)** |
 |---|---|---|
-| Change a threshold | edit file + redeploy | update a row at runtime / via `PUT /config/parameters/{key}` |
+| Change a threshold | edit file + redeploy | update a row at runtime — since Step 6 via a maker-checker `PUT /config/parameters/{key}` → approval |
 | Audit of what value produced a decision | none | `updated_at` per row **and** a `config_snapshot` stored on every assessment |
 | Works in a multi-instance deployment | needs redeploy of all | single source of truth |
 | Extra moving parts | none | one table + a seeding step |
@@ -436,7 +449,8 @@ Tokens are HS256, `access_token_expire_minutes` (default 30), carrying
 ### Roles
 
 `admin` · `credit_officer` · `credit_manager` · `sales_employee` ·
-`finance_officer` · `customer`  (`admin` is allowed everywhere.)
+`finance_officer` · `customer` · `collections_officer` *(Step 6)*
+&nbsp; (`admin` is allowed everywhere.)
 
 | Endpoint | Allowed roles |
 |---|---|
@@ -450,9 +464,14 @@ Tokens are HS256, `access_token_expire_minutes` (default 30), carrying
 | `POST /jobs/assess-overdue` | `admin` |
 | `GET /contracts/{id}/receivable`, `GET /contracts/{id}/settlement-quote` | `finance_officer`, `credit_manager`, `admin`, **or the owning `customer`** |
 | `POST /contracts/{id}/settle` / `/cancel` / `/return` | `finance_officer`, `credit_manager`, `admin` |
-| `GET`/`PUT` `/config/parameters` | `admin` |
+| `GET /config/parameters` | `admin` |
+| `PUT /config/parameters/{key}` | `admin` — but now *requests* a change (see maker-checker) |
 | `GET /audit/events` | `admin`, `credit_manager` |
 | `POST /auth/register` | `admin` |
+| `POST /collections/cases/{id}/activities` *(Step 6)* | `collections_officer`, `admin` |
+| `GET /collections/cases`, `GET /collections/cases/{id}` *(Step 6)* | `collections_officer`, `credit_manager`, `admin` (detail also the owning `customer`) |
+| `POST /late-fees/{id}/request-waiver` *(Step 6)* | `finance_officer`, `credit_manager`, `admin` |
+| `GET /approvals`, `POST /approvals/{id}/approve` / `/reject` *(Step 6)* | `credit_manager`, `admin` |
 | other authenticated endpoints (`POST /products`, `GET /contracts/{id}`, `GET /offers/{id}`, `GET /customers/{id}`, `GET /products/{id}`, `GET /auth/me`) | any valid token |
 
 **Ownership.** A `customer`-role user is linked to a `Customer` via
@@ -476,10 +495,77 @@ Actions include `customer.created`, `application.created` / `application.submitt
 `offer.generated` / `offer.accepted`, `contract.created` / `contract.delivered` /
 `contract.settled` / `contract.cancelled` / `contract.returned`,
 `payment.recorded`, `overdue.assessed`, `late_fee.assessed`, `config.updated`,
-`user.registered`.
+`user.registered` (Step 6 adds `collection_case.opened` / `.closed`,
+`collection.activity_logged`, `approval.requested` / `.approved` / `.rejected`,
+`late_fee.waived`).
 
 `GET /audit/events?entity_type=installment_contract&entity_id=42` (also
 `action=`, `limit=`) — **admin & credit_manager only**.
+
+---
+
+## Collections (Step 6)
+
+Operational contact history on top of the Step 3 overdue mechanics —
+**separate** from the maker-checker control below. Logging a call needs no
+approval; waiving a fee does.
+
+`CollectionCase` — **at most one `open` per contract** (partial unique index
+`WHERE status = 'open'`, plus a service-layer check). Lifecycle is automatic,
+hooked into existing services:
+
+| Trigger | Effect |
+|---|---|
+| `POST /jobs/assess-overdue` marks an installment `overdue`, contract has no open case | opens a case (`opened_reason` = the triggering installment) — idempotent, re-running opens nothing new |
+| a payment brings the contract's overdue-installment count to zero | closes the open case (`status → closed`, `closed_at` set) — hooked into the payment-application flow |
+
+`CollectionActivity` — `activity_type` ∈ `call`/`sms`/`email`/`visit`/`promise_to_pay`/`other`.
+`promised_amount` / `promised_date` / `promise_status` (`pending`/`kept`/`broken`)
+are only populated for `promise_to_pay`; **null for every other type**
+(`promise_to_pay` without an amount + date → 422).
+
+| Endpoint | Roles |
+|---|---|
+| `POST /collections/cases/{id}/activities` | `collections_officer`, `admin` |
+| `GET /collections/cases` (filter `status`, `contract_id`) | `collections_officer`, `credit_manager`, `admin` |
+| `GET /collections/cases/{id}` (+ activity history) | same, **or the owning `customer`** |
+
+## Maker-checker approval workflow (Step 6)
+
+Generic `ApprovalRequest` (`action_type`, `entity_type`, `entity_id`,
+`requested_by`, `payload` JSON, `status` `pending`/`approved`/`rejected`,
+`decided_by`, `decided_at`, `decision_notes`).
+
+**Core rule, enforced in [app/services/approvals.py](app/services/approvals.py)
+(not just convention): `decided_by` must never equal `requested_by`.** Approving
+or rejecting your own request → **409**, whatever your role (including `admin`).
+
+Two actions run through it this step:
+
+- **Late-fee waiver** — `POST /late-fees/{id}/request-waiver` `{reason}`
+  (`finance_officer`, `credit_manager`, `admin`) creates a pending request and
+  changes **nothing**. On approval → `LateFeeCharge.status = waived` (which
+  removes it from the receivable's late-fee balance).
+- **Config parameter change** — see the behaviour change below.
+
+| Endpoint | Roles |
+|---|---|
+| `GET /approvals` (filter `status`, `action_type`) | `credit_manager`, `admin` |
+| `POST /approvals/{id}/approve` | `credit_manager`, `admin` — 409 if you are the requester; on success executes the action |
+| `POST /approvals/{id}/reject` `{reason}` | `credit_manager`, `admin` — action never executes |
+
+### ⚠️ Deliberate behaviour change: config updates are now two-step
+
+**Step 5:** `PUT /config/parameters/{key}` applied the new value immediately
+(200) and wrote a `config.updated` audit event.
+
+**Step 6 onward:** the same `PUT` (still `admin`-only to request) returns **202**
+with a **pending `ApprovalRequest`** (`action_type=config.update`, the proposed
+value in `payload`). **Nothing changes** until a *different* `credit_manager` or
+`admin` calls `POST /approvals/{id}/approve` — at which point `ConfigService`
+applies the value and the existing `config.updated` audit event fires, now with
+an `approval_request_id`. The internal `ConfigService.set(...)` path (used by
+seeding and by tests via the `set_config` fixture) is unchanged.
 
 ---
 
@@ -507,11 +593,16 @@ Actions include `customer.created`, `application.created` / `application.submitt
 | `POST` | `/contracts/{id}/cancel` | **Step 4** — pre-delivery only. Body `{notes?}`. 409 if `active` (→ `/return`) or `closed` |
 | `POST` | `/contracts/{id}/return` | **Step 4** — post-delivery only. Body `{notes?}`. 409 if `created` (→ `/cancel`) or `closed` |
 | `GET` | `/config/parameters` | List business-rule parameters |
-| `PUT` | `/config/parameters/{key}` | Update a business-rule parameter |
+| `PUT` | `/config/parameters/{key}` | **Step 6** — *request* a change → **202** + pending `ApprovalRequest` (no longer applies immediately) |
 | `POST` | `/auth/login` | **Step 5** — username + password → JWT (open, no token) |
 | `POST` | `/auth/register` | **Step 5** — create a user (**admin only**) |
 | `GET` | `/auth/me` | **Step 5** — current token's user id / username / role |
 | `GET` | `/audit/events` | **Step 5** — audit log, filterable (**admin / credit_manager**) |
+| `GET` | `/collections/cases` · `GET /collections/cases/{id}` | **Step 6** — cases + activity history |
+| `POST` | `/collections/cases/{id}/activities` | **Step 6** — log a call / SMS / visit / promise-to-pay |
+| `POST` | `/late-fees/{id}/request-waiver` | **Step 6** — body `{reason}` → pending `ApprovalRequest` |
+| `GET` | `/approvals` | **Step 6** — list, filter `status` / `action_type` |
+| `POST` | `/approvals/{id}/approve` · `/approvals/{id}/reject` | **Step 6** — decide (409 if you are the requester); approve executes the action |
 
 ### Example
 
@@ -691,6 +782,23 @@ pytest
   `AuditEvent`; `GET /audit/events` filters and rejects non-admin/manager
 - (all existing Step 1–4 tests now run through an admin-authenticated client)
 
+**Step 6** — collections & maker-checker ([tests/test_collections.py](tests/test_collections.py),
+[tests/test_approvals.py](tests/test_approvals.py)):
+
+- overdue assessment opens **exactly one** case per contract, even run repeatedly
+- a payment that clears all overdue installments **closes** the case
+- `promise_to_pay` stores the promise fields; other activity types leave them
+  null (and `promise_to_pay` without amount + date → 422)
+- RBAC: `sales_employee` can't log a collections activity (403), a
+  `collections_officer` can
+- you cannot approve/reject **your own** waiver or config request — 409, even as
+  `admin`; a *different* eligible user can, and it executes (charge → `waived`,
+  or the config value actually changes); rejecting leaves it unchanged
+- `sales_employee` cannot approve/reject/list (403)
+- **regression**: `PUT /config/parameters` no longer changes the value
+  immediately (`test_direct_put_does_not_change_value_without_approval`); the two
+  Step 5 config-direct-update tests were rewritten for the new flow
+
 ---
 
 ## Project layout
@@ -704,17 +812,19 @@ app/
                InstallmentOffer, SalesOrder, InstallmentContract,
                PaymentSchedule, Installment,
                Payment, PaymentAllocation, LateFeeCharge, ContractClosure,
-               User, AuditEvent
+               User, AuditEvent,
+               CollectionCase, CollectionActivity, ApprovalRequest
   schemas/     Pydantic request/response models
   services/    config_service (externalised rules), assessment (Step 1 engine),
                pricing (Step 2 declining-balance engine), offers (offer→contract),
                allocation (Step 3 pure waterfall), payments, overdue, receivable,
                closure (Step 4 settlement / cancellation / return),
-               audit, users, errors
+               audit, users, collections (Step 6), approvals (Step 6), errors
   api/         auth, customers, products, applications, offers (+ contracts),
-               payments (+ receivable + jobs), closure, config, audit routers
+               payments (+ receivable + jobs), closure, config, audit,
+               collections, approvals routers
   main.py      FastAPI app + startup seeding (config params + bootstrap admin)
-alembic/       migrations (0001_initial … 0005_users_audit)
+alembic/       migrations (0001_initial … 0006_collections_approvals)
 config/        business_rules.yaml  (fictitious placeholder defaults, Steps 1–4)
 scripts/       seed_config.py, create_admin.py
 tests/

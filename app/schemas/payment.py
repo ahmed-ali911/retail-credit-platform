@@ -68,4 +68,5 @@ class AssessOverdueResult(BaseModel):
     installments_marked_overdue: int
     late_fees_assessed: int
     total_late_fee_amount: float
+    collection_cases_opened: int = 0
     charges: list[OverdueChargeOut]

@@ -6,9 +6,11 @@ from fastapi import Depends, FastAPI
 
 from app.api import (
     applications,
+    approvals,
     audit,
     auth,
     closure,
+    collections,
     config as config_api,
     customers,
     offers,
@@ -64,6 +66,8 @@ app.include_router(applications.router, dependencies=_authed)
 app.include_router(offers.router, dependencies=_authed)
 app.include_router(payments.router, dependencies=_authed)
 app.include_router(closure.router, dependencies=_authed)
+app.include_router(collections.router, dependencies=_authed)
+app.include_router(approvals.router, dependencies=_authed)
 app.include_router(config_api.router, dependencies=_authed)
 app.include_router(audit.router, dependencies=_authed)
 

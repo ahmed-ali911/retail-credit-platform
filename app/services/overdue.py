@@ -29,6 +29,7 @@ from app.models.contract import (
     InstallmentStatus,
 )
 from app.models.payment import LateFeeCharge, LateFeeStatus
+from app.services import collections as collections_service
 from app.services import config_service as cfg
 from app.services.config_service import ConfigService
 
@@ -42,10 +43,13 @@ class OverdueSummary:
     installments_marked_overdue: int = 0
     late_fees_assessed: int = 0
     total_late_fee_amount: Decimal = Decimal("0.00")
+    collection_cases_opened: int = 0
     charges: list[dict] = field(default_factory=list)
 
 
-def assess_overdue(db: Session, *, as_of: date | None = None) -> OverdueSummary:
+def assess_overdue(
+    db: Session, *, as_of: date | None = None, actor_id: int | None = None
+) -> OverdueSummary:
     config = ConfigService(db)
     grace_days = config.get_int(cfg.KEY_LATE_FEE_GRACE_DAYS)
     rate = Decimal(str(config.get_float(cfg.KEY_LATE_FEE_RATE)))
@@ -72,10 +76,18 @@ def assess_overdue(db: Session, *, as_of: date | None = None) -> OverdueSummary:
         .all()
     )
 
+    # contract id -> reason string for the first installment that went overdue
+    newly_overdue_contracts: dict[int, str] = {}
+
     for inst in rows:
         if not inst.is_fully_paid and inst.status != InstallmentStatus.overdue:
             inst.status = InstallmentStatus.overdue
             summary.installments_marked_overdue += 1
+            newly_overdue_contracts.setdefault(
+                inst.contract_id,
+                f"installment {inst.id} (seq {inst.sequence_number}) "
+                f"overdue, due {inst.due_date.isoformat()}",
+            )
 
         dpd = (as_of - inst.due_date).days
         already_charged = len(inst.late_fee_charges) > 0
@@ -102,6 +114,18 @@ def assess_overdue(db: Session, *, as_of: date | None = None) -> OverdueSummary:
                     "amount": float(fee),
                 }
             )
+
+    db.flush()
+
+    # Collections hook: open a case for each contract that just went overdue
+    # (idempotent — open_case_if_needed skips contracts with an open case).
+    for contract_id, reason in newly_overdue_contracts.items():
+        contract = db.get(InstallmentContract, contract_id)
+        opened = collections_service.open_case_if_needed(
+            db, contract, reason=reason, actor_id=actor_id
+        )
+        if opened is not None:
+            summary.collection_cases_opened += 1
 
     db.flush()
     return summary

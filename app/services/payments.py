@@ -20,6 +20,7 @@ from app.models.payment import (
     PaymentStatus,
 )
 from app.services import allocation as alloc
+from app.services import collections as collections_service
 from app.services.errors import DomainError
 
 _CENTS = Decimal("0.01")
@@ -53,6 +54,7 @@ def record_payment(
     *,
     amount: float,
     external_reference: str,
+    actor_id: int | None = None,
 ) -> PaymentOutcome:
     external_reference = (external_reference or "").strip()
     if not external_reference:
@@ -134,6 +136,11 @@ def record_payment(
             )
 
         _update_installment_status(installment)
+
+    db.flush()
+
+    # Collections hook: close the open case once no overdue installments remain.
+    collections_service.close_case_if_cleared(db, contract, actor_id=actor_id)
 
     db.flush()
     return PaymentOutcome(payment=payment, replayed=False)

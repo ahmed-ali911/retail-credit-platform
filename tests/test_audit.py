@@ -34,12 +34,20 @@ def test_contract_settlement_writes_audit_event(client, db):
     assert evs[0].after_value["status"] == "closed"
 
 
-def test_config_update_writes_audit_event(client, db):
-    client.put("/config/parameters/late_fee_grace_period_days", json={"value": 20})
+def test_config_update_writes_audit_event_on_approval(client, client_as, db):
+    # Step 6: the request creates a pending approval, no config.updated yet
+    upd = client.put("/config/parameters/late_fee_grace_period_days", json={"value": 20})
+    assert upd.status_code == 202
+    assert _events(db, action="config.updated") == []
+    assert len(_events(db, action="approval.requested")) == 1
+
+    # approval by a different eligible user applies it and fires config.updated
+    client_as("credit_manager").post(f"/approvals/{upd.json()['id']}/approve")
     evs = _events(db, action="config.updated", entity_id="late_fee_grace_period_days")
     assert len(evs) == 1
     assert evs[0].before_value == {"value": "10"}
-    assert evs[0].after_value == {"value": "20"}
+    assert evs[0].after_value["value"] == "20"
+    assert evs[0].after_value["approval_request_id"] == upd.json()["id"]
 
 
 def test_overdue_job_writes_audit_events(client, db):

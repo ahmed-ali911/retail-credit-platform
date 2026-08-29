@@ -63,6 +63,7 @@ def record_payment(
             contract,
             amount=payload.amount,
             external_reference=payload.external_reference,
+            actor_id=actor.id,
         )
     except DomainError as exc:
         raise HTTPException(status_code=exc.status_code, detail=exc.message)
@@ -111,7 +112,7 @@ def assess_overdue(
     actor: User = Depends(require_roles(UserRole.admin)),
 ):
     as_of = payload.as_of if payload else None
-    summary = overdue_service.assess_overdue(db, as_of=as_of)
+    summary = overdue_service.assess_overdue(db, as_of=as_of, actor_id=actor.id)
 
     record_event(
         db,
@@ -124,6 +125,7 @@ def assess_overdue(
             "installments_marked_overdue": summary.installments_marked_overdue,
             "late_fees_assessed": summary.late_fees_assessed,
             "total_late_fee_amount": float(summary.total_late_fee_amount),
+            "collection_cases_opened": summary.collection_cases_opened,
         },
     )
     for charge in summary.charges:
@@ -137,6 +139,7 @@ def assess_overdue(
         )
     db.commit()
     return AssessOverdueResult(
+        collection_cases_opened=summary.collection_cases_opened,
         as_of=summary.as_of,
         grace_period_days=summary.grace_period_days,
         installments_marked_overdue=summary.installments_marked_overdue,

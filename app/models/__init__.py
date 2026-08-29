@@ -32,6 +32,14 @@ from app.models.payment import (
     PaymentStatus,
 )
 from app.models.closure import ClosureReason, ContractClosure
+from app.models.collections import (
+    CollectionActivity,
+    CollectionActivityType,
+    CollectionCase,
+    CollectionCaseStatus,
+    PromiseStatus,
+)
+from app.models.approval import ApprovalRequest, ApprovalStatus
 
 __all__ = [
     "Base",
@@ -63,4 +71,11 @@ __all__ = [
     "PaymentStatus",
     "ClosureReason",
     "ContractClosure",
+    "CollectionActivity",
+    "CollectionActivityType",
+    "CollectionCase",
+    "CollectionCaseStatus",
+    "PromiseStatus",
+    "ApprovalRequest",
+    "ApprovalStatus",
 ]
