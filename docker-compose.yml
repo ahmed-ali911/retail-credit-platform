@@ -6,7 +6,8 @@ services:
       POSTGRES_PASSWORD: retail
       POSTGRES_DB: retail_credit
     ports:
-      - "5432:5432"
+      # host 5544 -> container 5432 (host 5432/5433 are taken by other projects)
+      - "5544:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
     healthcheck:

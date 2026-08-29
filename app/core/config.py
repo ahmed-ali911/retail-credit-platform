@@ -15,8 +15,9 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
-    # SQLAlchemy URL for the running application.
-    database_url: str = "postgresql+psycopg2://retail:retail@localhost:5432/retail_credit"
+    # SQLAlchemy URL for the running application. Host port 5544 matches the
+    # docker-compose db mapping (5544 -> container 5432).
+    database_url: str = "postgresql+psycopg2://retail:retail@localhost:5544/retail_credit"
 
     # Seed file for business-rule parameters.
     business_rules_file: str = "config/business_rules.yaml"
