@@ -1,6 +1,6 @@
 # Retail Credit & Installment Sales Platform
 
-**Steps 1–7 — a FastAPI backend (application → assessment → offer → contract → payments → collections → maker-checker, behind JWT auth + RBAC + audit) and a React staff web app for the core flow.**
+**Steps 1–7 — a FastAPI backend (application → assessment → offer → contract → payments → collections → maker-checker, behind JWT auth + RBAC + audit) and a React staff web app for the core flow.** Plus the first two post-[assessment](docs/enterprise-assessment.md) P0 fixes: referred → manual verification (P0-2), and an immutable financial ledger in dual-write (P0-1).
 
 This is a **retail installment-sale** platform, not a cash-loan system. The
 company never disburses cash. A customer buys a product on credit terms; a
@@ -116,6 +116,59 @@ i18n / Arabic UI (backend and this UI are English-only for now). Token storage
 is `localStorage` — acceptable for an internal tool this step, **to be
 reconsidered** (httpOnly cookie / silent refresh) in a later step.
 
+## Post-assessment P0 fixes (P0-1, P0-2)
+
+Following the enterprise review in
+[docs/enterprise-assessment.md](docs/enterprise-assessment.md), the two
+highest-severity / lowest-blast-radius findings were fixed:
+
+### P0-2 — Referred → manual verification (fixes finding S-1)
+
+`referred` was a dead end (an offer can only be generated from an `approved`
+application, and nothing moved a referral forward). New:
+
+- `POST /applications/{id}/review` — roles `credit_officer` / `credit_manager` /
+  `admin`; **409** unless the application is `referred`.
+- Body `{ decision: "approved" | "rejected" | "return_for_info", reason }` →
+  status becomes `approved` (proceeds to offer generation exactly like an
+  auto-approval) / `rejected` / `draft` (resubmit through the normal `/submit`).
+- The review is recorded as a second `AssessmentResult` with **`source =
+  manual`** (the automated `referred` row is untouched), plus `reviewed_by` and
+  `notes`, and an `application.reviewed` `AuditEvent`.
+- **Not** in this slice: approval-authority thresholds by amount (still a
+  business decision); any change to the automated assessment rules.
+
+### P0-1 — Immutable financial ledger, **Phase 1: dual-write only** (fixes finding S-4)
+
+Settlement / return / late-fee-waiver mutate balances in place, so "profit 12.46
+scheduled → 6.23 charged → 6.23 rebated" cannot be reconstructed. New:
+
+- `LedgerEntry` (append-only): `contract_id`, `entry_type`
+  (`principal_paid`, `profit_recognized`, `profit_rebated`, `late_fee_paid`,
+  `late_fee_waived`, `refund_issued`, …), signed `amount`, `related_action`,
+  `reference_type` + `reference_id` (the `Payment` / `ContractClosure` /
+  `ApprovalRequest` that caused it), `created_at`, `created_by`.
+- Entries are written **alongside** the existing in-place mutation in the five
+  places identified: payment allocation, early settlement (including the
+  `profit_rebated` line for the waived amount), cancellation, return, late-fee
+  waiver.
+- **This is write-only.** `GET /contracts/{id}/receivable` and every other
+  calculation are **unchanged** — no read path consults the ledger yet, and no
+  existing mutation was removed.
+- Proof it is correct: [`tests/test_ledger.py`](tests/test_ledger.py) runs the
+  full-repayment, delinquency-then-repayment, and early-settlement scenarios and
+  asserts that `Σ LedgerEntry` reproduces the exact figures the existing balance
+  code already reports (`Σ principal_paid` ledger == `Σ Installment.principal_paid`;
+  `Σ profit_recognized + Σ profit_rebated == Σ Installment.profit_paid`;
+  `Σ late_fee_paid == Σ LateFeeCharge.amount_paid`).
+- **Next slice (not done):** cut reads over to the ledger, then remove the
+  in-place mutation. Not started until this dual-write is proven in production
+  data.
+
+> One pre-existing test (`test_grace_period_boundary_is_strictly_greater_than`)
+> hard-coded `as_of` dates assuming a fixed "today"; it was made clock-independent
+> (derive the run date from the actual first due date). No behaviour changed.
+
 ---
 
 ## Tech stack
@@ -211,6 +264,7 @@ Migrations:
 - [`0004_contract_closure`](alembic/versions/0004_contract_closure.py) — `contract_closures` (one per contract)
 - [`0005_users_audit`](alembic/versions/0005_users_audit.py) — `users`, `audit_events`, nullable `customers.user_id`
 - [`0006_collections_approvals`](alembic/versions/0006_collections_approvals.py) — `collection_cases` (+ partial unique open-case index), `collection_activities`, `approval_requests`
+- [`0007_ledger_and_manual_review`](alembic/versions/0007_ledger_and_manual_review.py) — `ledger_entries` (write-only); `assessment_results.source` / `reviewed_by` / `notes`
 
 ---
 
@@ -513,6 +567,7 @@ Tokens are HS256, `access_token_expire_minutes` (default 30), carrying
 |---|---|
 | `POST /customers` | `sales_employee`, `admin` |
 | `POST /applications`, `POST /applications/{id}/submit` | `sales_employee`, `customer`, `admin` |
+| `POST /applications/{id}/review` *(P0-2)* | `credit_officer`, `credit_manager`, `admin` |
 | `GET /applications/{id}` | `sales_employee`, `credit_officer`, `credit_manager`, `admin`, **or the owning `customer`** |
 | `POST /applications/{id}/offer` | `sales_employee`, `credit_officer`, `admin` |
 | `POST /offers/{id}/accept` | `sales_employee`, `customer`, `admin` |
@@ -636,6 +691,7 @@ seeding and by tests via the `set_config` fixture) is unchanged.
 | `GET` | `/products/{id}` | Fetch a product |
 | `POST` | `/applications` | Create an application (`channel` required: `online` \| `branch`); starts as `draft` |
 | `POST` | `/applications/{id}/submit` | `draft → submitted → under_assessment` → run assessment → `approved`/`rejected`/`referred` |
+| `POST` | `/applications/{id}/review` | **P0-2** — manual verification of a `referred` application (`credit_officer`/`credit_manager`/`admin`). Body `{decision, reason}` → `approved`/`rejected`/`draft` |
 | `GET` | `/applications/{id}` | Application with current status + assessment result/reasons |
 | `POST` | `/applications/{id}/offer` | **Step 2** — price an **approved** application → `InstallmentOffer`. Body: `{down_payment_amount, tenor_months?}` (tenor defaults to the application's). Supersedes any prior open offer |
 | `GET` | `/offers/{id}` | **Step 2** — offer with pricing + schedule preview |
@@ -856,6 +912,19 @@ pytest
   immediately (`test_direct_put_does_not_change_value_without_approval`); the two
   Step 5 config-direct-update tests were rewritten for the new flow
 
+**P0-2** — manual review ([tests/test_manual_review.py](tests/test_manual_review.py)):
+a `credit_officer` approves a `referred` app which then proceeds through offer
+generation; reject; `return_for_info` → `draft` → resubmit; reviewing a
+non-`referred` app → 409; `sales_employee` → 403; the review writes an audit
+event.
+
+**P0-1** — immutable ledger ([tests/test_ledger.py](tests/test_ledger.py)): for
+full-repayment, delinquency-then-repayment, and early-settlement,
+`Σ LedgerEntry` reconciles **exactly** to the existing balance figures
+(`Σ profit_recognized + Σ profit_rebated == Σ Installment.profit_paid`, etc.);
+and a bogus ledger row does **not** change what `GET .../receivable` returns
+(reads are not cut over).
+
 ### Frontend (Step 7) — `cd frontend && npm test`
 
 Vitest + React Testing Library, API mocked at `fetch`:
@@ -884,18 +953,20 @@ app/
                PaymentSchedule, Installment,
                Payment, PaymentAllocation, LateFeeCharge, ContractClosure,
                User, AuditEvent,
-               CollectionCase, CollectionActivity, ApprovalRequest
+               CollectionCase, CollectionActivity, ApprovalRequest,
+               LedgerEntry (P0-1, write-only)
   schemas/     Pydantic request/response models
   services/    config_service (externalised rules), assessment (Step 1 engine),
                pricing (Step 2 declining-balance engine), offers (offer→contract),
                allocation (Step 3 pure waterfall), payments, overdue, receivable,
                closure (Step 4 settlement / cancellation / return),
-               audit, users, collections (Step 6), approvals (Step 6), errors
-  api/         auth, customers, products, applications, offers (+ contracts),
-               payments (+ receivable + jobs), closure, config, audit,
-               collections, approvals routers
+               audit, users, collections (Step 6), approvals (Step 6),
+               ledger (P0-1 dual-write helper), errors
+  api/         auth, customers, products, applications (+ manual review, P0-2),
+               offers (+ contracts), payments (+ receivable + jobs), closure,
+               config, audit, collections, approvals routers
   main.py      FastAPI app + startup seeding (config params + bootstrap admin)
-alembic/       migrations (0001_initial … 0006_collections_approvals)
+alembic/       migrations (0001_initial … 0007_ledger_and_manual_review)
 config/        business_rules.yaml  (fictitious placeholder defaults, Steps 1–4)
 scripts/       seed_config.py, create_admin.py
 tests/         backend pytest suite

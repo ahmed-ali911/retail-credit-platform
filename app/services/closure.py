@@ -20,8 +20,10 @@ from sqlalchemy.orm import Session
 
 from app.models.closure import ClosureReason, ContractClosure
 from app.models.contract import ContractStatus, InstallmentContract, InstallmentStatus
+from app.models.ledger import LedgerEntryType, LedgerRelatedAction
 from app.models.payment import LateFeeStatus, Payment, PaymentStatus
 from app.services import config_service as cfg
+from app.services import ledger as ledger_service
 from app.services.config_service import ConfigService
 from app.services.errors import DomainError
 
@@ -124,6 +126,7 @@ def settle_contract(
     *,
     amount: float,
     external_reference: str,
+    actor_id: int | None = None,
 ) -> ContractClosure:
     quote = build_settlement_quote(db, contract)  # also runs the guards
 
@@ -161,6 +164,27 @@ def settle_contract(
     db.add(closure)
     contract.status = ContractStatus.closed
     db.flush()
+
+    # --- dual-write to the immutable ledger (Phase 1) ---
+    # What was actually collected at settlement, plus the waived profit.
+    for entry_type, value in (
+        (LedgerEntryType.principal_paid, quote.outstanding_principal),
+        (LedgerEntryType.late_fee_paid, quote.outstanding_late_fees),
+        (LedgerEntryType.profit_recognized, quote.profit_still_charged),
+        (LedgerEntryType.profit_rebated, quote.profit_rebate_amount),
+    ):
+        if value > _ZERO:
+            ledger_service.record_entry(
+                db,
+                contract_id=contract.id,
+                entry_type=entry_type,
+                amount=value,
+                related_action=LedgerRelatedAction.settlement,
+                reference_type="contract_closure",
+                reference_id=closure.id,
+                created_by=actor_id,
+            )
+    db.flush()
     return closure
 
 
@@ -176,7 +200,11 @@ class CancellationResult:
 
 
 def cancel_contract(
-    db: Session, contract: InstallmentContract, *, notes: str | None = None
+    db: Session,
+    contract: InstallmentContract,
+    *,
+    notes: str | None = None,
+    actor_id: int | None = None,
 ) -> CancellationResult:
     _guard_not_closed(contract)
     if contract.status == ContractStatus.active:
@@ -210,6 +238,20 @@ def cancel_contract(
     db.add(closure)
     contract.status = ContractStatus.closed
     db.flush()
+
+    # --- dual-write to the immutable ledger (Phase 1) ---
+    if refund > _ZERO:
+        ledger_service.record_entry(
+            db,
+            contract_id=contract.id,
+            entry_type=LedgerEntryType.refund_issued,
+            amount=refund,  # positive: cash owed to the customer
+            related_action=LedgerRelatedAction.cancellation,
+            reference_type="contract_closure",
+            reference_id=closure.id,
+            created_by=actor_id,
+        )
+
     return CancellationResult(
         closure=closure,
         down_payment_amount=down_payment,
@@ -233,7 +275,11 @@ class ReturnResult:
 
 
 def return_contract(
-    db: Session, contract: InstallmentContract, *, notes: str | None = None
+    db: Session,
+    contract: InstallmentContract,
+    *,
+    notes: str | None = None,
+    actor_id: int | None = None,
 ) -> ReturnResult:
     _guard_not_closed(contract)
     if contract.status == ContractStatus.created:
@@ -275,6 +321,22 @@ def return_contract(
     db.add(closure)
     contract.status = ContractStatus.closed
     db.flush()
+
+    # --- dual-write to the immutable ledger (Phase 1) ---
+    # One signed entry for the net adjustment (same sign convention as
+    # ContractClosure.financial_adjustment: >0 owed to customer, <0 owed by).
+    if net_adjustment != _ZERO:
+        ledger_service.record_entry(
+            db,
+            contract_id=contract.id,
+            entry_type=LedgerEntryType.refund_issued,
+            amount=net_adjustment,
+            related_action=LedgerRelatedAction.return_,
+            reference_type="contract_closure",
+            reference_id=closure.id,
+            created_by=actor_id,
+        )
+
     return ReturnResult(
         closure=closure,
         quote=quote,

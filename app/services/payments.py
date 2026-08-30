@@ -19,8 +19,10 @@ from app.models.payment import (
     PaymentAllocation,
     PaymentStatus,
 )
+from app.models.ledger import LedgerEntryType, LedgerRelatedAction
 from app.services import allocation as alloc
 from app.services import collections as collections_service
+from app.services import ledger as ledger_service
 from app.services.errors import DomainError
 
 _CENTS = Decimal("0.01")
@@ -134,6 +136,24 @@ def record_payment(
             installment.principal_paid = (
                 _money(installment.principal_paid) + line.principal
             )
+
+        # --- dual-write to the immutable ledger (Phase 1) ---
+        for entry_type, amount in (
+            (LedgerEntryType.late_fee_paid, line.late_fee),
+            (LedgerEntryType.profit_recognized, line.profit),
+            (LedgerEntryType.principal_paid, line.principal),
+        ):
+            if amount > _ZERO:
+                ledger_service.record_entry(
+                    db,
+                    contract_id=contract.id,
+                    entry_type=entry_type,
+                    amount=amount,
+                    related_action=LedgerRelatedAction.payment,
+                    reference_type="payment",
+                    reference_id=payment.id,
+                    created_by=actor_id,
+                )
 
         _update_installment_status(installment)
 

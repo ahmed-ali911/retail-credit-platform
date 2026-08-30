@@ -3,7 +3,7 @@ from __future__ import annotations
 import enum
 from datetime import datetime
 
-from sqlalchemy import Enum, ForeignKey, Integer, JSON, Numeric, String
+from sqlalchemy import Enum, ForeignKey, Integer, JSON, Numeric, String, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.models.base import Base, created_at_column
@@ -21,6 +21,11 @@ class ApplicationStatus(str, enum.Enum):
     approved = "approved"
     rejected = "rejected"
     referred = "referred"
+
+
+class AssessmentSource(str, enum.Enum):
+    automated = "automated"   # produced by the rules engine
+    manual = "manual"         # produced by a credit officer reviewing a referral
 
 
 class CreditApplication(Base):
@@ -82,12 +87,25 @@ class AssessmentResult(Base):
         index=True,
     )
     decision: Mapped[str] = mapped_column(String(20), nullable=False)
+    # 'automated' for engine runs; 'manual' for credit-officer reviews of referrals.
+    source: Mapped[AssessmentSource] = mapped_column(
+        Enum(AssessmentSource, native_enum=False, length=20),
+        default=AssessmentSource.automated,
+        server_default=AssessmentSource.automated.value,
+        nullable=False,
+    )
 
     # Snapshot of the inputs and thresholds used, plus the per-rule outcomes.
     estimated_installment: Mapped[float] = mapped_column(Numeric(14, 2), nullable=False)
     debt_burden_ratio: Mapped[float | None] = mapped_column(Numeric(8, 4), nullable=True)
     triggered_rules: Mapped[list] = mapped_column(JSON, nullable=False, default=list)
     config_snapshot: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
+
+    # Populated only for manual reviews (source == 'manual').
+    reviewed_by: Mapped[int | None] = mapped_column(
+        ForeignKey("users.id"), nullable=True
+    )
+    notes: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     created_at: Mapped[datetime] = created_at_column()
 

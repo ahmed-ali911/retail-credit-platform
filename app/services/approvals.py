@@ -13,6 +13,7 @@ Applied this step to two action types:
 from __future__ import annotations
 
 from datetime import datetime, timezone
+from decimal import Decimal
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -23,7 +24,9 @@ from app.models.approval import (
     ApprovalRequest,
     ApprovalStatus,
 )
+from app.models.ledger import LedgerEntryType, LedgerRelatedAction
 from app.models.payment import LateFeeCharge, LateFeeStatus
+from app.services import ledger as ledger_service
 from app.services.audit import record_event
 from app.services.config_service import ConfigService
 from app.services.errors import DomainError
@@ -121,6 +124,7 @@ def _execute(db: Session, approval: ApprovalRequest, *, actor_id: int) -> None:
         charge = db.get(LateFeeCharge, int(approval.entity_id))
         if charge is None:
             raise DomainError("Late fee charge no longer exists", status_code=409)
+        waived_amount = (charge.amount or Decimal("0")) - (charge.amount_paid or Decimal("0"))
         charge.status = LateFeeStatus.waived
         record_event(
             db,
@@ -131,6 +135,18 @@ def _execute(db: Session, approval: ApprovalRequest, *, actor_id: int) -> None:
             before={"status": "assessed"},
             after={"status": "waived", "approval_request_id": approval.id},
         )
+        # --- dual-write to the immutable ledger (Phase 1) ---
+        if waived_amount > Decimal("0"):
+            ledger_service.record_entry(
+                db,
+                contract_id=charge.contract_id,
+                entry_type=LedgerEntryType.late_fee_waived,
+                amount=waived_amount,
+                related_action=LedgerRelatedAction.waiver,
+                reference_type="approval_request",
+                reference_id=approval.id,
+                created_by=actor_id,
+            )
         return
 
     if approval.action_type == ACTION_CONFIG_UPDATE:

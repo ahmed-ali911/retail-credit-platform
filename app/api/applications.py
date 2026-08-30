@@ -7,12 +7,19 @@ from app.core.auth import authorize_owner_or_roles, get_current_user, require_ro
 from app.core.database import get_db
 from app.models.credit_application import (
     ApplicationStatus,
+    AssessmentResult,
+    AssessmentSource,
     CreditApplication,
 )
 from app.models.customer import Customer
 from app.models.product import Product
 from app.models.user import User, UserRole
-from app.schemas.application import ApplicationCreate, ApplicationOut
+from app.schemas.application import (
+    ApplicationCreate,
+    ApplicationOut,
+    ReviewDecision,
+    ReviewRequest,
+)
 from app.services.assessment import assess_application
 from app.services.audit import record_event
 
@@ -25,6 +32,14 @@ _VIEW_STAFF_ROLES = (
     UserRole.credit_manager,
     UserRole.admin,
 )
+_REVIEW_ROLES = (UserRole.credit_officer, UserRole.credit_manager, UserRole.admin)
+
+# Manual-review decision -> resulting application status.
+_REVIEW_STATUS = {
+    ReviewDecision.approved: ApplicationStatus.approved,
+    ReviewDecision.rejected: ApplicationStatus.rejected,
+    ReviewDecision.return_for_info: ApplicationStatus.draft,
+}
 
 
 @router.post("", response_model=ApplicationOut, status_code=status.HTTP_201_CREATED)
@@ -99,6 +114,80 @@ def submit_application(
         entity_id=application.id,
         before={"status": status_before},
         after={"status": application.status.value, "decision": result.decision},
+    )
+    db.commit()
+    db.refresh(application)
+    return application
+
+
+@router.post("/{application_id}/review", response_model=ApplicationOut)
+def review_application(
+    application_id: int,
+    payload: ReviewRequest,
+    db: Session = Depends(get_db),
+    actor: User = Depends(require_roles(*_REVIEW_ROLES)),
+):
+    """Manual verification of a *referred* application by a credit officer.
+
+    Fixes S-1 (referred was a dead end). This does NOT touch the automated
+    assessment engine — it records a second, `manual`-source `AssessmentResult`
+    and moves the application on:
+      * approved       -> `approved`  (proceeds to offer generation like an auto-approval)
+      * rejected       -> `rejected`
+      * return_for_info -> `draft`    (resubmit through the normal submit flow)
+    """
+    application = db.get(CreditApplication, application_id)
+    if application is None:
+        raise HTTPException(status_code=404, detail="Application not found")
+    if application.status != ApplicationStatus.referred:
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                f"Application {application_id} is not awaiting manual review "
+                f"(status: {application.status.value}); only 'referred' "
+                f"applications can be reviewed."
+            ),
+        )
+
+    status_before = application.status.value
+    new_status = _REVIEW_STATUS[payload.decision]
+
+    prior = application.latest_assessment  # the automated 'referred' assessment
+    review = AssessmentResult(
+        application_id=application.id,
+        decision=payload.decision.value,
+        source=AssessmentSource.manual,
+        reviewed_by=actor.id,
+        notes=payload.reason,
+        estimated_installment=(
+            prior.estimated_installment if prior is not None else 0
+        ),
+        debt_burden_ratio=(prior.debt_burden_ratio if prior is not None else None),
+        triggered_rules=[
+            {
+                "rule": "manual_review",
+                "outcome": payload.decision.value,
+                "reason": payload.reason,
+            }
+        ],
+        config_snapshot={},
+    )
+    db.add(review)
+    application.status = new_status
+    db.flush()
+
+    record_event(
+        db,
+        user_id=actor.id,
+        action="application.reviewed",
+        entity_type="credit_application",
+        entity_id=application.id,
+        before={"status": status_before},
+        after={
+            "status": new_status.value,
+            "decision": payload.decision.value,
+            "reason": payload.reason,
+        },
     )
     db.commit()
     db.refresh(application)

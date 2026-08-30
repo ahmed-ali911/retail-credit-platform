@@ -13,8 +13,10 @@ from app.models.credit_application import (
     ApplicationChannel,
     ApplicationStatus,
     AssessmentResult,
+    AssessmentSource,
     CreditApplication,
 )
+from app.models.ledger import LedgerEntry, LedgerEntryType, LedgerRelatedAction
 from app.models.offer import InstallmentOffer, OfferStatus
 from app.models.sales_order import SalesOrder
 from app.models.contract import (
@@ -55,7 +57,11 @@ __all__ = [
     "ApplicationChannel",
     "ApplicationStatus",
     "AssessmentResult",
+    "AssessmentSource",
     "CreditApplication",
+    "LedgerEntry",
+    "LedgerEntryType",
+    "LedgerRelatedAction",
     "InstallmentOffer",
     "OfferStatus",
     "SalesOrder",

@@ -85,6 +85,7 @@ def settle(
             contract,
             amount=payload.amount,
             external_reference=payload.external_reference,
+            actor_id=actor.id,
         )
     except DomainError as exc:
         raise _domain(exc)
@@ -122,7 +123,7 @@ def cancel(
     status_before = contract.status.value
     try:
         result = closure_service.cancel_contract(
-            db, contract, notes=payload.notes if payload else None
+            db, contract, notes=payload.notes if payload else None, actor_id=actor.id
         )
     except DomainError as exc:
         raise _domain(exc)
@@ -161,7 +162,7 @@ def return_contract(
     status_before = contract.status.value
     try:
         result = closure_service.return_contract(
-            db, contract, notes=payload.notes if payload else None
+            db, contract, notes=payload.notes if payload else None, actor_id=actor.id
         )
     except DomainError as exc:
         raise _domain(exc)

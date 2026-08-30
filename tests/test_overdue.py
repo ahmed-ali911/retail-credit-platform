@@ -1,3 +1,5 @@
+from datetime import date, timedelta
+
 import pytest
 
 from app.services import config_service as cfg
@@ -51,11 +53,15 @@ def test_installment_past_grace_gets_exactly_two_percent_of_its_total(client):
 
 
 def test_grace_period_boundary_is_strictly_greater_than(client):
-    active_contract(client, national_id="OD-3")
-    # dpd exactly == grace (10) -> no fee
-    assert _assess(client, "2026-10-09")["late_fees_assessed"] == 0
-    # dpd 11 -> fee
-    assert _assess(client, "2026-10-10")["late_fees_assessed"] == 1
+    ctx = active_contract(client, national_id="OD-3")
+    # derive the run dates from the actual first due date (clock-independent)
+    due = date.fromisoformat(
+        _contract(client, ctx["contract_id"])["installments"][0]["due_date"]
+    )
+    at_grace = (due + timedelta(days=10)).isoformat()    # dpd == grace(10) -> no fee
+    past_grace = (due + timedelta(days=11)).isoformat()  # dpd 11 -> fee
+    assert _assess(client, at_grace)["late_fees_assessed"] == 0
+    assert _assess(client, past_grace)["late_fees_assessed"] == 1
 
 
 def test_running_assess_twice_does_not_double_charge(client):
