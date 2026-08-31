@@ -40,7 +40,20 @@ def create_offer(
             application,
             down_payment_amount=payload.down_payment_amount,
             tenor_months=payload.tenor_months,
+            actor_id=actor.id,
         )
+    except offer_service.AffordabilityBlocked as exc:
+        # The affordability re-check AssessmentResult was already written; keep it.
+        record_event(
+            db,
+            user_id=actor.id,
+            action="offer.blocked_unaffordable",
+            entity_type="credit_application",
+            entity_id=application.id,
+            after={"reason": exc.message},
+        )
+        db.commit()
+        raise HTTPException(status_code=exc.status_code, detail=exc.message)
     except DomainError as exc:
         raise HTTPException(status_code=exc.status_code, detail=exc.message)
     record_event(

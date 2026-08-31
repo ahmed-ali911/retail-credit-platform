@@ -49,6 +49,8 @@ KEY_DP_REFUND_PCT_CANCELLATION = "down_payment_refund_pct_cancellation"
 KEY_DP_REFUND_PCT_RETURN = "down_payment_refund_pct_return"
 KEY_OWNERSHIP_TRANSFERS_ON_DELIVERY = "ownership_transfers_on_delivery"
 KEY_SETTLEMENT_QUOTE_VALIDITY_DAYS = "settlement_quote_validity_days"
+# --- affordability (P0-3) ---
+KEY_OFFER_AFFORDABILITY_GATE_MODE = "offer_affordability_gate_mode"  # block | warn_only
 
 
 def _cast(raw: str, value_type: str):

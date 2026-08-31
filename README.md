@@ -1,6 +1,6 @@
 # Retail Credit & Installment Sales Platform
 
-**Steps 1–7 — a FastAPI backend (application → assessment → offer → contract → payments → collections → maker-checker, behind JWT auth + RBAC + audit) and a React staff web app for the core flow.** Plus the first two post-[assessment](docs/enterprise-assessment.md) P0 fixes: referred → manual verification (P0-2), and an immutable financial ledger in dual-write (P0-1).
+**Steps 1–7 — a FastAPI backend (application → assessment → offer → contract → payments → collections → maker-checker, behind JWT auth + RBAC + audit) and a React staff web app for the core flow.** Plus the first post-[assessment](docs/enterprise-assessment.md) P0 fixes: referred → manual verification (P0-2), an immutable financial ledger in dual-write (P0-1), and affordability re-check at offer time (P0-3).
 
 This is a **retail installment-sale** platform, not a cash-loan system. The
 company never disburses cash. A customer buys a product on credit terms; a
@@ -116,11 +116,10 @@ i18n / Arabic UI (backend and this UI are English-only for now). Token storage
 is `localStorage` — acceptable for an internal tool this step, **to be
 reconsidered** (httpOnly cookie / silent refresh) in a later step.
 
-## Post-assessment P0 fixes (P0-1, P0-2)
+## Post-assessment P0 fixes (P0-1, P0-2, P0-3)
 
 Following the enterprise review in
-[docs/enterprise-assessment.md](docs/enterprise-assessment.md), the two
-highest-severity / lowest-blast-radius findings were fixed:
+[docs/enterprise-assessment.md](docs/enterprise-assessment.md):
 
 ### P0-2 — Referred → manual verification (fixes finding S-1)
 
@@ -168,6 +167,49 @@ scheduled → 6.23 charged → 6.23 rebated" cannot be reconstructed. New:
 > One pre-existing test (`test_grace_period_boundary_is_strictly_greater_than`)
 > hard-coded `as_of` dates assuming a fixed "today"; it was made clock-independent
 > (derive the run date from the actual first due date). No behaviour changed.
+
+### P0-3 — Affordability correctness (fixes finding S-2)
+
+DBR at application time used `requested_amount / tenor` (no profit, no down
+payment) and was never re-checked once the real offer was priced. Two halves:
+
+**1. Better application-time estimate.** No offer exists yet, so:
+- read the **same** tenor→rate table the Pricing Engine owns
+  (`pricing.resolve_profit_rate` — never a second copy of that logic);
+- assume a down payment equal to the configured `minimum_down_payment_pct`;
+- `estimated_installment = amount_financed_est × (1 + tenor_rate) / tenor`,
+  replacing the flat proxy in the DBR calculation;
+- the estimate basis (method, rate used, assumed down-payment %, financed
+  amount) is stored on the `AssessmentResult.config_snapshot`. If the requested
+  tenor has no configured rate yet, it falls back to the old flat proxy (method
+  `flat_factor`).
+
+**2. Re-check when the real offer is priced.** Inside `POST /applications/{id}/offer`,
+after the schedule is generated:
+- take the **largest single installment** (profit is front-loaded, so normally
+  the first — the customer's real peak monthly burden);
+- recompute `(existing_obligations + peak_installment) / monthly_income` and
+  compare to the same `maximum_debt_burden_ratio`;
+- record it as an `AssessmentResult` with **`source = offer_affordability_recheck`**
+  (same audit shape as the P0-2 review — every affordability decision is now
+  visible in one place);
+- on failure the behaviour is config-switchable via
+  **`offer_affordability_gate_mode`** (`block` → HTTP **422** with the figures
+  [default]; `warn_only` → offer proceeds but the failed re-check is recorded).
+  A blocked generation also writes an `offer.blocked_unaffordable` `AuditEvent`
+  and creates **no** offer.
+
+> **BUSINESS DECISION REQUIRED** (register): what should happen when the offer
+> re-check fails — hard-block (current default), route to manual referral via the
+> P0-2 `/review` endpoint, or warn-and-let-a-human-decide? `block` is the safe
+> default, **not** confirmed policy. Also unconfirmed: whether assuming the
+> *minimum* down payment is the right estimate basis, and whether the initial
+> DBR should use the requested amount vs the eventual installment-sale price.
+
+> Two numeric assertions in `tests/test_assessment.py` (the old
+> `estimated_installment == 100.0` and `debt_burden_ratio == 0.5`) tested the
+> exact proxy formula P0-3 replaces; they were updated to the new figures. All
+> decision-outcome assertions are unchanged.
 
 ---
 
@@ -265,6 +307,7 @@ Migrations:
 - [`0005_users_audit`](alembic/versions/0005_users_audit.py) — `users`, `audit_events`, nullable `customers.user_id`
 - [`0006_collections_approvals`](alembic/versions/0006_collections_approvals.py) — `collection_cases` (+ partial unique open-case index), `collection_activities`, `approval_requests`
 - [`0007_ledger_and_manual_review`](alembic/versions/0007_ledger_and_manual_review.py) — `ledger_entries` (write-only); `assessment_results.source` / `reviewed_by` / `notes`
+- [`0008_affordability_recheck`](alembic/versions/0008_affordability_recheck.py) — widen `assessment_results.source` (P0-3)
 
 ---
 
@@ -313,6 +356,7 @@ Default (placeholder) parameters:
 | `down_payment_refund_pct_return` | 0.0 | **Step 4, placeholder — not confirmed policy.** Fraction of the down payment refunded on **post-delivery return** |
 | `ownership_transfers_on_delivery` | `true` | **Step 4, placeholder — not a legal position.** No logic branches on it; only echoed back in the return response |
 | `settlement_quote_validity_days` | 3 | **Step 4, placeholder** — informational `quote_expiry`; `/settle` always regenerates & re-compares |
+| `offer_affordability_gate_mode` | `block` | **P0-3, BUSINESS DECISION REQUIRED** — on a failed offer-time affordability re-check: `block` (422) or `warn_only` (record & proceed) |
 
 The rate table is stored as a single JSON parameter, so the tenor→rate mapping
 is edited as one unit (via `PUT /config/parameters/tenor_profit_rate_table` with
@@ -693,7 +737,7 @@ seeding and by tests via the `set_config` fixture) is unchanged.
 | `POST` | `/applications/{id}/submit` | `draft → submitted → under_assessment` → run assessment → `approved`/`rejected`/`referred` |
 | `POST` | `/applications/{id}/review` | **P0-2** — manual verification of a `referred` application (`credit_officer`/`credit_manager`/`admin`). Body `{decision, reason}` → `approved`/`rejected`/`draft` |
 | `GET` | `/applications/{id}` | Application with current status + assessment result/reasons |
-| `POST` | `/applications/{id}/offer` | **Step 2** — price an **approved** application → `InstallmentOffer`. Body: `{down_payment_amount, tenor_months?}` (tenor defaults to the application's). Supersedes any prior open offer |
+| `POST` | `/applications/{id}/offer` | **Step 2** — price an **approved** application → `InstallmentOffer`. Body: `{down_payment_amount, tenor_months?}`. Supersedes any prior open offer. **P0-3:** re-checks affordability against the real peak installment → **422** if it breaches `max_dbr` and `offer_affordability_gate_mode=block` |
 | `GET` | `/offers/{id}` | **Step 2** — offer with pricing + schedule preview |
 | `POST` | `/offers/{id}/accept` | **Step 2** — body `{down_payment_confirmed, down_payment_reference?, down_payment_amount?}`. On `true` → creates Sales Order + Contract + Schedule |
 | `GET` | `/contracts/{id}` | **Step 2** — contract with sales order + installments (+ paid amounts & late fees from Step 3) |
@@ -925,6 +969,15 @@ full-repayment, delinquency-then-repayment, and early-settlement,
 and a bogus ledger row does **not** change what `GET .../receivable` returns
 (reads are not cut over).
 
+**P0-3** — affordability ([tests/test_affordability.py](tests/test_affordability.py)):
+changing only the rate table moves the initial `estimated_installment` (proving
+the table, not a flat proxy, drives it); different tenors give different
+estimates and can flip the decision; an unpriceable tenor falls back to
+`flat_factor`; an affordable offer proceeds and records a passing re-check; a
+small down payment that breaches the real DBR is **blocked (422)** even though
+the application passed the initial estimate; `warn_only` lets the same offer
+through but still records the failure; a blocked offer writes an audit event.
+
 ### Frontend (Step 7) — `cd frontend && npm test`
 
 Vitest + React Testing Library, API mocked at `fetch`:
@@ -966,7 +1019,7 @@ app/
                offers (+ contracts), payments (+ receivable + jobs), closure,
                config, audit, collections, approvals routers
   main.py      FastAPI app + startup seeding (config params + bootstrap admin)
-alembic/       migrations (0001_initial … 0007_ledger_and_manual_review)
+alembic/       migrations (0001_initial … 0008_affordability_recheck)
 config/        business_rules.yaml  (fictitious placeholder defaults, Steps 1–4)
 scripts/       seed_config.py, create_admin.py
 tests/         backend pytest suite

@@ -1,4 +1,10 @@
-"""Credit Assessment Engine behaviour under the default (fictitious) config."""
+"""Credit Assessment Engine behaviour under the default (fictitious) config.
+
+Note (P0-3): `estimated_installment` / DBR now use the Pricing Engine's tenor->rate
+table + the configured minimum down payment, not the old `requested_amount / tenor`
+flat proxy. The two numeric assertions below were updated for that change; the
+decision-outcome assertions are unchanged.
+"""
 from tests.helpers import make_application, make_customer, make_product
 
 
@@ -16,7 +22,12 @@ def test_application_approved_under_default_config(client):
     assert body["latest_assessment"]["decision"] == "approved"
     # nothing failed -> no triggered rules
     assert body["latest_assessment"]["triggered_rules"] == []
-    assert body["latest_assessment"]["estimated_installment"] == 100.0
+    # P0-3: financed 1200 * (1 - 0.15) = 1020; + 9% (12mo rate); / 12  ->  92.65
+    assert body["latest_assessment"]["estimated_installment"] == 92.65
+    snap = body["latest_assessment"]["config_snapshot"]
+    assert snap["installment_estimate_method"] == "rate_table"
+    assert snap["tenor_profit_rate"] == 0.09
+    assert snap["assumed_down_payment_pct"] == 0.15
 
 
 def test_rejected_when_income_below_configured_minimum(client):
@@ -35,7 +46,8 @@ def test_rejected_when_income_below_configured_minimum(client):
 
 
 def test_referred_when_dbr_threshold_breached(client):
-    # income 1000, installment = 6000 / 12 = 500, obligations 0 -> DBR 0.50 > 0.40
+    # income 1000, obligations 0. P0-3 estimate: financed 6000*0.85=5100, +9%,
+    # /12 -> ~463.25/mo -> DBR ~0.46 > max 0.40 -> referred.
     customer = make_customer(client, national_id="REF-1", monthly_income=1000,
                              existing_obligations=0, risk_score=700)
     product = make_product(client, cash_price=6000)
@@ -47,7 +59,7 @@ def test_referred_when_dbr_threshold_breached(client):
 
     rules = {r["rule"]: r for r in body["latest_assessment"]["triggered_rules"]}
     assert rules["debt_burden_ratio"]["outcome"] == "referred"
-    assert body["latest_assessment"]["debt_burden_ratio"] == 0.5
+    assert body["latest_assessment"]["debt_burden_ratio"] > 0.40
 
 
 def test_referred_when_risk_score_in_referral_band(client):

@@ -9,7 +9,7 @@ Decision precedence:  rejected  >  referred  >  approved
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from decimal import Decimal
+from decimal import ROUND_HALF_UP, Decimal
 
 from sqlalchemy.orm import Session
 
@@ -19,7 +19,10 @@ from app.models.credit_application import (
     CreditApplication,
 )
 from app.services import config_service as cfg
+from app.services import pricing
 from app.services.config_service import ConfigService
+
+_CENTS = Decimal("0.01")
 
 DECISION_APPROVED = "approved"
 DECISION_REJECTED = "rejected"
@@ -52,10 +55,55 @@ def _f(value) -> float:
     return float(value) if not isinstance(value, Decimal) else float(value)
 
 
-def estimate_installment(requested_amount: float, tenor_months: int, factor: float) -> float:
+def _round2(value: Decimal) -> Decimal:
+    return value.quantize(_CENTS, rounding=ROUND_HALF_UP)
+
+
+def estimate_installment(
+    db: Session,
+    *,
+    requested_amount: float,
+    tenor_months: int,
+    min_down_payment_pct: float,
+    fallback_factor: float,
+) -> tuple[float, dict]:
+    """Application-time estimate of the monthly installment.
+
+    The real down payment and per-installment split don't exist yet (no offer),
+    so: assume the configured minimum down payment, and use the Pricing Engine's
+    own tenor -> rate table (`pricing.resolve_profit_rate`) — never a second copy
+    of that logic. Falls back to the old flat proxy only if the requested tenor
+    has no configured rate yet.
+
+    Returns ``(estimated_installment, basis)`` where ``basis`` is a small dict
+    recording exactly what assumption produced the figure (stored on the
+    AssessmentResult's config snapshot for audit).
+    """
     if tenor_months <= 0:
         raise ValueError("requested_tenor_months must be positive")
-    return round((requested_amount * factor) / tenor_months, 2)
+
+    req = Decimal(str(requested_amount))
+    dp_pct = Decimal(str(min_down_payment_pct))
+    amount_financed = req * (Decimal("1") - dp_pct)
+
+    try:
+        rate = pricing.resolve_profit_rate(db, tenor_months)
+    except pricing.PricingError:
+        value = req * Decimal(str(fallback_factor)) / Decimal(tenor_months)
+        return float(_round2(value)), {
+            "installment_estimate_method": "flat_factor",
+            cfg.KEY_INSTALLMENT_FACTOR: float(fallback_factor),
+        }
+
+    estimated_profit = amount_financed * rate
+    value = (amount_financed + estimated_profit) / Decimal(tenor_months)
+    return float(_round2(value)), {
+        "installment_estimate_method": "rate_table",
+        "assumed_down_payment_pct": float(dp_pct),
+        "tenor_profit_rate": float(rate),
+        "amount_financed_estimate": float(_round2(amount_financed)),
+        "estimated_profit": float(_round2(estimated_profit)),
+    }
 
 
 def assess_application(db: Session, application: CreditApplication) -> AssessmentResult:
@@ -65,25 +113,32 @@ def assess_application(db: Session, application: CreditApplication) -> Assessmen
     min_income = config.get_float(cfg.KEY_MIN_INCOME)
     max_dbr = config.get_float(cfg.KEY_MAX_DBR)
     factor = config.get_float(cfg.KEY_INSTALLMENT_FACTOR)
+    min_dp_pct = config.get_float(cfg.KEY_MIN_DOWN_PAYMENT_PCT)
     auto_approve_min = config.get_int(cfg.KEY_RISK_AUTO_APPROVE_MIN)
     refer_min = config.get_int(cfg.KEY_RISK_REFER_MIN)
+
+    estimated_installment, estimate_basis = estimate_installment(
+        db,
+        requested_amount=_f(application.requested_amount),
+        tenor_months=application.requested_tenor_months,
+        min_down_payment_pct=min_dp_pct,
+        fallback_factor=factor,
+    )
 
     config_snapshot = {
         cfg.KEY_MIN_INCOME: min_income,
         cfg.KEY_MAX_DBR: max_dbr,
         cfg.KEY_INSTALLMENT_FACTOR: factor,
+        cfg.KEY_MIN_DOWN_PAYMENT_PCT: min_dp_pct,
         cfg.KEY_RISK_AUTO_APPROVE_MIN: auto_approve_min,
         cfg.KEY_RISK_REFER_MIN: refer_min,
+        **estimate_basis,
     }
 
     profile = application.customer.profile
     income = _f(profile.monthly_income) if profile else 0.0
     obligations = _f(profile.existing_monthly_obligations) if profile else 0.0
     risk_score = application.customer.risk_score
-
-    estimated_installment = estimate_installment(
-        _f(application.requested_amount), application.requested_tenor_months, factor
-    )
 
     outcomes: list[RuleOutcome] = []
 

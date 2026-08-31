@@ -26,6 +26,8 @@ class ApplicationStatus(str, enum.Enum):
 class AssessmentSource(str, enum.Enum):
     automated = "automated"   # produced by the rules engine
     manual = "manual"         # produced by a credit officer reviewing a referral
+    # produced at offer generation when the real peak installment is re-tested (P0-3)
+    offer_affordability_recheck = "offer_affordability_recheck"
 
 
 class CreditApplication(Base):
@@ -87,9 +89,10 @@ class AssessmentResult(Base):
         index=True,
     )
     decision: Mapped[str] = mapped_column(String(20), nullable=False)
-    # 'automated' for engine runs; 'manual' for credit-officer reviews of referrals.
+    # 'automated' for engine runs; 'manual' for credit-officer reviews of
+    # referrals; 'offer_affordability_recheck' for the P0-3 re-test at pricing.
     source: Mapped[AssessmentSource] = mapped_column(
-        Enum(AssessmentSource, native_enum=False, length=20),
+        Enum(AssessmentSource, native_enum=False, length=40),
         default=AssessmentSource.automated,
         server_default=AssessmentSource.automated.value,
         nullable=False,

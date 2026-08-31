@@ -159,3 +159,18 @@ parameters:
       PLACEHOLDER. Days a generated settlement quote is considered valid. The
       /settle endpoint always regenerates and re-compares the payoff amount, so
       this is informational (surfaced as quote_expiry).
+
+  # ---------------------------------------------------------------------------
+  # Affordability re-check (P0-3, fixes assessment finding S-2)
+  # ---------------------------------------------------------------------------
+  offer_affordability_gate_mode:
+    value: block
+    type: str
+    description: >
+      BUSINESS DECISION REQUIRED — placeholder default. At offer generation the
+      real peak monthly installment is re-tested against
+      maximum_debt_burden_ratio. When it fails:
+        block      = refuse offer generation (HTTP 422)   [default, safe]
+        warn_only  = still generate the offer, but record the failed re-check
+      Whether a failed re-check should instead route to manual referral (the
+      P0-2 review endpoint) rather than hard-blocking is NOT confirmed policy.

@@ -13,7 +13,12 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.core.dates import add_months
-from app.models.credit_application import ApplicationStatus, CreditApplication
+from app.models.credit_application import (
+    ApplicationStatus,
+    AssessmentResult,
+    AssessmentSource,
+    CreditApplication,
+)
 from app.models.contract import (
     ContractStatus,
     Installment,
@@ -28,8 +33,81 @@ from app.services.config_service import ConfigService
 from app.services.errors import DomainError
 
 
+class AffordabilityBlocked(DomainError):
+    """The priced offer's real peak installment breaches the debt-burden limit
+    and `offer_affordability_gate_mode` is `block`."""
+
+    def __init__(self, message: str):
+        super().__init__(message, status_code=422)
+
+
 def _utcnow() -> datetime:
     return datetime.now(timezone.utc)
+
+
+def _affordability_recheck(
+    db: Session,
+    application: CreditApplication,
+    *,
+    peak_installment: Decimal,
+    chosen_down_payment: Decimal,
+    config: ConfigService,
+    actor_id: int | None,
+) -> dict:
+    """Re-test the customer's real peak monthly burden against the same
+    `maximum_debt_burden_ratio` used at application time, and persist the result
+    as an `AssessmentResult` (source=offer_affordability_recheck) — the same
+    audit shape as the P0-2 manual review. Returns a summary dict."""
+    max_dbr = config.get_float(cfg.KEY_MAX_DBR)
+    gate_mode = str(config.get(cfg.KEY_OFFER_AFFORDABILITY_GATE_MODE)).strip().lower()
+
+    profile = application.customer.profile
+    income = float(profile.monthly_income) if profile else 0.0
+    obligations = float(profile.existing_monthly_obligations) if profile else 0.0
+    peak = float(peak_installment)
+
+    dbr = round((obligations + peak) / income, 4) if income > 0 else None
+    affordable = dbr is not None and dbr <= max_dbr
+    outcome = "pass" if affordable else "fail"
+
+    db.add(
+        AssessmentResult(
+            application_id=application.id,
+            decision=outcome,
+            source=AssessmentSource.offer_affordability_recheck,
+            reviewed_by=actor_id,
+            estimated_installment=peak,
+            debt_burden_ratio=dbr,
+            triggered_rules=[
+                {
+                    "rule": "offer_affordability_recheck",
+                    "outcome": outcome,
+                    "reason": (
+                        f"real peak installment {peak:.2f}; DBR "
+                        f"{dbr if dbr is not None else 'n/a'} vs maximum "
+                        f"{max_dbr:.4f}"
+                    ),
+                }
+            ],
+            config_snapshot={
+                cfg.KEY_MAX_DBR: max_dbr,
+                cfg.KEY_OFFER_AFFORDABILITY_GATE_MODE: gate_mode,
+                "peak_installment": peak,
+                "chosen_down_payment": float(chosen_down_payment),
+                "monthly_income": income,
+                "existing_obligations": obligations,
+                "outcome": outcome,
+            },
+        )
+    )
+    db.flush()
+    return {
+        "affordable": affordable,
+        "dbr": dbr,
+        "max_dbr": round(max_dbr, 4),
+        "peak_installment": round(peak, 2),
+        "gate_mode": gate_mode,
+    }
 
 
 def generate_offer(
@@ -38,6 +116,7 @@ def generate_offer(
     *,
     down_payment_amount: float,
     tenor_months: int | None = None,
+    actor_id: int | None = None,
 ) -> InstallmentOffer:
     if application.status != ApplicationStatus.approved:
         raise DomainError(
@@ -67,6 +146,29 @@ def generate_offer(
         )
     except pricing.PricingError as exc:
         raise DomainError(str(exc)) from exc
+
+    # P0-3: re-test affordability against the REAL priced schedule. Profit is
+    # front-loaded, so the largest single installment (normally the first) is
+    # the customer's actual peak monthly burden — the conservative figure.
+    peak_installment = max(
+        (line.total for line in result.schedule), default=Decimal("0")
+    )
+    recheck = _affordability_recheck(
+        db,
+        application,
+        peak_installment=peak_installment,
+        chosen_down_payment=result.down_payment,
+        config=config,
+        actor_id=actor_id,
+    )
+    if not recheck["affordable"] and recheck["gate_mode"] == "block":
+        raise AffordabilityBlocked(
+            f"Offer not generated: the real peak monthly installment "
+            f"{recheck['peak_installment']:.2f} pushes the debt-burden ratio to "
+            f"{recheck['dbr']}, over the maximum of {recheck['max_dbr']}. "
+            f"A larger down payment or a shorter tenor is required. "
+            f"(offer_affordability_gate_mode=block)"
+        )
 
     # Supersede any still-open offer for the same application.
     open_offers = db.execute(
