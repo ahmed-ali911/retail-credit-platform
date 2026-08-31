@@ -28,7 +28,9 @@ _REQUEST_WAIVER_ROLES = (
     UserRole.credit_manager,
     UserRole.admin,
 )
-_DECIDE_ROLES = (UserRole.credit_manager, UserRole.admin)
+# finance_officer added in P0-5 so they can approve reconciliation.manual_match
+# requests; the maker != checker rule still applies to every action type.
+_DECIDE_ROLES = (UserRole.finance_officer, UserRole.credit_manager, UserRole.admin)
 
 
 @router.post(

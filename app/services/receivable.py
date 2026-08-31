@@ -10,6 +10,7 @@ from dataclasses import dataclass
 from decimal import Decimal
 
 from app.models.contract import InstallmentContract, InstallmentStatus
+from app.models.payment import PaymentReconciliationStatus
 
 _ZERO = Decimal("0.00")
 
@@ -23,6 +24,9 @@ class ReceivableView:
     outstanding_late_fees: Decimal         # separate ledger
     total_installments_paid: int
     total_installments_remaining: int
+    # P0-5 — bank-reconciliation state of this contract's payments (additive;
+    # every other figure above is unchanged).
+    reconciliation_summary: dict
 
 
 def build_receivable(contract: InstallmentContract) -> ReceivableView:
@@ -34,6 +38,10 @@ def build_receivable(contract: InstallmentContract) -> ReceivableView:
     paid = sum(1 for i in contract.installments if i.status == InstallmentStatus.paid)
     total = len(contract.installments)
 
+    recon = {s.value: 0 for s in PaymentReconciliationStatus}
+    for payment in contract.payments:
+        recon[payment.reconciliation_status.value] += 1
+
     return ReceivableView(
         contract_id=contract.id,
         outstanding_principal=principal,
@@ -42,4 +50,5 @@ def build_receivable(contract: InstallmentContract) -> ReceivableView:
         outstanding_late_fees=late_fees,
         total_installments_paid=paid,
         total_installments_remaining=total - paid,
+        reconciliation_summary=recon,
     )

@@ -21,12 +21,15 @@ from sqlalchemy.orm import Session
 from app.models.approval import (
     ACTION_CONFIG_UPDATE,
     ACTION_LATE_FEE_WAIVE,
+    ACTION_RECON_MANUAL_MATCH,
     ApprovalRequest,
     ApprovalStatus,
 )
 from app.models.ledger import LedgerEntryType, LedgerRelatedAction
-from app.models.payment import LateFeeCharge, LateFeeStatus
+from app.models.payment import LateFeeCharge, LateFeeStatus, Payment
+from app.models.reconciliation import ReconciliationException
 from app.services import ledger as ledger_service
+from app.services import reconciliation as recon_service
 from app.services.audit import record_event
 from app.services.config_service import ConfigService
 from app.services.errors import DomainError
@@ -171,6 +174,20 @@ def _execute(db: Session, approval: ApprovalRequest, *, actor_id: int) -> None:
             entity_id=key,
             before={"value": before_value},
             after={"value": param.value, "approval_request_id": approval.id},
+        )
+        return
+
+    if approval.action_type == ACTION_RECON_MANUAL_MATCH:
+        exception = db.get(ReconciliationException, int(approval.entity_id))
+        if exception is None:
+            raise DomainError(
+                "Reconciliation exception no longer exists", status_code=409
+            )
+        payment = db.get(Payment, int(approval.payload["payment_id"]))
+        if payment is None:
+            raise DomainError("Target payment no longer exists", status_code=409)
+        recon_service.apply_manual_match(
+            db, exception, payment, actor_id=actor_id
         )
         return
 

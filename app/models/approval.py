@@ -8,9 +8,10 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.models.base import Base, utcnow
 
-# action_type values used this step.
+# action_type values.
 ACTION_LATE_FEE_WAIVE = "late_fee.waive"
 ACTION_CONFIG_UPDATE = "config.update"
+ACTION_RECON_MANUAL_MATCH = "reconciliation.manual_match"  # P0-5
 
 
 class ApprovalStatus(str, enum.Enum):

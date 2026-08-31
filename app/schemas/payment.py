@@ -4,7 +4,7 @@ from datetime import date, datetime
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from app.models.payment import PaymentStatus
+from app.models.payment import PaymentReconciliationStatus, PaymentStatus
 
 
 class PaymentCreate(BaseModel):
@@ -27,8 +27,12 @@ class PaymentOut(BaseModel):
     contract_id: int
     amount: float
     external_reference: str
+    gateway_reference: str | None = None
     received_at: datetime
     status: PaymentStatus
+    reconciliation_status: PaymentReconciliationStatus = (
+        PaymentReconciliationStatus.unreconciled
+    )
     allocated_amount: float
     unallocated_amount: float
     allocations: list[PaymentAllocationOut]
@@ -48,6 +52,7 @@ class ReceivableOut(BaseModel):
     outstanding_late_fees: float
     total_installments_paid: int
     total_installments_remaining: int
+    reconciliation_summary: dict[str, int] = {}  # P0-5, additive
 
 
 class AssessOverdueRequest(BaseModel):

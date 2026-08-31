@@ -42,6 +42,12 @@ from app.models.collections import (
     PromiseStatus,
 )
 from app.models.approval import ApprovalRequest, ApprovalStatus
+from app.models.reconciliation import (
+    BankStatementLine,
+    ReconExceptionReason,
+    ReconExceptionStatus,
+    ReconciliationException,
+)
 
 __all__ = [
     "Base",
@@ -84,4 +90,8 @@ __all__ = [
     "PromiseStatus",
     "ApprovalRequest",
     "ApprovalStatus",
+    "BankStatementLine",
+    "ReconExceptionReason",
+    "ReconExceptionStatus",
+    "ReconciliationException",
 ]

@@ -37,6 +37,8 @@ KEY_RISK_REFER_MIN = "risk_score_refer_min"
 # --- customer exposure (P0-4) ---
 KEY_MAX_CUSTOMER_EXPOSURE = "max_customer_exposure_kwd"
 KEY_EXPOSURE_AGGREGATION_LEVEL = "exposure_aggregation_level"  # only 'company_wide' implemented
+# --- bank reconciliation (P0-5) ---
+KEY_RECON_DATE_TOLERANCE_DAYS = "reconciliation_date_tolerance_days"
 # --- pricing / offers (Step 2) ---
 KEY_TENOR_PROFIT_RATE_TABLE = "tenor_profit_rate_table"
 KEY_MIN_DOWN_PAYMENT_PCT = "minimum_down_payment_pct"

@@ -72,6 +72,19 @@ parameters:
       setting one will raise rather than silently under-count exposure.
 
   # ---------------------------------------------------------------------------
+  # Bank reconciliation (P0-5, fixes assessment finding S-5)
+  # ---------------------------------------------------------------------------
+  reconciliation_date_tolerance_days:
+    value: 0
+    type: int
+    description: >
+      PLACEHOLDER. Fallback matching (no reference match) reconciles a bank line
+      to a payment with the same amount whose received date is within this many
+      days of the line's value_date. 0 = same calendar day. Raise it once real
+      settlement-timing (T+N) behaviour is known — modelling settlement batches
+      is a later step, not this one.
+
+  # ---------------------------------------------------------------------------
   # Step 2 — Installment pricing / profit engine
   # ---------------------------------------------------------------------------
   tenor_profit_rate_table:

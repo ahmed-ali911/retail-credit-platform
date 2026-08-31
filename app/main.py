@@ -16,6 +16,7 @@ from app.api import (
     offers,
     payments,
     products,
+    reconciliation,
 )
 from app.core.auth import get_current_user
 from app.core.config import get_settings
@@ -68,6 +69,7 @@ app.include_router(payments.router, dependencies=_authed)
 app.include_router(closure.router, dependencies=_authed)
 app.include_router(collections.router, dependencies=_authed)
 app.include_router(approvals.router, dependencies=_authed)
+app.include_router(reconciliation.router, dependencies=_authed)
 app.include_router(config_api.router, dependencies=_authed)
 app.include_router(audit.router, dependencies=_authed)
 

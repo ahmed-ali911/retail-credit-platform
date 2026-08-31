@@ -25,6 +25,19 @@ class PaymentStatus(str, enum.Enum):
     overpaid = "overpaid"      # some of the payment had nothing left to settle
 
 
+class PaymentReconciliationStatus(str, enum.Enum):
+    """Whether this payment has been matched against the company's bank records.
+
+    Separate from allocation: a payment can be fully allocated to installments
+    and still be `unreconciled`. Set by the P0-5 reconciliation engine, never by
+    payment recording. Default `unreconciled` for all existing and new payments.
+    """
+
+    unreconciled = "unreconciled"
+    reconciled = "reconciled"
+    exception = "exception"   # flagged during matching, needs manual attention
+
+
 class LateFeeStatus(str, enum.Enum):
     assessed = "assessed"
     waived = "waived"          # future maker-checker endpoint
@@ -52,11 +65,20 @@ class Payment(Base):
     )
     amount: Mapped[Decimal] = mapped_column(Numeric(14, 2), nullable=False)
     external_reference: Mapped[str] = mapped_column(String(100), nullable=False)
+    # A future real gateway's own transaction id — distinct from the merchant-side
+    # external_reference (which stays the idempotency key). Nullable; unused today.
+    gateway_reference: Mapped[str | None] = mapped_column(String(100), nullable=True)
     received_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=utcnow, nullable=False
     )
     status: Mapped[PaymentStatus] = mapped_column(
         Enum(PaymentStatus, native_enum=False, length=20), nullable=False
+    )
+    reconciliation_status: Mapped[PaymentReconciliationStatus] = mapped_column(
+        Enum(PaymentReconciliationStatus, native_enum=False, length=20),
+        default=PaymentReconciliationStatus.unreconciled,
+        server_default=PaymentReconciliationStatus.unreconciled.value,
+        nullable=False,
     )
     allocated_amount: Mapped[Decimal] = mapped_column(
         Numeric(14, 2), nullable=False, default=_ZERO

@@ -1,6 +1,6 @@
 # Retail Credit & Installment Sales Platform
 
-**Steps 1–7 — a FastAPI backend (application → assessment → offer → contract → payments → collections → maker-checker, behind JWT auth + RBAC + audit) and a React staff web app for the core flow.** Plus post-[assessment](docs/enterprise-assessment.md) P0 fixes: referred → manual verification (P0-2), an immutable financial ledger in dual-write (P0-1), affordability re-check at offer time (P0-3), and company-wide customer exposure aggregation (P0-4).
+**Steps 1–7 — a FastAPI backend (application → assessment → offer → contract → payments → collections → maker-checker, behind JWT auth + RBAC + audit) and a React staff web app for the core flow.** Plus post-[assessment](docs/enterprise-assessment.md) P0 fixes: referred → manual verification (P0-2), an immutable financial ledger in dual-write (P0-1), affordability re-check at offer time (P0-3), company-wide customer exposure aggregation (P0-4), and payment → bank reconciliation (P0-5) — which together close all five most-severe findings (S-1 through S-5).
 
 This is a **retail installment-sale** platform, not a cash-loan system. The
 company never disburses cash. A customer buys a product on credit terms; a
@@ -116,10 +116,11 @@ i18n / Arabic UI (backend and this UI are English-only for now). Token storage
 is `localStorage` — acceptable for an internal tool this step, **to be
 reconsidered** (httpOnly cookie / silent refresh) in a later step.
 
-## Post-assessment P0 fixes (P0-1, P0-2, P0-3, P0-4)
+## Post-assessment P0 fixes (P0-1 … P0-5)
 
 Following the enterprise review in
-[docs/enterprise-assessment.md](docs/enterprise-assessment.md):
+[docs/enterprise-assessment.md](docs/enterprise-assessment.md). **P0-1 through
+P0-5 address all five most-severe findings (S-1 through S-5).**
 
 ### P0-2 — Referred → manual verification (fixes finding S-1)
 
@@ -244,6 +245,82 @@ existing contracts was assessed as if they had none. New:
 > threshold itself. `8000` is a **clearly fictitious placeholder**; company-wide
 > is the only implemented level, made explicit here now that it's live.
 
+### P0-5 — Payment lifecycle & bank reconciliation (fixes finding S-5)
+
+> **This closes the last of the five most-severe assessment findings
+> (S-1 through S-5).**
+
+Until now, recording a `Payment` was the end of the story: the customer's
+obligation was satisfied and installments were allocated, but nothing ever
+checked that the money actually landed in the company's bank account. S-5 is
+that missing **payment → settlement → reconciliation** boundary.
+
+**What is unchanged:** recording a payment still means the obligation was met
+and installments were allocated — same behaviour, same numbers. Reconciliation
+only *observes*. `reconciliation_status` defaults to `unreconciled` for every
+existing and new payment and never blocks or alters an allocation, a receivable
+or a closure.
+
+New:
+
+- **`Payment` gains two additive columns** — `reconciliation_status`
+  (`unreconciled` default / `reconciled` / `exception`) and `gateway_reference`
+  (nullable; a future real gateway's own transaction id, distinct from
+  `external_reference`, which stays the per-contract idempotency key).
+- **`BankStatementLine`** — one line of the company's bank statement. There is
+  **no real bank feed**: lines are recorded one at a time via
+  `POST /reconciliation/bank-lines` (`finance_officer` / `admin`), a mock
+  adapter standing in for a future import.
+- **Matching engine** (`app/services/reconciliation.py`, run via
+  `POST /reconciliation/run`). For every not-yet-processed bank line, against the
+  pool of `unreconciled` payments:
+  1. **Exact reference** — `bank_reference` equals a payment's
+     `external_reference` (or `gateway_reference` if set). One hit with a
+     matching amount → reconciled. One hit, wrong amount → `amount_mismatch`
+     exception (and that payment is flagged `exception`). Two+ hits →
+     `duplicate_candidate`.
+  2. **Fallback: amount + value date** — same amount and value date within a
+     configurable tolerance window (`reconciliation_date_tolerance_days`,
+     **placeholder `0` = same calendar day**). One hit → reconciled. Two+ →
+     `duplicate_candidate`.
+  3. **No candidate** → `no_match` exception.
+  On a match: `Payment.reconciliation_status = reconciled` and
+  `BankStatementLine.matched_payment_id` is linked.
+- **Idempotent** — a line is "done" once it is matched **or** has an exception,
+  so `POST /reconciliation/run` can be run any number of times: it never
+  re-matches a line or duplicates an exception.
+- **`ReconciliationException`** — a line the engine could not auto-reconcile
+  (`no_match` / `amount_mismatch` / `duplicate_candidate`), `open` until
+  resolved. `GET /reconciliation/exceptions?status=` lists them
+  (`finance_officer` / `credit_manager` / `admin`).
+- **Manual resolution reuses the generic maker-checker** (`ApprovalRequest`,
+  `action_type = reconciliation.manual_match`):
+  `POST /reconciliation/exceptions/{id}/request-match` (body: target payment id
+  + reason) creates a pending approval; a **different**
+  `finance_officer` / `credit_manager` / `admin` approves it via the existing
+  `POST /approvals/{id}/approve`, which performs the match. The
+  "approver ≠ requester" rule is **not** bypassed for this action type.
+- **`GET /contracts/{id}/receivable`** gains an additive `reconciliation_summary`
+  (count of this contract's payments by reconciliation status). Every existing
+  figure on that endpoint is unchanged.
+- **`GET /reconciliation/status`** (`finance_officer` / `admin`) — portfolio-wide
+  counts of payments by status, open/resolved exceptions, and unmatched lines.
+- **Migration `0009`** — the two `Payment` columns
+  (`reconciliation_status` NOT NULL, server default `unreconciled`, backfilling
+  every existing row) plus the `bank_statement_lines` and
+  `reconciliation_exceptions` tables.
+
+> **BUSINESS DECISION REQUIRED** (register, assessment BDR): the fallback
+> **date-tolerance window** (`reconciliation_date_tolerance_days`, placeholder
+> `0`), and what a `duplicate_candidate` / `amount_mismatch` should trigger
+> operationally beyond "open an exception for a human". `finance_officer` was
+> added to the approval-decider roles so they can approve
+> `reconciliation.manual_match`; no test asserted they could not.
+
+**Out of scope (unchanged):** a real payment gateway or bank feed (both stay
+mocked / manual), accounting / GL posting of reconciled payments, the P0-1
+ledger read-cutover, and any settlement-batch / T+N timing model.
+
 ---
 
 ## Tech stack
@@ -341,6 +418,7 @@ Migrations:
 - [`0006_collections_approvals`](alembic/versions/0006_collections_approvals.py) — `collection_cases` (+ partial unique open-case index), `collection_activities`, `approval_requests`
 - [`0007_ledger_and_manual_review`](alembic/versions/0007_ledger_and_manual_review.py) — `ledger_entries` (write-only); `assessment_results.source` / `reviewed_by` / `notes`
 - [`0008_affordability_recheck`](alembic/versions/0008_affordability_recheck.py) — widen `assessment_results.source` (P0-3)
+- [`0009_bank_reconciliation`](alembic/versions/0009_bank_reconciliation.py) — `payments.reconciliation_status` (NOT NULL, server default `unreconciled`) + `payments.gateway_reference`; `bank_statement_lines`, `reconciliation_exceptions` (P0-5)
 
 *(P0-4 added no migration — the exposure config is two YAML-seeded `config_parameters` rows.)*
 
@@ -394,6 +472,7 @@ Default (placeholder) parameters:
 | `offer_affordability_gate_mode` | `block` | **P0-3, BUSINESS DECISION REQUIRED** — on a failed offer-time affordability re-check: `block` (422) or `warn_only` (record & proceed) |
 | `max_customer_exposure_kwd` | 8000 | **P0-4, placeholder** — max total outstanding per customer (all non-closed contracts) + the new request's financed estimate; breach → `referred` |
 | `exposure_aggregation_level` | `company_wide` | **P0-4, BUSINESS DECISION REQUIRED** — only `company_wide` implemented; per-category/brand/BU is a future value that raises if configured |
+| `reconciliation_date_tolerance_days` | 0 | **P0-5, placeholder / BUSINESS DECISION REQUIRED** — fallback bank-line matching: `|payment date − value date|` allowed for an amount-only match. `0` = same calendar day |
 
 The rate table is stored as a single JSON parameter, so the tenor→rate mapping
 is edited as one unit (via `PUT /config/parameters/tenor_profit_rate_table` with
@@ -665,7 +744,9 @@ Tokens are HS256, `access_token_expire_minutes` (default 30), carrying
 | `POST /collections/cases/{id}/activities` *(Step 6)* | `collections_officer`, `admin` |
 | `GET /collections/cases`, `GET /collections/cases/{id}` *(Step 6)* | `collections_officer`, `credit_manager`, `admin` (detail also the owning `customer`) |
 | `POST /late-fees/{id}/request-waiver` *(Step 6)* | `finance_officer`, `credit_manager`, `admin` |
-| `GET /approvals`, `POST /approvals/{id}/approve` / `/reject` *(Step 6)* | `credit_manager`, `admin` |
+| `GET /approvals`, `POST /approvals/{id}/approve` / `/reject` *(Step 6; `finance_officer` added P0-5)* | `finance_officer`, `credit_manager`, `admin` |
+| `POST /reconciliation/bank-lines`, `POST /reconciliation/run`, `GET /reconciliation/status` *(P0-5)* | `finance_officer`, `admin` |
+| `GET /reconciliation/exceptions`, `POST /reconciliation/exceptions/{id}/request-match` *(P0-5)* | `finance_officer`, `credit_manager`, `admin` |
 | other authenticated endpoints (`POST /products`, `GET /contracts/{id}`, `GET /offers/{id}`, `GET /customers/{id}`, `GET /products/{id}`, `GET /auth/me`) | any valid token |
 
 **Ownership.** A `customer`-role user is linked to a `Customer` via
@@ -734,19 +815,28 @@ Generic `ApprovalRequest` (`action_type`, `entity_type`, `entity_id`,
 (not just convention): `decided_by` must never equal `requested_by`.** Approving
 or rejecting your own request → **409**, whatever your role (including `admin`).
 
-Two actions run through it this step:
+Actions that run through it:
 
 - **Late-fee waiver** — `POST /late-fees/{id}/request-waiver` `{reason}`
   (`finance_officer`, `credit_manager`, `admin`) creates a pending request and
   changes **nothing**. On approval → `LateFeeCharge.status = waived` (which
   removes it from the receivable's late-fee balance).
 - **Config parameter change** — see the behaviour change below.
+- **Reconciliation manual match** *(P0-5)* —
+  `POST /reconciliation/exceptions/{id}/request-match` `{payment_id, reason}`
+  (`action_type=reconciliation.manual_match`). On approval → the bank line is
+  linked to the payment, the payment is `reconciled`, and the exception is
+  `resolved`.
 
 | Endpoint | Roles |
 |---|---|
-| `GET /approvals` (filter `status`, `action_type`) | `credit_manager`, `admin` |
-| `POST /approvals/{id}/approve` | `credit_manager`, `admin` — 409 if you are the requester; on success executes the action |
-| `POST /approvals/{id}/reject` `{reason}` | `credit_manager`, `admin` — action never executes |
+| `GET /approvals` (filter `status`, `action_type`) | `finance_officer`, `credit_manager`, `admin` |
+| `POST /approvals/{id}/approve` | `finance_officer`, `credit_manager`, `admin` — 409 if you are the requester; on success executes the action |
+| `POST /approvals/{id}/reject` `{reason}` | `finance_officer`, `credit_manager`, `admin` — action never executes |
+
+*(`finance_officer` was added to the decider roles in P0-5 so they can approve
+`reconciliation.manual_match`; no test asserted they could not decide. The
+maker ≠ checker rule is unchanged.)*
 
 ### ⚠️ Deliberate behaviour change: config updates are now two-step
 
@@ -799,6 +889,12 @@ seeding and by tests via the `set_config` fixture) is unchanged.
 | `POST` | `/late-fees/{id}/request-waiver` | **Step 6** — body `{reason}` → pending `ApprovalRequest` |
 | `GET` | `/approvals` | **Step 6** — list, filter `status` / `action_type` |
 | `POST` | `/approvals/{id}/approve` · `/approvals/{id}/reject` | **Step 6** — decide (409 if you are the requester); approve executes the action |
+| `POST` | `/reconciliation/bank-lines` | **P0-5** — mock bank-feed import, one line: `{bank_reference, amount, value_date}` (`finance_officer`/`admin`) |
+| `POST` | `/reconciliation/run` | **P0-5** — match unprocessed bank lines against `unreconciled` payments; idempotent. Returns `{lines_processed, matched, exceptions_created}` |
+| `GET` | `/reconciliation/exceptions` | **P0-5** — list, filter `status` (`open`/`resolved`) (`finance_officer`/`credit_manager`/`admin`) |
+| `POST` | `/reconciliation/exceptions/{id}/request-match` | **P0-5** — body `{payment_id, reason}` → pending `ApprovalRequest` (`reconciliation.manual_match`); a *different* approver performs the match |
+| `GET` | `/reconciliation/status` | **P0-5** — portfolio counts: payments by reconciliation status, open/resolved exceptions, unmatched lines (`finance_officer`/`admin`) |
+| `GET` | `/contracts/{id}/receivable` | *(P0-5)* now also returns `reconciliation_summary` — this contract's payments counted by reconciliation status (all other figures unchanged) |
 
 ### Example
 
@@ -1025,6 +1121,17 @@ are excluded**; changing `max_customer_exposure_kwd` flips an otherwise-identica
 application; `GET /customers/{id}/exposure` matches a manual 2-contract sum;
 RBAC + owning-customer.
 
+**P0-5** — bank reconciliation ([tests/test_reconciliation.py](tests/test_reconciliation.py)):
+exact-reference auto-reconcile; fallback amount + value-date match; `no_match`
+opens an `open` exception; `amount_mismatch` also flags the payment `exception`;
+`gateway_reference` is matched when set; the tolerance window is config-driven;
+**`POST /reconciliation/run` twice never re-matches or duplicates an exception**;
+manual match needs a *different* approver (409 for the requester); a second
+approver reconciles the payment and resolves the exception; a pending request
+blocks a second; `GET /reconciliation/status` counts a mixed scenario;
+`GET /contracts/{id}/receivable` gains `reconciliation_summary` with every
+existing figure unchanged; RBAC.
+
 ### Frontend (Step 7) — `cd frontend && npm test`
 
 Vitest + React Testing Library, API mocked at `fetch`:
@@ -1054,20 +1161,22 @@ app/
                Payment, PaymentAllocation, LateFeeCharge, ContractClosure,
                User, AuditEvent,
                CollectionCase, CollectionActivity, ApprovalRequest,
-               LedgerEntry (P0-1, write-only)
+               LedgerEntry (P0-1, write-only),
+               BankStatementLine, ReconciliationException (P0-5)
   schemas/     Pydantic request/response models
   services/    config_service (externalised rules), assessment (Step 1 engine),
                pricing (Step 2 declining-balance engine), offers (offer→contract),
                allocation (Step 3 pure waterfall), payments, overdue, receivable,
                closure (Step 4 settlement / cancellation / return),
                audit, users, collections (Step 6), approvals (Step 6),
-               ledger (P0-1 dual-write helper), exposure (P0-4), errors
+               ledger (P0-1 dual-write helper), exposure (P0-4),
+               reconciliation (P0-5 matching engine), errors
   api/         auth, customers (+ exposure, P0-4), products,
                applications (+ manual review, P0-2), offers (+ contracts),
                payments (+ receivable + jobs), closure, config, audit,
-               collections, approvals routers
+               collections, approvals, reconciliation (P0-5) routers
   main.py      FastAPI app + startup seeding (config params + bootstrap admin)
-alembic/       migrations (0001_initial … 0008_affordability_recheck)
+alembic/       migrations (0001_initial … 0009_bank_reconciliation)
 config/        business_rules.yaml  (fictitious placeholder defaults, Steps 1–4)
 scripts/       seed_config.py, create_admin.py
 tests/         backend pytest suite
