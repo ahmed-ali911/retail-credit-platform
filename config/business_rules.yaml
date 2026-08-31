@@ -50,6 +50,28 @@ parameters:
       Below this value the application is rejected.
 
   # ---------------------------------------------------------------------------
+  # Customer exposure aggregation (P0-4, fixes assessment finding S-3)
+  # ---------------------------------------------------------------------------
+  max_customer_exposure_kwd:
+    value: 8000
+    type: float
+    description: >
+      FICTIONAL PLACEHOLDER — not confirmed policy. Maximum total outstanding a
+      single customer may carry across ALL their non-closed contracts, plus the
+      estimated financed amount of a new request. Breaching it routes the new
+      application to manual review (decision = referred), mirroring the DBR rule.
+
+  exposure_aggregation_level:
+    value: company_wide
+    type: str
+    description: >
+      BUSINESS DECISION REQUIRED (assessment BDR-07/08). The level at which a
+      customer's exposure is aggregated. Only "company_wide" is implemented —
+      one sum across every contract regardless of product / category / brand /
+      business unit. Future values such as "per_category" are NOT implemented;
+      setting one will raise rather than silently under-count exposure.
+
+  # ---------------------------------------------------------------------------
   # Step 2 — Installment pricing / profit engine
   # ---------------------------------------------------------------------------
   tenor_profit_rate_table:

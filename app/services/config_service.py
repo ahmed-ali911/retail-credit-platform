@@ -34,6 +34,9 @@ KEY_MAX_DBR = "maximum_debt_burden_ratio"
 KEY_INSTALLMENT_FACTOR = "installment_estimation_factor"
 KEY_RISK_AUTO_APPROVE_MIN = "risk_score_auto_approve_min"
 KEY_RISK_REFER_MIN = "risk_score_refer_min"
+# --- customer exposure (P0-4) ---
+KEY_MAX_CUSTOMER_EXPOSURE = "max_customer_exposure_kwd"
+KEY_EXPOSURE_AGGREGATION_LEVEL = "exposure_aggregation_level"  # only 'company_wide' implemented
 # --- pricing / offers (Step 2) ---
 KEY_TENOR_PROFIT_RATE_TABLE = "tenor_profit_rate_table"
 KEY_MIN_DOWN_PAYMENT_PCT = "minimum_down_payment_pct"

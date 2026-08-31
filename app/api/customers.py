@@ -4,14 +4,23 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from app.core.auth import require_roles
+from app.core.auth import authorize_owner_or_roles, get_current_user, require_roles
 from app.core.database import get_db
 from app.models.customer import Customer, CustomerProfile
 from app.models.user import User, UserRole
 from app.schemas.customer import CustomerCreate, CustomerOut
+from app.schemas.exposure import CustomerExposureOut
+from app.services import exposure as exposure_service
 from app.services.audit import record_event
 
 router = APIRouter(prefix="/customers", tags=["customers"])
+
+_EXPOSURE_STAFF_ROLES = (
+    UserRole.credit_officer,
+    UserRole.credit_manager,
+    UserRole.finance_officer,
+    UserRole.admin,
+)
 
 
 @router.post("", response_model=CustomerOut, status_code=status.HTTP_201_CREATED)
@@ -57,3 +66,25 @@ def get_customer(customer_id: int, db: Session = Depends(get_db)):
     if customer is None:
         raise HTTPException(status_code=404, detail="Customer not found")
     return customer
+
+
+@router.get("/{customer_id}/exposure", response_model=CustomerExposureOut)
+def get_customer_exposure(
+    customer_id: int,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """P0-4 — aggregate outstanding balance across the customer's non-closed
+    contracts, with a per-contract breakdown."""
+    customer = db.get(Customer, customer_id)
+    if customer is None:
+        raise HTTPException(status_code=404, detail="Customer not found")
+    authorize_owner_or_roles(
+        db, user,
+        staff_roles=_EXPOSURE_STAFF_ROLES,
+        owner_customer_id=customer_id,
+    )
+    try:
+        return exposure_service.compute_exposure(db, customer_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=501, detail=str(exc))

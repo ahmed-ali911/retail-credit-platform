@@ -19,6 +19,7 @@ from app.models.credit_application import (
     CreditApplication,
 )
 from app.services import config_service as cfg
+from app.services import exposure as exposure_service
 from app.services import pricing
 from app.services.config_service import ConfigService
 
@@ -85,6 +86,12 @@ def estimate_installment(
     req = Decimal(str(requested_amount))
     dp_pct = Decimal(str(min_down_payment_pct))
     amount_financed = req * (Decimal("1") - dp_pct)
+    # The financed-amount estimate is the same regardless of the profit method,
+    # and is reused by the P0-4 exposure rule — always record it.
+    common_basis = {
+        "assumed_down_payment_pct": float(dp_pct),
+        "amount_financed_estimate": float(_round2(amount_financed)),
+    }
 
     try:
         rate = pricing.resolve_profit_rate(db, tenor_months)
@@ -93,16 +100,16 @@ def estimate_installment(
         return float(_round2(value)), {
             "installment_estimate_method": "flat_factor",
             cfg.KEY_INSTALLMENT_FACTOR: float(fallback_factor),
+            **common_basis,
         }
 
     estimated_profit = amount_financed * rate
     value = (amount_financed + estimated_profit) / Decimal(tenor_months)
     return float(_round2(value)), {
         "installment_estimate_method": "rate_table",
-        "assumed_down_payment_pct": float(dp_pct),
         "tenor_profit_rate": float(rate),
-        "amount_financed_estimate": float(_round2(amount_financed)),
         "estimated_profit": float(_round2(estimated_profit)),
+        **common_basis,
     }
 
 
@@ -116,6 +123,8 @@ def assess_application(db: Session, application: CreditApplication) -> Assessmen
     min_dp_pct = config.get_float(cfg.KEY_MIN_DOWN_PAYMENT_PCT)
     auto_approve_min = config.get_int(cfg.KEY_RISK_AUTO_APPROVE_MIN)
     refer_min = config.get_int(cfg.KEY_RISK_REFER_MIN)
+    max_exposure = config.get_float(cfg.KEY_MAX_CUSTOMER_EXPOSURE)
+    aggregation_level = str(config.get(cfg.KEY_EXPOSURE_AGGREGATION_LEVEL)).strip()
 
     estimated_installment, estimate_basis = estimate_installment(
         db,
@@ -132,6 +141,8 @@ def assess_application(db: Session, application: CreditApplication) -> Assessmen
         cfg.KEY_MIN_DOWN_PAYMENT_PCT: min_dp_pct,
         cfg.KEY_RISK_AUTO_APPROVE_MIN: auto_approve_min,
         cfg.KEY_RISK_REFER_MIN: refer_min,
+        cfg.KEY_MAX_CUSTOMER_EXPOSURE: max_exposure,
+        cfg.KEY_EXPOSURE_AGGREGATION_LEVEL: aggregation_level,
         **estimate_basis,
     }
 
@@ -139,6 +150,14 @@ def assess_application(db: Session, application: CreditApplication) -> Assessmen
     income = _f(profile.monthly_income) if profile else 0.0
     obligations = _f(profile.existing_monthly_obligations) if profile else 0.0
     risk_score = application.customer.risk_score
+
+    # Customer's current aggregate exposure across existing non-closed contracts,
+    # plus the estimated financed amount of THIS request (P0-3's estimate).
+    current_exposure = _f(
+        exposure_service.compute_exposure(db, application.customer_id).total_outstanding
+    )
+    new_financed_estimate = _f(estimate_basis["amount_financed_estimate"])
+    projected_exposure = round(current_exposure + new_financed_estimate, 2)
 
     outcomes: list[RuleOutcome] = []
 
@@ -229,6 +248,37 @@ def assess_application(db: Session, application: CreditApplication) -> Assessmen
             passed=False,
             detail=f"risk_score {risk_score} is below referral threshold {refer_min}",
             context={"risk_score": risk_score, "risk_score_refer_min": refer_min},
+        ))
+
+    # Rule 4 — customer exposure limit (P0-4). Same shape as the DBR rule: a
+    # prudential debt-capacity check, so a breach routes to manual review
+    # (referred), it does not auto-reject.
+    exposure_context = {
+        "aggregation_level": aggregation_level,
+        "current_exposure": round(current_exposure, 2),
+        "new_financed_estimate": round(new_financed_estimate, 2),
+        "projected_exposure": projected_exposure,
+        cfg.KEY_MAX_CUSTOMER_EXPOSURE: max_exposure,
+    }
+    if projected_exposure <= max_exposure:
+        outcomes.append(RuleOutcome(
+            rule="customer_exposure",
+            outcome=DECISION_APPROVED,
+            passed=True,
+            detail=(f"projected exposure {projected_exposure:.2f} "
+                    f"<= maximum {max_exposure:.2f}"),
+            context=exposure_context,
+        ))
+    else:
+        outcomes.append(RuleOutcome(
+            rule="customer_exposure",
+            outcome=DECISION_REFERRED,
+            passed=False,
+            detail=(f"projected exposure {projected_exposure:.2f} "
+                    f"(current {current_exposure:.2f} + new "
+                    f"{new_financed_estimate:.2f}) exceeds maximum "
+                    f"{max_exposure:.2f}"),
+            context=exposure_context,
         ))
 
     decision = _RANK_TO_DECISION[max(_OUTCOME_RANK[o.outcome] for o in outcomes)]

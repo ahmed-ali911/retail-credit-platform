@@ -1,6 +1,6 @@
 # Retail Credit & Installment Sales Platform
 
-**Steps 1–7 — a FastAPI backend (application → assessment → offer → contract → payments → collections → maker-checker, behind JWT auth + RBAC + audit) and a React staff web app for the core flow.** Plus the first post-[assessment](docs/enterprise-assessment.md) P0 fixes: referred → manual verification (P0-2), an immutable financial ledger in dual-write (P0-1), and affordability re-check at offer time (P0-3).
+**Steps 1–7 — a FastAPI backend (application → assessment → offer → contract → payments → collections → maker-checker, behind JWT auth + RBAC + audit) and a React staff web app for the core flow.** Plus post-[assessment](docs/enterprise-assessment.md) P0 fixes: referred → manual verification (P0-2), an immutable financial ledger in dual-write (P0-1), affordability re-check at offer time (P0-3), and company-wide customer exposure aggregation (P0-4).
 
 This is a **retail installment-sale** platform, not a cash-loan system. The
 company never disburses cash. A customer buys a product on credit terms; a
@@ -116,7 +116,7 @@ i18n / Arabic UI (backend and this UI are English-only for now). Token storage
 is `localStorage` — acceptable for an internal tool this step, **to be
 reconsidered** (httpOnly cookie / silent refresh) in a later step.
 
-## Post-assessment P0 fixes (P0-1, P0-2, P0-3)
+## Post-assessment P0 fixes (P0-1, P0-2, P0-3, P0-4)
 
 Following the enterprise review in
 [docs/enterprise-assessment.md](docs/enterprise-assessment.md):
@@ -210,6 +210,39 @@ after the schedule is generated:
 > `estimated_installment == 100.0` and `debt_burden_ratio == 0.5`) tested the
 > exact proxy formula P0-3 replaces; they were updated to the new figures. All
 > decision-outcome assertions are unchanged.
+
+### P0-4 — Customer exposure aggregation (fixes finding S-3)
+
+Credit Assessment never looked at a customer's **other** contracts on this
+platform — obligations were self-reported only, so a customer with several
+existing contracts was assessed as if they had none. New:
+
+- **`app/services/exposure.py`** — `compute_exposure(db, customer_id)` sums
+  `outstanding_principal + outstanding_profit + outstanding_late_fees` across
+  **every non-closed contract** of that customer, reusing the per-contract
+  Receivable calculation (`build_receivable` — never a second copy). Returns a
+  total + a per-contract breakdown. Pure; unit-tested with 0 / 1 / N contracts.
+- **New assessment rule `customer_exposure`** — at submit time, `current
+  aggregate exposure + this request's estimated financed amount` (reusing P0-3's
+  `amount_financed_estimate`, not a third computation) is compared to
+  `max_customer_exposure_kwd`. A breach → **`referred`** (same precedence tier
+  as the DBR rule — a prudential debt-capacity check, not an auto-reject).
+  Recorded in `triggered_rules` + the config snapshot like every other rule.
+- **`GET /customers/{id}/exposure`** — the aggregate figure + per-contract
+  breakdown (id, status, outstanding principal / profit / late fees). Roles:
+  `credit_officer`, `credit_manager`, `finance_officer`, `admin`, or the owning
+  `customer`.
+- **Only company-wide aggregation is implemented** — one sum across all
+  contracts regardless of product / category / brand. `exposure_aggregation_level`
+  exists for the future; any value other than `company_wide` **raises** rather
+  than silently under-counting.
+- No migration — two `config_parameters` rows (YAML-seeded), no schema change.
+
+> **BUSINESS DECISION REQUIRED** (register, assessment BDR-07/08): the
+> aggregation *level* — company-wide (what's running now) vs per product /
+> category / brand / business unit — and the `max_customer_exposure_kwd`
+> threshold itself. `8000` is a **clearly fictitious placeholder**; company-wide
+> is the only implemented level, made explicit here now that it's live.
 
 ---
 
@@ -309,6 +342,8 @@ Migrations:
 - [`0007_ledger_and_manual_review`](alembic/versions/0007_ledger_and_manual_review.py) — `ledger_entries` (write-only); `assessment_results.source` / `reviewed_by` / `notes`
 - [`0008_affordability_recheck`](alembic/versions/0008_affordability_recheck.py) — widen `assessment_results.source` (P0-3)
 
+*(P0-4 added no migration — the exposure config is two YAML-seeded `config_parameters` rows.)*
+
 ---
 
 ## Business-rule configuration (not hardcoded)
@@ -357,6 +392,8 @@ Default (placeholder) parameters:
 | `ownership_transfers_on_delivery` | `true` | **Step 4, placeholder — not a legal position.** No logic branches on it; only echoed back in the return response |
 | `settlement_quote_validity_days` | 3 | **Step 4, placeholder** — informational `quote_expiry`; `/settle` always regenerates & re-compares |
 | `offer_affordability_gate_mode` | `block` | **P0-3, BUSINESS DECISION REQUIRED** — on a failed offer-time affordability re-check: `block` (422) or `warn_only` (record & proceed) |
+| `max_customer_exposure_kwd` | 8000 | **P0-4, placeholder** — max total outstanding per customer (all non-closed contracts) + the new request's financed estimate; breach → `referred` |
+| `exposure_aggregation_level` | `company_wide` | **P0-4, BUSINESS DECISION REQUIRED** — only `company_wide` implemented; per-category/brand/BU is a future value that raises if configured |
 
 The rate table is stored as a single JSON parameter, so the tenor→rate mapping
 is edited as one unit (via `PUT /config/parameters/tenor_profit_rate_table` with
@@ -610,6 +647,7 @@ Tokens are HS256, `access_token_expire_minutes` (default 30), carrying
 | Endpoint | Allowed roles |
 |---|---|
 | `POST /customers` | `sales_employee`, `admin` |
+| `GET /customers/{id}/exposure` *(P0-4)* | `credit_officer`, `credit_manager`, `finance_officer`, `admin`, **or the owning `customer`** |
 | `POST /applications`, `POST /applications/{id}/submit` | `sales_employee`, `customer`, `admin` |
 | `POST /applications/{id}/review` *(P0-2)* | `credit_officer`, `credit_manager`, `admin` |
 | `GET /applications/{id}` | `sales_employee`, `credit_officer`, `credit_manager`, `admin`, **or the owning `customer`** |
@@ -731,6 +769,7 @@ seeding and by tests via the `set_config` fixture) is unchanged.
 |--------|------|---------|
 | `POST` | `/customers` | Create a customer **and** profile in one call |
 | `GET` | `/customers/{id}` | Fetch a customer with profile |
+| `GET` | `/customers/{id}/exposure` | **P0-4** — aggregate outstanding across all non-closed contracts + per-contract breakdown (`credit_officer`/`credit_manager`/`finance_officer`/`admin`, or the owning `customer`) |
 | `POST` | `/products` | Create a product (cash price only) |
 | `GET` | `/products/{id}` | Fetch a product |
 | `POST` | `/applications` | Create an application (`channel` required: `online` \| `branch`); starts as `draft` |
@@ -978,6 +1017,14 @@ small down payment that breaches the real DBR is **blocked (422)** even though
 the application passed the initial estimate; `warn_only` lets the same offer
 through but still records the failure; a blocked offer writes an audit event.
 
+**P0-4** — exposure ([tests/test_exposure.py](tests/test_exposure.py)):
+`compute_exposure` with 0 / 1 / N contracts sums to the per-contract Receivable
+totals; a customer with no other contracts is unaffected; existing balance +
+new request over `max_customer_exposure_kwd` → `referred`; **`closed` contracts
+are excluded**; changing `max_customer_exposure_kwd` flips an otherwise-identical
+application; `GET /customers/{id}/exposure` matches a manual 2-contract sum;
+RBAC + owning-customer.
+
 ### Frontend (Step 7) — `cd frontend && npm test`
 
 Vitest + React Testing Library, API mocked at `fetch`:
@@ -1014,10 +1061,11 @@ app/
                allocation (Step 3 pure waterfall), payments, overdue, receivable,
                closure (Step 4 settlement / cancellation / return),
                audit, users, collections (Step 6), approvals (Step 6),
-               ledger (P0-1 dual-write helper), errors
-  api/         auth, customers, products, applications (+ manual review, P0-2),
-               offers (+ contracts), payments (+ receivable + jobs), closure,
-               config, audit, collections, approvals routers
+               ledger (P0-1 dual-write helper), exposure (P0-4), errors
+  api/         auth, customers (+ exposure, P0-4), products,
+               applications (+ manual review, P0-2), offers (+ contracts),
+               payments (+ receivable + jobs), closure, config, audit,
+               collections, approvals routers
   main.py      FastAPI app + startup seeding (config params + bootstrap admin)
 alembic/       migrations (0001_initial … 0008_affordability_recheck)
 config/        business_rules.yaml  (fictitious placeholder defaults, Steps 1–4)
