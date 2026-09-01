@@ -28,7 +28,9 @@ from app.models.contract import (
     InstallmentContract,
     InstallmentStatus,
 )
+from app.models.accounting import AccountingEventType
 from app.models.payment import LateFeeCharge, LateFeeStatus
+from app.services import accounting
 from app.services import collections as collections_service
 from app.services import config_service as cfg
 from app.services.config_service import ConfigService
@@ -78,6 +80,7 @@ def assess_overdue(
 
     # contract id -> reason string for the first installment that went overdue
     newly_overdue_contracts: dict[int, str] = {}
+    new_charges: list[LateFeeCharge] = []
 
     for inst in rows:
         if not inst.is_fully_paid and inst.status != InstallmentStatus.overdue:
@@ -104,6 +107,7 @@ def assess_overdue(
                 status=LateFeeStatus.assessed,
             )
             db.add(charge)
+            new_charges.append(charge)
             summary.late_fees_assessed += 1
             summary.total_late_fee_amount += fee
             summary.charges.append(
@@ -115,6 +119,19 @@ def assess_overdue(
                 }
             )
 
+    db.flush()
+
+    # --- accounting-event boundary (additive; never blocks assessment) ---
+    for charge in new_charges:
+        contract = db.get(InstallmentContract, charge.contract_id)
+        accounting.emit(
+            db,
+            event_type=AccountingEventType.late_fee_charged,
+            event_reference=f"late-fee-charged-{charge.id}",
+            contract=contract,
+            amount=charge.amount,
+            event_date=charge.assessed_at,
+        )
     db.flush()
 
     # Collections hook: open a case for each contract that just went overdue

@@ -25,9 +25,12 @@ from app.models.approval import (
     ApprovalRequest,
     ApprovalStatus,
 )
+from app.models.accounting import AccountingEventType
+from app.models.contract import InstallmentContract
 from app.models.ledger import LedgerEntryType, LedgerRelatedAction
 from app.models.payment import LateFeeCharge, LateFeeStatus, Payment
 from app.models.reconciliation import ReconciliationException
+from app.services import accounting
 from app.services import ledger as ledger_service
 from app.services import reconciliation as recon_service
 from app.services.audit import record_event
@@ -149,6 +152,16 @@ def _execute(db: Session, approval: ApprovalRequest, *, actor_id: int) -> None:
                 reference_type="approval_request",
                 reference_id=approval.id,
                 created_by=actor_id,
+            )
+        # --- accounting-event boundary (additive) ---
+        contract = db.get(InstallmentContract, charge.contract_id)
+        if contract is not None:
+            accounting.emit(
+                db,
+                event_type=AccountingEventType.late_fee_waived,
+                event_reference=f"late-fee-waived-{charge.id}",
+                contract=contract,
+                amount=waived_amount,
             )
         return
 

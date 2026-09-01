@@ -80,7 +80,7 @@ Legend: **A** implemented+tested · **B** implemented but incomplete · **C** de
 | Payment allocation waterfall | **A / B** | `services/allocation.py` — pure function, **oldest installment first**, then Late Fee → Profit → Principal. Well tested (`test_allocation.py`, including the spanning-two-installments case). `B`: the waterfall order is **hard-coded**, not configurable. |
 | Payment ≠ settlement ≠ reconciliation | **G** | `Payment` is a single manual record. Statuses only `applied` / `overpaid`. **No** payment initiation, gateway, gateway callback, settlement, settlement batch, bank statement, reconciliation, or exception queue. No `gateway_reference` / `bank_transaction_reference`. |
 | Bank reconciliation | **G** | None. |
-| General ledger / accounting events | **G** | **Confirmed major gap.** No `AccountingEvent`, no ERP/GL posting boundary. Financial events happen but are not emitted for accounting. |
+| General ledger / accounting events | **B** | **Boundary done (G-07).** `AccountingEvent` emitted additively per financial action; mock `GlProvider`; `POST /jobs/post-accounting-events`. **No GL logic / no chart-of-accounts mapping** (BDR-31) and no real ERP client — it is the integration boundary only. |
 | Inventory / retail fulfillment | **G** | `Product` = `id, name, category, cash_price, installment_eligible`. No SKU, brand, warehouse, stock, reservation, serial/IMEI. "Confirm Delivery" (`offers.py:confirm_delivery`) is a bare `created → active` status flip + `activated_at` timestamp. Double-selling unavailable stock is **not prevented**. |
 | Sales Order | **A** | `SalesOrder` (application, product, offer, `sale_price`, `down_payment_amount`). Kept separate from `InstallmentContract`. Tested. |
 | Invoice | **G** | No invoice entity; no tax structure. |
@@ -130,7 +130,7 @@ Legend: **A** implemented+tested · **B** implemented but incomplete · **C** de
 | S-3 | **No exposure aggregation.** Assessment ignores the customer's other active contracts on this very platform; obligations are self-reported only. | **P0** |
 | S-4 | **Settlement / return / waiver mutate financial rows in place** with no reversal/adjustment transaction. You cannot reconstruct "profit 12.46 scheduled → 6.23 charged, 6.23 rebated"; the installment just shows `profit_paid = 12.46`. Violates the brief's Section 43 mandate. | **P0** |
 | S-5 | **Payment success is treated as final.** No settlement/reconciliation lifecycle → the company cannot prove a payment landed in the bank against the right contract. Brief Section 20 calls this "a critical architecture requirement". | **P0** (for real payments) — **P1** while payments are manual |
-| S-6 | **No accounting event emission.** Every financial event (sale, down payment, profit recognition, payment, late fee, waiver, settlement, cancellation, return) happens with no GL boundary. | **P0/P1** |
+| S-6 | ~~**No accounting event emission.**~~ **Addressed (G-07).** Every financial event now emits an additive `AccountingEvent` (delivery / payment / profit-recognition / late-fee assess+waive / settlement / cancellation / return); mock `GlProvider` + `POST /jobs/post-accounting-events`. The debit/credit **mapping** is still unconfirmed (BDR-31). | ~~**P0/P1**~~ boundary done |
 | S-7 | **No inventory guard.** Two contracts can be created for the last unit of stock. | **P1** |
 | S-8 | **No reporting surface.** No list endpoints → operations cannot see a queue of referred applications, overdue contracts, open collection cases, or reconciliation exceptions. | **P1** |
 | S-9 | **Broken-promise-to-pay never fires.** `promise_status` stuck at `pending`. Collections cannot act on missed promises. | **P1** |
@@ -145,7 +145,10 @@ Legend: **A** implemented+tested · **B** implemented but incomplete · **C** de
 > S-5 by P0-5 (payment → bank reconciliation, matching engine + exception queue +
 > maker-checker manual match, on manually-imported bank lines). Each remains
 > **structure, not confirmed policy** — the placeholder values and open business
-> decisions are tracked in Deliverable 6. S-6 onward are untouched.
+> decisions are tracked in Deliverable 6. **S-6 (no accounting-event emission)
+> is also now addressed** as a boundary — Gap Matrix G-07 — leaving only the
+> chart-of-accounts mapping as an open business decision (BDR-31). S-7 onward
+> are untouched.
 ## 1.5 Demo-ready vs production-ready
 
 | Aspect | Status | Note |
@@ -183,7 +186,7 @@ Priority: **P0** core financial correctness · **P1** important operational capa
 | G-04 | Immutable financial history | in-place mutation on settle/return/waiver | `closure.py:_close_out_schedule`, `approvals.py:_execute` | Cannot reconstruct original vs adjustment | Introduce a `FinancialTransaction` / `LedgerEntry` append-only record for every money-relevant event (charge, payment-allocation, rebate, reversal, adjustment, write-off, recovery); stop zeroing/overwriting — post compensating entries | **P0** | New (`FinancialTransaction`); Extend closure/allocation/approval services | Reversal vs adjustment semantics — **BDR-19** |
 | G-05 | Payment lifecycle (initiation→gateway→settlement→reconciliation) | **Partially closed — P0-5.** `Payment` gains `reconciliation_status` + `gateway_reference`; a reconciliation layer matches payments to bank lines. Still: no `channel`, no gateway/initiation, no settlement-batch/T+N timing. | `models/payment.py`, `models/reconciliation.py`, `services/reconciliation.py` | Cannot prove money reached the bank | *(done)* additive `Payment` refs + status; `BankStatementLine` + matching. *(remaining)* `channel`, `PaymentInitiation`, `SettlementBatch`, real gateway/bank feed, T+N model | **P0** (real) / ~~**P1** (manual)~~ **manual done** | Extend `Payment` + New (recon entities) | Bank ref format & matching rules — **BDR-26** |
 | G-06 | Bank reconciliation | **Closed for manual data — P0-5.** `services/reconciliation.py`: exact ref → amount+value-date-within-tolerance → `ReconciliationException` queue (`no_match`/`amount_mismatch`/`duplicate_candidate`); manual match maker-checker-controlled (`reconciliation.manual_match`). | `services/reconciliation.py`, `api/reconciliation.py`, `models/reconciliation.py` | ~~No matching, no exception queue~~ — remaining: runs only on manually-imported `BankStatementLine` rows (no bank feed) | *(done)* matching engine + exception queue + maker-checker override + config tolerance. *(remaining)* real `BankStatementProvider` import | ~~**P0** (real)~~ / **P2** (manual) **done** | New | Matching rule config — **BDR-26** |
-| G-07 | Accounting / GL boundary | none | — | Financial events not posted | `AccountingEvent` entity (event_type, refs, amount, currency, branch, date, `accounting_status`, `erp_reference`, idempotency ref, retry status) + an emitter hooked to the ~14 event types in brief §22; **no GL logic** — just an outbound integration boundary | **P0/P1** | New (thin boundary) | ERP owns posting? — **BDR-15** |
+| G-07 | Accounting / GL boundary | **Done (boundary only).** `models/accounting.py` `AccountingEvent` (event_type, `event_reference` idempotency key, contract/customer, signed `amount`, currency, `event_date`, `accounting_status`, `external_gl_reference`, `error_message`, `retry_count`); `services/accounting.py` emitter hooked additively into delivery / payment / late-fee assess+waive / closure (9 event types); mock `services/erp_adapter.py` `GlProvider`; `POST /jobs/post-accounting-events` on-demand posting job; `GET /accounting/events`. **No GL logic** — the debit/credit mapping is deferred. | `models/accounting.py`, `services/accounting.py`, `services/erp_adapter.py`, `api/accounting.py` | ~~Financial events not posted~~ — remaining: real ERP client; the chart-of-accounts mapping; scheduled (vs on-demand) posting | *(done)* event entity + additive emitters + idempotency + mock adapter + posting job. *(remaining)* real `GlProvider`, CoA mapping, scheduler | ~~**P0/P1**~~ **done (thin boundary)** | New (thin boundary) | Chart-of-accounts mapping — **BDR-31 (new)**; ERP owns posting — **BDR-15** |
 | G-08 | Inventory / fulfillment | delivery = status flip | `offers.py:confirm_delivery` | Double-sell possible; no serial/delivery record | Minimal: `InventoryItem` (sku, branch/warehouse, qty available, qty reserved), `Reservation` (contract/order, qty, status), `Delivery` (contract, scheduled/completed, `serial_number`/`imei`, confirmed_by). Integration boundary to a real WMS. | **P1** | New (minimal domain) + Integrate | Reservation & deduction point — **BDR-18**; ownership transfer — **BDR-01** |
 | G-09 | KYC | manual `risk_score` int | `models/customer.py:33` | No KYC status, no verification | `KycProfile` (status, verified_by, verified_at), `CustomerDocument` (type, metadata, verification_status), `MobileVerification`/OTP; **document requirements configurable** | **P1** | New + Extend `customer` | Required document set — **BDR-17** |
 | G-10 | T&C / consent | none | — | Cannot prove accepted terms | `TermsVersion` (version, content hash, effective_from), `ConsentRecord` (customer, terms_version, offer/contract ref, accepted_at, channel, ip/device where lawful) | **P1** | New | T&C content ownership; promissory note — **BDR-16** |
@@ -460,6 +463,7 @@ app/services/providers/
 | BDR-28 | Job cadence (DPD, late fee, reminders, recognition, recon, maturity, expiry) | Operational timing | only manual `assess-overdue` | scheduler config | Ops. |
 | BDR-29 | Data retention / PII handling / consent for IP & device capture | Legal (Kuwait PDPL-style) | none | policy + `config` | Legal/DPO. |
 | BDR-30 | Token strategy (refresh tokens, session length, revocation, storage) | Security posture | 30-min HS256, `localStorage`, no refresh | `config` + auth redesign | Security. |
+| BDR-31 | Chart-of-accounts / debit-credit mapping per accounting `event_type`; real-time vs batched posting | Whether the GL is correct | **G-07 done (boundary only).** `AccountingEvent` carries a single signed `amount`; the double-entry split and account codes are **unconfirmed** and applied by the real `GlProvider` later, not stored. Posting is an on-demand job for now (not a scheduler). For a plain early settlement the event amount is `0.00` (payoff collected via `/settle`; detail on the settlement Payment + ledger). | ERP adapter (`erp_adapter.py`) + `AccountingEvent` | Finance + ERP team. Ties to BDR-15. |
 
 ---
 
@@ -472,17 +476,24 @@ entity/module (justified) · **[FUTURE]** later · **[BDR]** blocked on a busine
 
 | Seq | Item | Class | Depends on | Test scenarios unlocked (§50) |
 |---|---|---|---|---|
-| P0-1 | **Immutable financial ledger** — `FinancialTransaction` append-only; stop in-place mutation in settlement/return/waiver; post compensating entries; migrate existing paid amounts into opening balances | **[NEW] + [EXTEND]** | — | 21, 31, 40 |
-| P0-2 | **Referred → manual verification** endpoint + `decision_source`/`rule_set_version`/`inputs_snapshot` on `AssessmentResult`; widen decision enum (`conditionally_approved`, `expired`, `cancelled`) | **[EXTEND]** | — | 6, 7 |
-| P0-3 | **Affordability correctness** — configurable obligation basis; **re-check affordability at offer acceptance**; block/branch on failure | **[EXTEND]** | P0-2 | (strengthens 4–6) |
-| P0-4 | **Exposure read-model** + config-driven multi-contract / exposure rule in the engine | **[NEW read-model] + [EXTEND]** | P0-3 | 8, 9 |
-| P0-5 | **Accounting event boundary** — `AccountingEvent` + emitter on sale/down-payment/receivable/profit-recognition/payment/late-fee/waiver/settlement/cancellation/return; mock `GlProvider` | **[NEW thin]** | P0-1 | 40, (foundation for §22) |
-| P0-6 | **Payment lifecycle skeleton** — widen `Payment` status enum + refs; `PaymentInitiation`; `Idempotency-Key` generic support | **[EXTEND] + [NEW]** | P0-1 | 11, 20, 34, 35 |
-| P0-7 | **Settlement / reconciliation entities** — `SettlementBatch`, `BankTransaction`, `Reconciliation` + configurable matching + exception queue (still runs on manually-imported data until a gateway exists) | **[NEW]** | P0-6 | 36, 37, 38, 39 |
+| P0-1 | **Immutable financial ledger** — `FinancialTransaction` append-only; stop in-place mutation in settlement/return/waiver; post compensating entries; migrate existing paid amounts into opening balances | **[NEW] + [EXTEND]** — **dual-write phase done** | — | 21, 31, 40 |
+| P0-2 | **Referred → manual verification** endpoint + `decision_source`/`rule_set_version`/`inputs_snapshot` on `AssessmentResult`; widen decision enum (`conditionally_approved`, `expired`, `cancelled`) | **[EXTEND]** — **done** | — | 6, 7 |
+| P0-3 | **Affordability correctness** — configurable obligation basis; **re-check affordability at offer acceptance**; block/branch on failure | **[EXTEND]** — **done** | P0-2 | (strengthens 4–6) |
+| P0-4 | **Exposure read-model** + config-driven multi-contract / exposure rule in the engine | **[NEW read-model] + [EXTEND]** — **done (company-wide)** | P0-3 | 8, 9 |
+| P0-5 | **Accounting event boundary** — `AccountingEvent` + emitter on sale/down-payment/receivable/profit-recognition/payment/late-fee/waiver/settlement/cancellation/return; mock `GlProvider` | **[NEW thin]** — **done** | P0-1 | 40, (foundation for §22) |
+| P0-6 | **Payment lifecycle skeleton** — widen `Payment` status enum + refs; `PaymentInitiation`; `Idempotency-Key` generic support | **[EXTEND] + [NEW]** — *partial:* `Payment.reconciliation_status` + `gateway_reference` landed with the reconciliation slice; initiation/idempotency-key still open | P0-1 | 11, 20, 34, 35 |
+| P0-7 | **Settlement / reconciliation entities** — `SettlementBatch`, `BankTransaction`, `Reconciliation` + configurable matching + exception queue (still runs on manually-imported data until a gateway exists) | **[NEW]** — *reconciliation + exception queue + maker-checker done* (`BankStatementLine`/`ReconciliationException`); settlement-batch / T+N still open | P0-6 | 36, 37, 38, 39 |
 
-> **[BDR blockers on P0]:** P0-3 needs BDR-22; P0-4 needs BDR-07/08; P0-5 needs BDR-15; the *values*
-> in P0-7 matching need BDR-26. The *structures* can be built with placeholder config; the
-> **behaviour that depends on a policy number must stay config-driven and clearly unconfirmed.**
+> **Progress note:** the reconciliation slice (paste-prompt "P0-5") delivered the
+> G-05/G-06 matching engine + exception queue and the two additive `Payment`
+> columns from P0-6; the accounting-event slice delivered this roadmap's P0-5
+> (G-07) in full as a boundary. What's left under P0-6/P0-7: `PaymentInitiation`,
+> a generic `Idempotency-Key`, `SettlementBatch`/T+N timing, and a real bank feed.
+
+> **[BDR blockers on P0]:** P0-3 needs BDR-22; P0-4 needs BDR-07/08; P0-5 (accounting)
+> needs BDR-15 + **BDR-31** (chart-of-accounts); the *values* in P0-7 matching need BDR-26.
+> The *structures* can be built with placeholder config; the **behaviour that depends on a
+> policy number must stay config-driven and clearly unconfirmed.**
 
 ## P1 — important operational capability
 
@@ -542,7 +553,7 @@ the corresponding BDRs are answered.
 | **P0-2 Referred → manual verification** | `api/applications.py`, `services/assessment.py`, `models/credit_application.py`, `models/*assessment*` | Assessment engine (adds `decision_source`); application status machine | Credit officer can approve/reject/conditionally-approve a referred app | **Yes** — `assessment_results` new columns; app status enum widened (string col, no constraint change) | New `POST /applications/{id}/review`; `GET /applications?status=referred` (P1) | New "Referred queue" + review screen (P1 frontend) | New `test_manual_verification.py`; existing referred tests still pass | **Compatible** — additive | **Low-Med** |
 | **P0-3 Affordability re-check** | `services/assessment.py`, `services/offers.py`, `config` | DBR computation; offer acceptance path | Config-selectable obligation basis; block/refer at acceptance if unaffordable | Config rows only | `POST /offers/{id}/accept` may now 409/refer | Offer page surfaces affordability result | `test_assessment.py`, `test_offer_flow.py` gain cases; some existing "accept succeeds" tests may need affordable inputs | **Behaviour change** — some previously-accepted offers would now be blocked (that's the point); gate behind config default = current behaviour until BDR-22 | **Med** (behavioural) |
 | **P0-4 Exposure** | `services/assessment.py` (+ `services/exposure.py`), read-only query | Assessment inputs | Multi-contract exposure visible + rule | None initially (query); table later if perf needs | `GET /customers/{id}/exposure` | Credit review screen shows exposure | New `test_exposure.py`; multi-contract fixtures | **Compatible** — new rule defaults to "off" until BDR-08 | **Low-Med** |
-| **P0-5 Accounting events** | `services/accounting.py` (new), hooks in ~8 services, `providers/gl/mock.py` | Every financial service gains one `emit(...)` line | Outbound GL boundary | **Yes** — `accounting_events` table | `GET /accounting/events` (admin/finance) | none | New `test_accounting_events.py`; assert one event per financial action | **Compatible** — purely additive | **Low** (thin boundary) |
+| **P0-5 Accounting events** — **DONE** | `models/accounting.py`, `services/accounting.py`, `services/erp_adapter.py`, `api/accounting.py`; `emit(...)` hooks in `offers`/`payments`/`overdue`/`approvals`/`closure` | Every financial flow gains one `emit(...)` line (additive) | Outbound GL boundary | **Yes** — `accounting_events` table (migration 0010) | `GET /accounting/events`, `POST /jobs/post-accounting-events` (admin/finance) | none | `tests/test_accounting_events.py` (11) — amounts, idempotency, posting job | **Compatible** — purely additive; no existing response shape changed | **Low** (thin boundary) — delivered |
 | **P0-6 Payment lifecycle skeleton** | `models/payment.py`, `services/payments.py`, `core/` (idempotency dependency) | `Payment` status enum; allocation still runs on `success` | Attempt tracking; generic idempotency | **Yes** — `payments` columns, `payment_initiations` table, `idempotency_keys` table | `POST .../payments` accepts `Idempotency-Key` header; status values expand | Payment form gains a reference/idempotency field (already has one) | `test_payments_flow.py` status assertions; new idempotency tests | **Compatible** — `applied` maps to `success`; keep an alias | **Low-Med** |
 | **P0-7 Reconciliation** | `services/reconciliation.py` (new), `models/` | none (new subsystem) | Settlement + bank matching + exception queue | **Yes** — `settlement_batches`, `bank_transactions`, `reconciliations` | `POST /reconciliation/import`, `GET /reconciliation/exceptions`, `POST /reconciliation/{id}/match` (maker-checker) | Recon exceptions screen (P2) | New `test_reconciliation.py` (scenarios 36–39) | **Compatible** — isolated | **Low-Med** |
 | **P1 Inventory minimal** | `models/`, `services/fulfilment.py` (new), `api/offers.py` (`confirm-delivery`), `providers/inventory/mock.py` | `confirm-delivery` gains a precondition | Reservation + serial + delivery record | **Yes** — `inventory_items`, `reservations`, `deliveries` | `confirm-delivery` may 409 if no reservation; new inventory endpoints | Contract page shows delivery/serial; offer flow shows availability | `test_offer_flow.py` delivery step; new `test_inventory.py` (13, 14) | **Behaviour change** on `confirm-delivery` — gate behind config until BDR-18 | **Med** |
@@ -609,16 +620,16 @@ the corresponding BDRs are answered.
 | 10 | What has the customer paid? | 🟢 (`Payment` + `PaymentAllocation`) — but only summarised on the installment, not a full ledger (S-4) |
 | 11 | Where was the payment initiated? | 🔴 (no channel/initiation) |
 | 12 | Was it settled? | 🔴 |
-| 13 | Was it reconciled to the bank? | 🔴 |
+| 13 | Was it reconciled to the bank? | 🟡 (P0-5 — matching engine + exception queue on manually-imported bank lines; no real feed) |
 | 14 | Which contract did it settle? | 🟢 (`Payment.contract_id`) |
 | 15 | Is the customer overdue? | 🟢 (after running `assess-overdue`; not real-time) |
 | 16 | What late fees apply? | 🟢 (`LateFeeCharge`) |
 | 17 | What collection action occurred? | 🟢 (`CollectionActivity`) |
-| 18 | What is the customer's total exposure? | 🔴 |
+| 18 | What is the customer's total exposure? | 🟢 (P0-4 — `compute_exposure` / `GET /customers/{id}/exposure`, company-wide) |
 | 19 | Why approved/rejected/referred? | 🟢 (`AssessmentResult.triggered_rules`) |
 | 20 | Which rule version decided? | 🟡 (`config_snapshot` of values, not a version id) |
 | 21 | What happened to the product/inventory? | 🔴 |
-| 22 | What accounting event was generated? | 🔴 |
+| 22 | What accounting event was generated? | 🟡 (G-07 — `AccountingEvent` per financial action + posting job; debit/credit mapping unconfirmed, BDR-31) |
 | 23 | What happens if the customer returns the product? | 🟡 (contract closes with a signed adjustment; no refund/reversal detail) |
 | 24 | What happens if the customer settles early? | 🟢 (quote + settle + closure, audited) |
 | 25 | What happens if the receivable is written off? | 🔴 |

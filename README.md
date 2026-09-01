@@ -1,6 +1,6 @@
 # Retail Credit & Installment Sales Platform
 
-**Steps 1–7 — a FastAPI backend (application → assessment → offer → contract → payments → collections → maker-checker, behind JWT auth + RBAC + audit) and a React staff web app for the core flow.** Plus post-[assessment](docs/enterprise-assessment.md) P0 fixes: referred → manual verification (P0-2), an immutable financial ledger in dual-write (P0-1), affordability re-check at offer time (P0-3), company-wide customer exposure aggregation (P0-4), and payment → bank reconciliation (P0-5) — which together close all five most-severe findings (S-1 through S-5).
+**Steps 1–7 — a FastAPI backend (application → assessment → offer → contract → payments → collections → maker-checker, behind JWT auth + RBAC + audit) and a React staff web app for the core flow.** Plus post-[assessment](docs/enterprise-assessment.md) P0 fixes: referred → manual verification (P0-2), an immutable financial ledger in dual-write (P0-1), affordability re-check at offer time (P0-3), company-wide customer exposure aggregation (P0-4), and payment → bank reconciliation (P0-5) — which together close all five most-severe findings (S-1 through S-5) — plus an accounting-event boundary for a downstream ERP (Gap Matrix G-07).
 
 This is a **retail installment-sale** platform, not a cash-loan system. The
 company never disburses cash. A customer buys a product on credit terms; a
@@ -323,6 +323,64 @@ ledger read-cutover, and any settlement-batch / T+N timing model.
 
 ---
 
+## Accounting-event boundary (fills Gap Matrix G-07 / assessment §22)
+
+The Gap Matrix's one confirmed *"missing entirely"* row was the General Ledger /
+accounting boundary: financial events happened with no structured, postable
+record for a downstream ERP. This is **not** a general ledger — it is the
+**boundary**, the same mock-adapter pattern already used for the payment gateway
+and the bank feed.
+
+**Confirmed principle (built in):** accounting events are generated
+**automatically and additively** from events that already happen — they never
+change any existing business behaviour or response shape. Posting an event to the
+ERP is downstream and recoverable; a failed post never means the payment /
+settlement / activation didn't happen.
+
+- **`AccountingEvent`** — `event_type`, `event_reference` (unique — the
+  idempotency key, e.g. `payment-received-42`), `contract_id`, `customer_id`,
+  `amount` (single signed figure), `currency` (`KWD`), `event_date`,
+  `accounting_status` (`pending` / `posted` / `failed`), `external_gl_reference`,
+  `error_message`, `retry_count`.
+- **Hooks (additive only)** in the existing flows:
+  | Trigger | Events |
+  |---|---|
+  | Delivery confirmation | `contract_activated` (sale price) + `down_payment_received` (down payment) |
+  | Payment allocation | `payment_received` (whole payment) + `profit_recognized` (profit portion *this* allocation recognised, not the full schedule) |
+  | Overdue job assesses a late fee | `late_fee_charged` |
+  | Late-fee waiver approved | `late_fee_waived` |
+  | Early settlement / cancellation / return | one matching event, `amount` = the closure's signed `financial_adjustment` |
+
+  Every hook is idempotent — the unique `event_reference` means firing the same
+  trigger twice (e.g. a replayed payment) never creates a duplicate.
+- **Mock ERP adapter** (`app/services/erp_adapter.py`) — `GlProvider` interface;
+  `MockGlProvider.post_event` always succeeds and returns a fake
+  `MOCK-GL-{uuid}` reference. A real ERP client is a drop-in replacement. No
+  retry / backoff / circuit-breaker — deferred until a real ERP exists.
+- **`POST /jobs/post-accounting-events`** (`admin`) — on-demand posting job
+  (like `/jobs/assess-overdue`, **not** a scheduler): hands every non-`posted`
+  event to the adapter, records `posted` + reference or `failed` +
+  `error_message` + `retry_count++`. Idempotent and safe to re-run.
+- **`GET /accounting/events`** (`finance_officer`, `admin`) — list, filterable by
+  `event_type` / `accounting_status` / `contract_id`.
+- **Migration `0010`** — one new `accounting_events` table. No existing table or
+  column changes.
+
+> **BUSINESS DECISION REQUIRED** (register, assessment BDR-31): the actual
+> **chart-of-accounts / debit-credit mapping** per `event_type` — Finance has not
+> confirmed it. The model deliberately stores only one signed `amount`; the
+> double-entry split is applied by the real `GlProvider` later, not here. Also
+> unconfirmed: real-time vs batched posting (on-demand job for now). For a plain
+> early settlement the closure records no `financial_adjustment` (the payoff was
+> collected in full via `/settle`), so that event's amount is `0.00` and the
+> money detail lives on the settlement `Payment` + ledger entries.
+
+**Out of scope:** real ERP/GL integration, the chart-of-accounts mapping,
+adapter resilience, write-off / recovery / ECL events (those actions don't
+exist yet), any scheduled posting.
+
+---
+
 ## Tech stack
 
 **Backend** Python 3.11 · FastAPI · PostgreSQL · SQLAlchemy 2.x · Alembic · PyJWT · bcrypt · Pytest · Docker Compose
@@ -419,6 +477,7 @@ Migrations:
 - [`0007_ledger_and_manual_review`](alembic/versions/0007_ledger_and_manual_review.py) — `ledger_entries` (write-only); `assessment_results.source` / `reviewed_by` / `notes`
 - [`0008_affordability_recheck`](alembic/versions/0008_affordability_recheck.py) — widen `assessment_results.source` (P0-3)
 - [`0009_bank_reconciliation`](alembic/versions/0009_bank_reconciliation.py) — `payments.reconciliation_status` (NOT NULL, server default `unreconciled`) + `payments.gateway_reference`; `bank_statement_lines`, `reconciliation_exceptions` (P0-5)
+- [`0010_accounting_events`](alembic/versions/0010_accounting_events.py) — `accounting_events` (one new table, purely additive — Gap Matrix G-07)
 
 *(P0-4 added no migration — the exposure config is two YAML-seeded `config_parameters` rows.)*
 
@@ -747,6 +806,8 @@ Tokens are HS256, `access_token_expire_minutes` (default 30), carrying
 | `GET /approvals`, `POST /approvals/{id}/approve` / `/reject` *(Step 6; `finance_officer` added P0-5)* | `finance_officer`, `credit_manager`, `admin` |
 | `POST /reconciliation/bank-lines`, `POST /reconciliation/run`, `GET /reconciliation/status` *(P0-5)* | `finance_officer`, `admin` |
 | `GET /reconciliation/exceptions`, `POST /reconciliation/exceptions/{id}/request-match` *(P0-5)* | `finance_officer`, `credit_manager`, `admin` |
+| `GET /accounting/events` *(G-07)* | `finance_officer`, `admin` |
+| `POST /jobs/post-accounting-events` *(G-07)* | `admin` |
 | other authenticated endpoints (`POST /products`, `GET /contracts/{id}`, `GET /offers/{id}`, `GET /customers/{id}`, `GET /products/{id}`, `GET /auth/me`) | any valid token |
 
 **Ownership.** A `customer`-role user is linked to a `Customer` via
@@ -895,6 +956,8 @@ seeding and by tests via the `set_config` fixture) is unchanged.
 | `POST` | `/reconciliation/exceptions/{id}/request-match` | **P0-5** — body `{payment_id, reason}` → pending `ApprovalRequest` (`reconciliation.manual_match`); a *different* approver performs the match |
 | `GET` | `/reconciliation/status` | **P0-5** — portfolio counts: payments by reconciliation status, open/resolved exceptions, unmatched lines (`finance_officer`/`admin`) |
 | `GET` | `/contracts/{id}/receivable` | *(P0-5)* now also returns `reconciliation_summary` — this contract's payments counted by reconciliation status (all other figures unchanged) |
+| `GET` | `/accounting/events` | **G-07** — list accounting events, filter `event_type` / `accounting_status` / `contract_id` (`finance_officer`/`admin`) |
+| `POST` | `/jobs/post-accounting-events` | **G-07** — on-demand: post every non-`posted` event via the mock ERP adapter; idempotent (**admin**) |
 
 ### Example
 
@@ -1132,6 +1195,15 @@ blocks a second; `GET /reconciliation/status` counts a mixed scenario;
 `GET /contracts/{id}/receivable` gains `reconciliation_summary` with every
 existing figure unchanged; RBAC.
 
+**G-07** — accounting-event boundary ([tests/test_accounting_events.py](tests/test_accounting_events.py)):
+delivery emits `contract_activated` (sale price) + `down_payment_received`; a
+payment emits `payment_received` + `profit_recognized` for *that allocation's*
+profit (not the full schedule); a late-fee charge and its waiver each emit one
+event; settlement / cancellation / return each emit one event with the correct
+signed amount; **replaying a payment or re-running the overdue job never
+duplicates an event**; the posting job moves `pending` → `posted` with a
+`MOCK-GL-…` reference and running it twice never re-posts; RBAC.
+
 ### Frontend (Step 7) — `cd frontend && npm test`
 
 Vitest + React Testing Library, API mocked at `fetch`:
@@ -1162,7 +1234,8 @@ app/
                User, AuditEvent,
                CollectionCase, CollectionActivity, ApprovalRequest,
                LedgerEntry (P0-1, write-only),
-               BankStatementLine, ReconciliationException (P0-5)
+               BankStatementLine, ReconciliationException (P0-5),
+               AccountingEvent (G-07)
   schemas/     Pydantic request/response models
   services/    config_service (externalised rules), assessment (Step 1 engine),
                pricing (Step 2 declining-balance engine), offers (offer→contract),
@@ -1170,13 +1243,16 @@ app/
                closure (Step 4 settlement / cancellation / return),
                audit, users, collections (Step 6), approvals (Step 6),
                ledger (P0-1 dual-write helper), exposure (P0-4),
-               reconciliation (P0-5 matching engine), errors
+               reconciliation (P0-5 matching engine),
+               accounting (G-07 event generation + posting job),
+               erp_adapter (G-07 mock GL boundary), errors
   api/         auth, customers (+ exposure, P0-4), products,
                applications (+ manual review, P0-2), offers (+ contracts),
                payments (+ receivable + jobs), closure, config, audit,
-               collections, approvals, reconciliation (P0-5) routers
+               collections, approvals, reconciliation (P0-5),
+               accounting (G-07) routers
   main.py      FastAPI app + startup seeding (config params + bootstrap admin)
-alembic/       migrations (0001_initial … 0009_bank_reconciliation)
+alembic/       migrations (0001_initial … 0010_accounting_events)
 config/        business_rules.yaml  (fictitious placeholder defaults, Steps 1–4)
 scripts/       seed_config.py, create_admin.py
 tests/         backend pytest suite

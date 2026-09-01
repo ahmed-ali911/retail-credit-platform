@@ -25,8 +25,10 @@ from app.models.contract import (
     InstallmentContract,
     PaymentSchedule,
 )
+from app.models.accounting import AccountingEventType
 from app.models.offer import InstallmentOffer, OfferStatus
 from app.models.sales_order import SalesOrder
+from app.services import accounting
 from app.services import config_service as cfg
 from app.services import pricing
 from app.services.config_service import ConfigService
@@ -295,5 +297,26 @@ def confirm_delivery(db: Session, contract: InstallmentContract) -> InstallmentC
         )
     contract.status = ContractStatus.active
     contract.activated_at = _utcnow()
+    db.flush()
+
+    # --- accounting-event boundary (additive; never blocks delivery) ---
+    # Sale price and down payment are both recognised at delivery confirmation.
+    sales_order = contract.sales_order
+    accounting.emit(
+        db,
+        event_type=AccountingEventType.contract_activated,
+        event_reference=f"contract-activated-{contract.id}",
+        contract=contract,
+        amount=sales_order.sale_price,
+        event_date=contract.activated_at,
+    )
+    accounting.emit(
+        db,
+        event_type=AccountingEventType.down_payment_received,
+        event_reference=f"down-payment-received-{contract.id}",
+        contract=contract,
+        amount=sales_order.down_payment_amount,
+        event_date=contract.activated_at,
+    )
     db.flush()
     return contract

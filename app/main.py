@@ -5,6 +5,7 @@ from contextlib import asynccontextmanager
 from fastapi import Depends, FastAPI
 
 from app.api import (
+    accounting,
     applications,
     approvals,
     audit,
@@ -70,6 +71,7 @@ app.include_router(closure.router, dependencies=_authed)
 app.include_router(collections.router, dependencies=_authed)
 app.include_router(approvals.router, dependencies=_authed)
 app.include_router(reconciliation.router, dependencies=_authed)
+app.include_router(accounting.router, dependencies=_authed)
 app.include_router(config_api.router, dependencies=_authed)
 app.include_router(audit.router, dependencies=_authed)
 

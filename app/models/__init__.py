@@ -48,6 +48,11 @@ from app.models.reconciliation import (
     ReconExceptionStatus,
     ReconciliationException,
 )
+from app.models.accounting import (
+    AccountingEvent,
+    AccountingEventType,
+    AccountingStatus,
+)
 
 __all__ = [
     "Base",
@@ -94,4 +99,7 @@ __all__ = [
     "ReconExceptionReason",
     "ReconExceptionStatus",
     "ReconciliationException",
+    "AccountingEvent",
+    "AccountingEventType",
+    "AccountingStatus",
 ]

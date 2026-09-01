@@ -18,10 +18,12 @@ from decimal import ROUND_HALF_UP, Decimal
 
 from sqlalchemy.orm import Session
 
+from app.models.accounting import AccountingEventType
 from app.models.closure import ClosureReason, ContractClosure
 from app.models.contract import ContractStatus, InstallmentContract, InstallmentStatus
 from app.models.ledger import LedgerEntryType, LedgerRelatedAction
 from app.models.payment import LateFeeStatus, Payment, PaymentStatus
+from app.services import accounting
 from app.services import config_service as cfg
 from app.services import ledger as ledger_service
 from app.services.config_service import ConfigService
@@ -37,6 +39,35 @@ def _money(value) -> Decimal:
 
 def _utcnow() -> datetime:
     return datetime.now(timezone.utc)
+
+
+_CLOSURE_EVENT_REF_PREFIX = {
+    AccountingEventType.early_settlement: "early-settlement",
+    AccountingEventType.cancellation: "cancellation",
+    AccountingEventType.return_: "return",
+}
+
+
+def _emit_closure_event(
+    db: Session,
+    contract: InstallmentContract,
+    closure: ContractClosure,
+    event_type: AccountingEventType,
+) -> None:
+    """One accounting event per closure. ``amount`` is the closure's signed
+    ``financial_adjustment`` (same convention). For a plain early settlement the
+    adjustment is NULL — the payoff was collected in full via ``/settle`` — so
+    the event amount is 0.00 and the money detail lives on the settlement
+    Payment and ledger entries."""
+    prefix = _CLOSURE_EVENT_REF_PREFIX[event_type]
+    accounting.emit(
+        db,
+        event_type=event_type,
+        event_reference=f"{prefix}-{closure.id}",
+        contract=contract,
+        amount=closure.financial_adjustment if closure.financial_adjustment is not None else _ZERO,
+        event_date=closure.closed_at,
+    )
 
 
 def _guard_not_closed(contract: InstallmentContract) -> None:
@@ -184,6 +215,9 @@ def settle_contract(
                 reference_id=closure.id,
                 created_by=actor_id,
             )
+
+    # --- accounting-event boundary (additive) ---
+    _emit_closure_event(db, contract, closure, AccountingEventType.early_settlement)
     db.flush()
     return closure
 
@@ -251,6 +285,10 @@ def cancel_contract(
             reference_id=closure.id,
             created_by=actor_id,
         )
+
+    # --- accounting-event boundary (additive) ---
+    _emit_closure_event(db, contract, closure, AccountingEventType.cancellation)
+    db.flush()
 
     return CancellationResult(
         closure=closure,
@@ -336,6 +374,10 @@ def return_contract(
             reference_id=closure.id,
             created_by=actor_id,
         )
+
+    # --- accounting-event boundary (additive) ---
+    _emit_closure_event(db, contract, closure, AccountingEventType.return_)
+    db.flush()
 
     return ReturnResult(
         closure=closure,

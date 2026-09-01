@@ -19,7 +19,9 @@ from app.models.payment import (
     PaymentAllocation,
     PaymentStatus,
 )
+from app.models.accounting import AccountingEventType
 from app.models.ledger import LedgerEntryType, LedgerRelatedAction
+from app.services import accounting
 from app.services import allocation as alloc
 from app.services import collections as collections_service
 from app.services import ledger as ledger_service
@@ -158,6 +160,28 @@ def record_payment(
         _update_installment_status(installment)
 
     db.flush()
+
+    # --- accounting-event boundary (additive; never blocks the payment) ---
+    # The whole payment received, plus the profit portion actually recognised by
+    # this allocation (not the full scheduled profit).
+    accounting.emit(
+        db,
+        event_type=AccountingEventType.payment_received,
+        event_reference=f"payment-received-{payment.id}",
+        contract=contract,
+        amount=payment.amount,
+        event_date=payment.received_at,
+    )
+    profit_recognized = sum((line.profit for line in plan.allocations), _ZERO)
+    if profit_recognized > _ZERO:
+        accounting.emit(
+            db,
+            event_type=AccountingEventType.profit_recognized,
+            event_reference=f"profit-recognized-{payment.id}",
+            contract=contract,
+            amount=profit_recognized,
+            event_date=payment.received_at,
+        )
 
     # Collections hook: close the open case once no overdue installments remain.
     collections_service.close_case_if_cleared(db, contract, actor_id=actor_id)
