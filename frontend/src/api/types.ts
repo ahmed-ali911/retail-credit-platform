@@ -53,11 +53,14 @@ export interface TriggeredRule {
 
 export interface AssessmentResultOut {
   id: number;
-  decision: "approved" | "rejected" | "referred";
+  decision: string;
+  source?: string;
   estimated_installment: number;
   debt_burden_ratio: number | null;
   triggered_rules: TriggeredRule[];
   config_snapshot: Record<string, unknown>;
+  reviewed_by?: number | null;
+  notes?: string | null;
   created_at: string;
 }
 
@@ -73,6 +76,124 @@ export interface ApplicationOut {
   created_by: string;
   latest_assessment: AssessmentResultOut | null;
   assessments: AssessmentResultOut[];
+}
+
+export interface ApplicationListItem {
+  id: number;
+  customer_id: number;
+  product_id: number;
+  requested_amount: number;
+  status: ApplicationOut["status"];
+  submitted_at: string;
+}
+
+// --- P0-4 exposure ---
+export interface ContractExposure {
+  contract_id: number;
+  status: string;
+  outstanding_principal: number;
+  outstanding_profit: number;
+  outstanding_late_fees: number;
+  outstanding_total: number;
+}
+
+export interface CustomerExposure {
+  customer_id: number;
+  aggregation_level: string;
+  total_outstanding: number;
+  contracts: ContractExposure[];
+}
+
+// --- P0-5 bank reconciliation ---
+export interface ReconciliationStatus {
+  unreconciled_payments: number;
+  reconciled_payments: number;
+  exception_payments: number;
+  open_exceptions: number;
+  resolved_exceptions: number;
+  unmatched_bank_lines: number;
+}
+
+export interface BankStatementLine {
+  id: number;
+  bank_reference: string;
+  amount: number;
+  value_date: string;
+  imported_at: string;
+  matched_payment_id: number | null;
+}
+
+export interface MatchRunResult {
+  lines_processed: number;
+  matched: number;
+  exceptions_created: number;
+}
+
+export interface ReconciliationException {
+  id: number;
+  bank_line_id: number;
+  reason: "no_match" | "amount_mismatch" | "duplicate_candidate";
+  status: "open" | "resolved";
+  created_at: string;
+  resolved_at: string | null;
+  resolved_by: number | null;
+}
+
+// --- maker-checker approvals ---
+export interface ApprovalRequestOut {
+  id: number;
+  action_type: string;
+  entity_type: string;
+  entity_id: string;
+  requested_by: number;
+  requested_at: string;
+  payload: Record<string, unknown>;
+  status: "pending" | "approved" | "rejected";
+  decided_by: number | null;
+  decided_at: string | null;
+  decision_notes: string | null;
+}
+
+// --- config ---
+export interface ConfigParameterOut {
+  key: string;
+  value: string;
+  value_type: string;
+  description: string | null;
+}
+
+// --- audit ---
+export interface AuditEventOut {
+  id: number;
+  user_id: number | null;
+  action: string;
+  entity_type: string;
+  entity_id: string | null;
+  before_value: Record<string, unknown> | null;
+  after_value: Record<string, unknown> | null;
+  timestamp: string;
+}
+
+// --- closure ---
+export interface SettlementQuoteOut {
+  contract_id: number;
+  outstanding_principal: number;
+  outstanding_late_fees: number;
+  unearned_profit_total: number;
+  profit_rebate_pct: number;
+  profit_rebate_amount: number;
+  profit_still_charged: number;
+  final_payoff_amount: number;
+  quote_expiry: string;
+}
+
+export interface ContractClosureOut {
+  id: number;
+  contract_id: number;
+  reason: "normal" | "early_settlement" | "cancellation" | "return";
+  financial_adjustment: number | null;
+  closed_at: string;
+  notes: string | null;
 }
 
 export interface ScheduleLine {
@@ -138,6 +259,7 @@ export interface ContractOut {
   activated_at: string | null;
   sales_order: SalesOrderOut;
   installments: InstallmentOut[];
+  closure?: ContractClosureOut | null;
 }
 
 export interface AcceptResult {

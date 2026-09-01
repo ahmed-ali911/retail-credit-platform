@@ -4,6 +4,7 @@ import { Card } from "../components/ui";
 
 export function DashboardPage() {
   const navigate = useNavigate();
+  const [customerId, setCustomerId] = useState("");
   const [appId, setAppId] = useState("");
   const [offerId, setOfferId] = useState("");
   const [contractId, setContractId] = useState("");
@@ -35,6 +36,23 @@ export function DashboardPage() {
           The backend has no list endpoints yet — open records by id.
         </p>
         <div className="inline-form">
+          <label className="field">
+            <span>Customer #</span>
+            <input
+              inputMode="numeric"
+              value={customerId}
+              onChange={(e) => setCustomerId(e.target.value)}
+            />
+          </label>
+          <button
+            className="btn-secondary"
+            disabled={!customerId}
+            onClick={() => navigate(`/customers/${customerId}`)}
+          >
+            Open customer
+          </button>
+        </div>
+        <div className="inline-form" style={{ marginTop: "0.75rem" }}>
           <label className="field">
             <span>Application #</span>
             <input

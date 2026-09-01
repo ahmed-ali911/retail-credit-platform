@@ -1,4 +1,9 @@
-from tests.helpers import make_application, make_customer, make_product
+from tests.helpers import (
+    approved_application,
+    make_application,
+    make_customer,
+    make_product,
+)
 
 
 def test_application_lifecycle_and_get(client):
@@ -58,3 +63,46 @@ def test_unknown_customer_or_product(client):
         "requested_amount": 1000, "requested_tenor_months": 12, "channel": "branch",
     })
     assert resp.status_code == 404
+
+
+# --------------------------------------------------------------------------- #
+# Step 9 — minimal review-queue listing (GET /applications?status=referred)
+# --------------------------------------------------------------------------- #
+def _referred(client, national_id):
+    customer = make_customer(client, national_id=national_id, risk_score=620,
+                             monthly_income=5000, existing_obligations=100)
+    product = make_product(client)
+    app = make_application(client, customer["id"], product["id"],
+                           requested_amount=1200, requested_tenor_months=12)
+    submitted = client.post(f"/applications/{app['id']}/submit").json()
+    assert submitted["status"] == "referred", submitted
+    return submitted
+
+
+def test_list_referred_applications_for_the_review_queue(client):
+    a = _referred(client, "LS-REF-1")
+    b = _referred(client, "LS-REF-2")
+    # an approved one that must NOT show up in the referred filter
+    approved_application(client, national_id="LS-OK")
+
+    resp = client.get("/applications?status=referred")
+    assert resp.status_code == 200
+    rows = resp.json()
+    ids = {r["id"] for r in rows}
+    assert ids == {a["id"], b["id"]}
+    row = rows[0]
+    assert set(row) == {
+        "id", "customer_id", "product_id", "requested_amount",
+        "status", "submitted_at",
+    }
+    assert row["status"] == "referred"
+    assert row["submitted_at"] is not None
+
+
+def test_review_queue_list_is_role_gated(client_as):
+    assert client_as("sales_employee").get(
+        "/applications?status=referred"
+    ).status_code == 403
+    assert client_as("credit_officer").get(
+        "/applications?status=referred"
+    ).status_code == 200

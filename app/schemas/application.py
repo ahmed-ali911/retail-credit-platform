@@ -59,3 +59,20 @@ class ApplicationOut(BaseModel):
     created_by: str
     latest_assessment: AssessmentResultOut | None = None
     assessments: list[AssessmentResultOut] = []
+
+
+class ApplicationListItem(BaseModel):
+    """Compact row for the Step 9 review queue (`GET /applications?status=…`).
+
+    There is no separate `submitted_at` column yet — `submitted_at` is the
+    application's `created_at` (the submit flow requires `draft` status and runs
+    assessment synchronously, so the two moments are effectively the same).
+    """
+
+    model_config = ConfigDict(from_attributes=True)
+    id: int
+    customer_id: int
+    product_id: int
+    requested_amount: float
+    status: ApplicationStatus
+    submitted_at: datetime = Field(validation_alias="created_at")

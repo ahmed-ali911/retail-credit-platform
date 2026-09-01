@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.core.auth import authorize_owner_or_roles, get_current_user, require_roles
@@ -16,6 +17,7 @@ from app.models.product import Product
 from app.models.user import User, UserRole
 from app.schemas.application import (
     ApplicationCreate,
+    ApplicationListItem,
     ApplicationOut,
     ReviewDecision,
     ReviewRequest,
@@ -80,6 +82,23 @@ def create_application(
     db.commit()
     db.refresh(application)
     return application
+
+
+@router.get("", response_model=list[ApplicationListItem])
+def list_applications(
+    db: Session = Depends(get_db),
+    status_: ApplicationStatus | None = Query(default=None, alias="status"),
+    _: User = Depends(require_roles(*_REVIEW_ROLES)),
+):
+    """Minimal list for the Step 9 review queue.
+
+    Deliberately narrow — added only because the `referred` queue is unusable
+    without it. Not a general-purpose listing surface for every entity.
+    """
+    stmt = select(CreditApplication).order_by(CreditApplication.id.desc())
+    if status_ is not None:
+        stmt = stmt.where(CreditApplication.status == status_)
+    return db.execute(stmt).scalars().all()
 
 
 @router.post("/{application_id}/submit", response_model=ApplicationOut)

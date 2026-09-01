@@ -8,6 +8,12 @@ import { CreateProductPage } from "./pages/CreateProductPage";
 import { NewApplicationPage } from "./pages/NewApplicationPage";
 import { OfferPage } from "./pages/OfferPage";
 import { ContractPage } from "./pages/ContractPage";
+import { CustomerPage } from "./pages/CustomerPage";
+import { ReviewQueuePage, ReviewApplicationPage } from "./pages/ReviewQueuePage";
+import { ReconciliationPage } from "./pages/ReconciliationPage";
+import { ApprovalsPage } from "./pages/ApprovalsPage";
+import { ConfigPage } from "./pages/ConfigPage";
+import { AuditLogPage } from "./pages/AuditLogPage";
 
 export default function App() {
   return (
@@ -22,11 +28,18 @@ export default function App() {
       >
         <Route index element={<DashboardPage />} />
         <Route path="customers/new" element={<CreateCustomerPage />} />
+        <Route path="customers/:customerId" element={<CustomerPage />} />
         <Route path="products/new" element={<CreateProductPage />} />
         <Route path="applications/new" element={<NewApplicationPage />} />
         <Route path="applications/:applicationId/offer" element={<OfferPage />} />
         <Route path="offers/:offerId" element={<OfferPage />} />
         <Route path="contracts/:contractId" element={<ContractPage />} />
+        <Route path="review" element={<ReviewQueuePage />} />
+        <Route path="review/:applicationId" element={<ReviewApplicationPage />} />
+        <Route path="reconciliation" element={<ReconciliationPage />} />
+        <Route path="approvals" element={<ApprovalsPage />} />
+        <Route path="config" element={<ConfigPage />} />
+        <Route path="audit" element={<AuditLogPage />} />
       </Route>
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>

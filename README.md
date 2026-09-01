@@ -1,6 +1,6 @@
 # Retail Credit & Installment Sales Platform
 
-**Steps 1–7 — a FastAPI backend (application → assessment → offer → contract → payments → collections → maker-checker, behind JWT auth + RBAC + audit) and a React staff web app for the core flow.** Plus post-[assessment](docs/enterprise-assessment.md) P0 fixes: referred → manual verification (P0-2), an immutable financial ledger in dual-write (P0-1), affordability re-check at offer time (P0-3), company-wide customer exposure aggregation (P0-4), and payment → bank reconciliation (P0-5) — which together close all five most-severe findings (S-1 through S-5) — plus an accounting-event boundary for a downstream ERP (Gap Matrix G-07).
+**Steps 1–9 — a FastAPI backend (application → assessment → offer → contract → payments → collections → maker-checker, behind JWT auth + RBAC + audit) and a React staff web app (core flow plus review queue, exposure, reconciliation, approvals, closure, config and audit-log screens).** Plus post-[assessment](docs/enterprise-assessment.md) P0 fixes: referred → manual verification (P0-2), an immutable financial ledger in dual-write (P0-1), affordability re-check at offer time (P0-3), company-wide customer exposure aggregation (P0-4), and payment → bank reconciliation (P0-5) — which together close all five most-severe findings (S-1 through S-5) — plus an accounting-event boundary for a downstream ERP (Gap Matrix G-07).
 
 This is a **retail installment-sale** platform, not a cash-loan system. The
 company never disburses cash. A customer buys a product on credit terms; a
@@ -101,6 +101,32 @@ Colour is centralised as CSS custom properties in
 from the brief, plus a separate `--color-danger` red for rejections) and used
 everywhere via `var(--…)` — never hardcoded hex.
 
+## What's in Step 9 — remaining admin/staff screens (`frontend/`)
+
+Real screens for the backend capability that had only ever been exercised via
+Swagger. Same tokens / components / role-aware nav as Step 7; Step 7 screens and
+flow are unchanged. Nav items appear only for the roles below (`admin` sees all).
+
+| Screen | Nav item / route | Roles | What it does |
+|--------|------------------|-------|--------------|
+| Review Queue | "Review Queue" · `/review` | `credit_officer`, `credit_manager`, `admin` | lists `referred` applications (`GET /applications?status=referred`); click into one → application details + the automated assessment's triggered rules + a decision form (Approve / Reject / Return for Info + reason → `POST /applications/{id}/review`); on approve, a link into offer generation |
+| Customer + Exposure | Dashboard "Customer #" → `/customers/{id}` | any signed-in (exposure panel needs `credit_officer` / `credit_manager` / `finance_officer` / `admin` or the owning customer) | `GET /customers/{id}` details plus the `GET /customers/{id}/exposure` panel — total outstanding and a per-contract breakdown, each row linking to that contract |
+| Reconciliation | "Reconciliation" · `/reconciliation` | `finance_officer`, `admin` | `GET /reconciliation/status` summary; "Add Bank Line" → `POST /reconciliation/bank-lines`; "Run Matching" → `POST /reconciliation/run` (shows matched / exceptions-created); exceptions table (`GET /reconciliation/exceptions`, filter by status) with a "Request Match" action → `POST …/request-match` (resolved in Approvals) |
+| Approvals | "Approvals" · `/approvals` | `finance_officer`, `credit_manager`, `admin` | pending `GET /approvals?status=pending` with a human-readable payload summary; Approve / Reject → `POST /approvals/{id}/approve` \| `/reject`. A row whose `requested_by` is the current user has its buttons **disabled client-side** with "a different approver is required" (the backend 409 is still authoritative) |
+| Contract closure | *(extends the Step 7 contract screen)* | `finance_officer`, `credit_manager`, `admin` | "Get Settlement Quote" (`GET …/settlement-quote`) → full breakdown → "Confirm Settlement" (`POST …/settle` with the fresh amount); "Cancel Contract" only while `created`; "Return Product" only while `active`; once a `closure` exists, its reason + signed `financial_adjustment` are shown and the actions are hidden |
+| Configuration | "Configuration" · `/config` | `admin` | `GET /config/parameters` list + per-parameter edit → `PUT /config/parameters/{key}`; because this is maker-checker gated the response is 202/pending — the screen says "Change requested — awaiting a different approver" and links to Approvals, **not** "saved" |
+| Audit Log | "Audit Log" · `/audit` | `admin`, `credit_manager` | `GET /audit/events` table, filterable by `entity_type` / `entity_id` / `action` |
+
+One backend addition this step: **`GET /applications?status=…`** (`credit_officer`,
+`credit_manager`, `admin`) — a compact list (id, customer_id, product_id,
+requested_amount, status, `submitted_at`), added only because the review queue is
+unusable without it. Not a general listing surface. (`submitted_at` is the
+application's `created_at`; there is no separate submitted timestamp yet.)
+
+Not built (nothing on the backend to show): Collections screens (Step 8),
+inventory, KYC / document upload, restructuring, write-off / recovery,
+notifications, reporting / KPIs.
+
 ### Explicitly out of scope (later steps)
 
 **Backend:** maker-checker on contract settlement / cancellation / return,
@@ -109,12 +135,13 @@ follow-up reminders, external IdP / OAuth, refresh tokens, actual refund payment
 execution, ECL / provisioning, an **actual scheduled job** (assess-overdue is
 still manually triggered).
 
-**Frontend (Step 7):** Collections UI, maker-checker approval UI, settlement /
-cancellation / return UI, config-parameter management UI, audit-log viewer, a
-customer-facing self-service portal, visual polish, mobile responsiveness,
-i18n / Arabic UI (backend and this UI are English-only for now). Token storage
-is `localStorage` — acceptable for an internal tool this step, **to be
-reconsidered** (httpOnly cookie / silent refresh) in a later step.
+**Frontend (Step 7):** Collections UI (Step 8), a customer-facing self-service
+portal, visual polish, mobile responsiveness, i18n / Arabic UI (backend and this
+UI are English-only for now). Token storage is `localStorage` — acceptable for
+an internal tool this step, **to be reconsidered** (httpOnly cookie / silent
+refresh) in a later step. *(Step 9 added the maker-checker approval UI,
+settlement / cancellation / return UI, config-parameter management UI, audit-log
+viewer, review queue and customer-exposure screens.)*
 
 ## Post-assessment P0 fixes (P0-1 … P0-5)
 
@@ -788,6 +815,7 @@ Tokens are HS256, `access_token_expire_minutes` (default 30), carrying
 | `GET /customers/{id}/exposure` *(P0-4)* | `credit_officer`, `credit_manager`, `finance_officer`, `admin`, **or the owning `customer`** |
 | `POST /applications`, `POST /applications/{id}/submit` | `sales_employee`, `customer`, `admin` |
 | `POST /applications/{id}/review` *(P0-2)* | `credit_officer`, `credit_manager`, `admin` |
+| `GET /applications?status=…` *(Step 9)* | `credit_officer`, `credit_manager`, `admin` |
 | `GET /applications/{id}` | `sales_employee`, `credit_officer`, `credit_manager`, `admin`, **or the owning `customer`** |
 | `POST /applications/{id}/offer` | `sales_employee`, `credit_officer`, `admin` |
 | `POST /offers/{id}/accept` | `sales_employee`, `customer`, `admin` |
@@ -926,6 +954,7 @@ seeding and by tests via the `set_config` fixture) is unchanged.
 | `POST` | `/applications` | Create an application (`channel` required: `online` \| `branch`); starts as `draft` |
 | `POST` | `/applications/{id}/submit` | `draft → submitted → under_assessment` → run assessment → `approved`/`rejected`/`referred` |
 | `POST` | `/applications/{id}/review` | **P0-2** — manual verification of a `referred` application (`credit_officer`/`credit_manager`/`admin`). Body `{decision, reason}` → `approved`/`rejected`/`draft` |
+| `GET` | `/applications?status=…` | **Step 9** — compact list for the review queue (id, customer_id, product_id, requested_amount, status, `submitted_at`). `credit_officer`/`credit_manager`/`admin`. Deliberately narrow — not a general listing surface |
 | `GET` | `/applications/{id}` | Application with current status + assessment result/reasons |
 | `POST` | `/applications/{id}/offer` | **Step 2** — price an **approved** application → `InstallmentOffer`. Body: `{down_payment_amount, tenor_months?}`. Supersedes any prior open offer. **P0-3:** re-checks affordability against the real peak installment → **422** if it breaches `max_dbr` and `offer_affordability_gate_mode=block` |
 | `GET` | `/offers/{id}` | **Step 2** — offer with pricing + schedule preview |
@@ -1204,7 +1233,7 @@ signed amount; **replaying a payment or re-running the overdue job never
 duplicates an event**; the posting job moves `pending` → `posted` with a
 `MOCK-GL-…` reference and running it twice never re-posts; RBAC.
 
-### Frontend (Step 7) — `cd frontend && npm test`
+### Frontend (Steps 7 & 9) — `cd frontend && npm test`
 
 Vitest + React Testing Library, API mocked at `fetch`:
 
@@ -1217,6 +1246,21 @@ Vitest + React Testing Library, API mocked at `fetch`:
 - **`src/test/offer-schedule.test.tsx`** — the schedule table renders each
   installment and shows **profit declining row-over-row** with principal flat,
   and totals the columns
+- **`src/test/review-queue.test.tsx`** *(Step 9)* — the queue lists referred
+  applications; the review form calls `POST /applications/{id}/review` with the
+  exact `{decision, reason}` payload and then links to the offer
+- **`src/test/exposure.test.tsx`** *(Step 9)* — the exposure panel renders the
+  per-contract breakdown and totals from a mocked response
+- **`src/test/reconciliation.test.tsx`** *(Step 9)* — adding a bank line then
+  running matching updates the displayed status counts
+- **`src/test/approvals.test.tsx`** *(Step 9)* — a row whose `requested_by` is
+  the current user has its decide buttons disabled; a different user's row does not
+- **`src/test/contract-closure.test.tsx`** *(Step 9)* — Cancel shows only while
+  `created`, Return only while `active`, and neither once a `closure` is present
+- **`src/test/config.test.tsx`** *(Step 9)* — editing a parameter shows the
+  pending-approval message, not an immediate "saved"
+- **`src/test/nav-roles.test.tsx`** *(Step 9)* — nav items are role-gated
+  (`sales_employee` / `finance_officer` / `admin` spot-checks)
 
 ---
 
@@ -1257,12 +1301,14 @@ config/        business_rules.yaml  (fictitious placeholder defaults, Steps 1–
 scripts/       seed_config.py, create_admin.py
 tests/         backend pytest suite
 
-frontend/      React + Vite staff web app (Step 7)
+frontend/      React + Vite staff web app (Steps 7 & 9)
   src/api/     fetch wrapper (token + 401 handling), response types
   src/auth/    AuthContext, RequireAuth route guard
   src/components/  Shell, ScheduleTable, AssessmentPanel, StatusBadge, ui
   src/pages/   Login, Dashboard, CreateCustomer, CreateProduct,
-               NewApplication, Offer, Contract
+               NewApplication, Offer, Contract (+ closure actions),
+               Customer (+ exposure), ReviewQueue, Reconciliation,
+               Approvals, Config, AuditLog  (Step 9)
   src/styles/  tokens.css (the colour system) + app.css
   src/test/    Vitest + RTL
 ```
