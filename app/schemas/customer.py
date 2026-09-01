@@ -44,3 +44,14 @@ class CustomerOut(BaseModel):
     risk_score: int | None
     created_at: datetime
     profile: CustomerProfileOut | None = None
+
+
+class CustomerListItem(BaseModel):
+    """Compact row for the Step 10 customer directory (`GET /customers?search=`)."""
+
+    model_config = ConfigDict(from_attributes=True)
+    id: int
+    name: str
+    national_id: str
+    status: CustomerStatus
+    risk_score: int | None

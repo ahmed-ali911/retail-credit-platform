@@ -1,6 +1,6 @@
 # Retail Credit & Installment Sales Platform
 
-**Steps 1–9 — a FastAPI backend (application → assessment → offer → contract → payments → collections → maker-checker, behind JWT auth + RBAC + audit) and a React staff web app (core flow plus review queue, exposure, reconciliation, approvals, closure, config and audit-log screens).** Plus post-[assessment](docs/enterprise-assessment.md) P0 fixes: referred → manual verification (P0-2), an immutable financial ledger in dual-write (P0-1), affordability re-check at offer time (P0-3), company-wide customer exposure aggregation (P0-4), and payment → bank reconciliation (P0-5) — which together close all five most-severe findings (S-1 through S-5) — plus an accounting-event boundary for a downstream ERP (Gap Matrix G-07).
+**Steps 1–10 — a FastAPI backend (application → assessment → offer → contract → payments → collections → maker-checker, behind JWT auth + RBAC + audit) and a React staff web app (core flow plus review queue, exposure, reconciliation, approvals, closure, config, audit-log, customer/product directories, portfolio snapshot, Collections and inventory-adjustment screens).** Plus post-[assessment](docs/enterprise-assessment.md) P0 fixes: referred → manual verification (P0-2), an immutable financial ledger in dual-write (P0-1), affordability re-check at offer time (P0-3), company-wide customer exposure aggregation (P0-4), and payment → bank reconciliation (P0-5) — which together close all five most-severe findings (S-1 through S-5) — plus an accounting-event boundary for a downstream ERP (Gap Matrix G-07).
 
 This is a **retail installment-sale** platform, not a cash-loan system. The
 company never disburses cash. A customer buys a product on credit terms; a
@@ -123,9 +123,64 @@ requested_amount, status, `submitted_at`), added only because the review queue i
 unusable without it. Not a general listing surface. (`submitted_at` is the
 application's `created_at`; there is no separate submitted timestamp yet.)
 
-Not built (nothing on the backend to show): Collections screens (Step 8),
-inventory, KYC / document upload, restructuring, write-off / recovery,
-notifications, reporting / KPIs.
+Not built (nothing on the backend to show): Collections screens (built in
+Step 10 instead — see below), inventory, KYC / document upload, restructuring,
+write-off / recovery, notifications, reporting / KPIs.
+
+## What's in Step 10 — directories, portfolio snapshot, Collections, inventory (`frontend/`)
+
+Five more screens. Same tokens / components / role-aware nav as Steps 7–9;
+those screens and flow are unchanged. Collections was checked first (Step 8 had
+specified it but it was never actually shipped to `frontend/`) and built here.
+
+| Screen | Nav item / route | Roles | What it does |
+|--------|------------------|-------|--------------|
+| Customer Directory | "Customers" · `/customers` | `sales_employee`, `credit_officer`, `credit_manager`, `finance_officer`, `admin` | search box (name or national ID) → `GET /customers?search=`; each row links into the existing Step 9 customer + exposure screen (not duplicated) |
+| Product Directory | "Products" · `/products` | same as above | search box (name or category) → `GET /products?search=`; shows cash price, stock, reserved, and an **Available** / **Sold Out** badge. Read-only — no edit-stock action here |
+| Portfolio Snapshot | "Snapshot" · `/snapshot` | `finance_officer`, `credit_manager`, `admin` | current counts only, each panel sourced from an endpoint that already existed: reconciliation health (`GET /reconciliation/status`), accounting events by status (client-side grouped from `GET /accounting/events`), pending approvals (`GET /approvals?status=pending`), open collection cases (`GET /collections/cases?status=open`). The screen states in its own copy that it is **not** a reporting/KPI platform — no charts, no date filters, no exports |
+| Collections | "Collections" · `/collections`, `/collections/:id` | `collections_officer`, `credit_manager`, `admin` (case detail also the owning `customer`) — matches the existing backend `_VIEW_ROLES` exactly; `finance_officer` is **not** on that list, so the nav item is not offered to them either | case list filterable by status/contract_id; case detail with activity history; Log Activity form with conditional Promise-to-Pay fields (amount + date, shown only when `activity_type=promise_to_pay`); "Run overdue assessment" utility (`admin` only, same manual job as `/jobs/assess-overdue`) |
+| Inventory Adjustment | "Inventory" · `/inventory` | `finance_officer`, `admin` | separate, privileged screen (deliberately not the read-only directory) — table of every product with stock/reserved/available, a per-row "Adjust" (delta + reason) → `POST /products/{id}/stock-adjustment`, refreshes that row; a recent-adjustments panel from the **existing** `GET /audit/events?entity_type=Product&action=stock_adjustment` (no second audit trail) |
+
+Three backend additions, all deliberately narrow:
+
+- **`GET /customers?search=`** — partial, case-insensitive match on `name` OR
+  `national_id`. No other filters.
+- **`GET /products?search=`** — partial, case-insensitive match on `name` OR
+  `category`; **omitted `search` returns every product** (the Inventory screen
+  needs the full list and there is no other list endpoint — the one deliberate
+  widening beyond "just search").
+- **`POST /products/{id}/stock-adjustment`** — body `{delta, reason}`
+  (`finance_officer`/`admin`); 422 if the result would drop `stock_quantity`
+  below `reserved_quantity`; writes an `AuditEvent` (actor, delta, reason,
+  before/after `stock_quantity`) — the same audit pattern used everywhere else.
+
+**Minimal stock tracking** (a real, if small, feature — not just a query):
+`Product` gains `stock_quantity` / `reserved_quantity` (migration `0011`,
+existing rows backfilled to the placeholder `default_initial_stock_quantity`,
+**10**); `available_quantity = stock_quantity - reserved_quantity` is computed,
+never stored. The one new business rule: `POST /applications/{id}/offer`
+rejects (**422**) if `available_quantity <= 0`. Deduction happens at **contract
+creation** (offer acceptance) — additive, one unit off `stock_quantity`;
+cancellation and return each release one unit back, via the same kind of
+additive hook already used for the accounting-event boundary (never blocks the
+closure itself).
+
+> **BUSINESS DECISION REQUIRED** (register, assessment BDR-18): the stock
+> **deduction point**. The brief's own Section 23 says this must stay
+> configurable/policy-driven — reservation-at-offer, deduction-at-acceptance,
+> or deduction-at-delivery are all legitimate models. This step picks
+> **deduction at contract creation** as the simplest defensible default so the
+> platform can't double-sell the last unit — **not** confirmed policy.
+>
+> **Judgment call, not confirmed policy:** the stock adjustment endpoint is
+> **not** maker-checker gated (it is a stock count, not a financial
+> transaction — unlike the P0-5 reconciliation manual match or the Step 6
+> config/late-fee-waiver flows). Finance may want a second approver on
+> write-downs later; flagging it here rather than assuming.
+
+Out of scope (unchanged): warehouse/branch-level stock, barcode/serial
+tracking, low-stock alerts, bulk stock import, anything from a future deep
+audit pass.
 
 ### Explicitly out of scope (later steps)
 
@@ -505,6 +560,7 @@ Migrations:
 - [`0008_affordability_recheck`](alembic/versions/0008_affordability_recheck.py) — widen `assessment_results.source` (P0-3)
 - [`0009_bank_reconciliation`](alembic/versions/0009_bank_reconciliation.py) — `payments.reconciliation_status` (NOT NULL, server default `unreconciled`) + `payments.gateway_reference`; `bank_statement_lines`, `reconciliation_exceptions` (P0-5)
 - [`0010_accounting_events`](alembic/versions/0010_accounting_events.py) — `accounting_events` (one new table, purely additive — Gap Matrix G-07)
+- [`0011_product_stock`](alembic/versions/0011_product_stock.py) — `products.stock_quantity` / `products.reserved_quantity` (Step 10, existing rows backfilled to the placeholder default)
 
 *(P0-4 added no migration — the exposure config is two YAML-seeded `config_parameters` rows.)*
 
@@ -559,6 +615,7 @@ Default (placeholder) parameters:
 | `max_customer_exposure_kwd` | 8000 | **P0-4, placeholder** — max total outstanding per customer (all non-closed contracts) + the new request's financed estimate; breach → `referred` |
 | `exposure_aggregation_level` | `company_wide` | **P0-4, BUSINESS DECISION REQUIRED** — only `company_wide` implemented; per-category/brand/BU is a future value that raises if configured |
 | `reconciliation_date_tolerance_days` | 0 | **P0-5, placeholder / BUSINESS DECISION REQUIRED** — fallback bank-line matching: `|payment date − value date|` allowed for an amount-only match. `0` = same calendar day |
+| `default_initial_stock_quantity` | 10 | **Step 10, placeholder** — opening `stock_quantity` for a brand-new product and the value migration `0011` backfilled every existing product to. No real inventory feed yet |
 
 The rate table is stored as a single JSON parameter, so the tenor→rate mapping
 is edited as one unit (via `PUT /config/parameters/tenor_profit_rate_table` with
@@ -812,6 +869,9 @@ Tokens are HS256, `access_token_expire_minutes` (default 30), carrying
 | Endpoint | Allowed roles |
 |---|---|
 | `POST /customers` | `sales_employee`, `admin` |
+| `GET /customers?search=` *(Step 10)* | `sales_employee`, `credit_officer`, `credit_manager`, `finance_officer`, `admin` |
+| `GET /products?search=` *(Step 10)* | same as above |
+| `POST /products/{id}/stock-adjustment` *(Step 10)* | `finance_officer`, `admin` |
 | `GET /customers/{id}/exposure` *(P0-4)* | `credit_officer`, `credit_manager`, `finance_officer`, `admin`, **or the owning `customer`** |
 | `POST /applications`, `POST /applications/{id}/submit` | `sales_employee`, `customer`, `admin` |
 | `POST /applications/{id}/review` *(P0-2)* | `credit_officer`, `credit_manager`, `admin` |
@@ -949,16 +1009,19 @@ seeding and by tests via the `set_config` fixture) is unchanged.
 | `POST` | `/customers` | Create a customer **and** profile in one call |
 | `GET` | `/customers/{id}` | Fetch a customer with profile |
 | `GET` | `/customers/{id}/exposure` | **P0-4** — aggregate outstanding across all non-closed contracts + per-contract breakdown (`credit_officer`/`credit_manager`/`finance_officer`/`admin`, or the owning `customer`) |
-| `POST` | `/products` | Create a product (cash price only) |
+| `GET` | `/customers?search=` | **Step 10** — partial, case-insensitive match on `name` OR `national_id`. Compact rows (id, name, national_id, status, risk_score) |
+| `POST` | `/products` | Create a product (cash price only). **Step 10:** opening `stock_quantity` defaults from `default_initial_stock_quantity` unless given explicitly |
 | `GET` | `/products/{id}` | Fetch a product |
+| `GET` | `/products?search=` | **Step 10** — partial match on `name` OR `category`; **omit `search` → every product** (Inventory screen needs the full list). Includes `stock_quantity`/`reserved_quantity`/`available_quantity` |
+| `POST` | `/products/{id}/stock-adjustment` | **Step 10** — body `{delta, reason}` (`finance_officer`/`admin`); 422 if it would drop `stock_quantity` below `reserved_quantity`; writes an `AuditEvent`. Not maker-checker gated |
 | `POST` | `/applications` | Create an application (`channel` required: `online` \| `branch`); starts as `draft` |
 | `POST` | `/applications/{id}/submit` | `draft → submitted → under_assessment` → run assessment → `approved`/`rejected`/`referred` |
 | `POST` | `/applications/{id}/review` | **P0-2** — manual verification of a `referred` application (`credit_officer`/`credit_manager`/`admin`). Body `{decision, reason}` → `approved`/`rejected`/`draft` |
 | `GET` | `/applications?status=…` | **Step 9** — compact list for the review queue (id, customer_id, product_id, requested_amount, status, `submitted_at`). `credit_officer`/`credit_manager`/`admin`. Deliberately narrow — not a general listing surface |
 | `GET` | `/applications/{id}` | Application with current status + assessment result/reasons |
-| `POST` | `/applications/{id}/offer` | **Step 2** — price an **approved** application → `InstallmentOffer`. Body: `{down_payment_amount, tenor_months?}`. Supersedes any prior open offer. **P0-3:** re-checks affordability against the real peak installment → **422** if it breaches `max_dbr` and `offer_affordability_gate_mode=block` |
+| `POST` | `/applications/{id}/offer` | **Step 2** — price an **approved** application → `InstallmentOffer`. Body: `{down_payment_amount, tenor_months?}`. Supersedes any prior open offer. **P0-3:** re-checks affordability against the real peak installment → **422** if it breaches `max_dbr` and `offer_affordability_gate_mode=block`. **Step 10:** also **422** if the product's `available_quantity <= 0` |
 | `GET` | `/offers/{id}` | **Step 2** — offer with pricing + schedule preview |
-| `POST` | `/offers/{id}/accept` | **Step 2** — body `{down_payment_confirmed, down_payment_reference?, down_payment_amount?}`. On `true` → creates Sales Order + Contract + Schedule |
+| `POST` | `/offers/{id}/accept` | **Step 2** — body `{down_payment_confirmed, down_payment_reference?, down_payment_amount?}`. On `true` → creates Sales Order + Contract + Schedule. **Step 10:** deducts one unit of `stock_quantity` (the contract-creation deduction-point default) |
 | `GET` | `/contracts/{id}` | **Step 2** — contract with sales order + installments (+ paid amounts & late fees from Step 3) |
 | `POST` | `/contracts/{id}/confirm-delivery` | **Step 2** — Contract `created` → `active` |
 | `POST` | `/contracts/{id}/payments` | **Step 3** — record a payment. Body `{amount, external_reference}`. Idempotent per `external_reference`; runs the allocation waterfall |
@@ -966,8 +1029,8 @@ seeding and by tests via the `set_config` fixture) is unchanged.
 | `POST` | `/jobs/assess-overdue` | **Step 3** — manual trigger. Body `{as_of?}`. Marks overdue installments, assesses late fees |
 | `GET` | `/contracts/{id}/settlement-quote` | **Step 4** — early-payoff quote (computes only). 409 if not `active` / already `closed` |
 | `POST` | `/contracts/{id}/settle` | **Step 4** — body `{amount, external_reference}`. Re-checks amount vs fresh quote, then closes (`reason=early_settlement`) |
-| `POST` | `/contracts/{id}/cancel` | **Step 4** — pre-delivery only. Body `{notes?}`. 409 if `active` (→ `/return`) or `closed` |
-| `POST` | `/contracts/{id}/return` | **Step 4** — post-delivery only. Body `{notes?}`. 409 if `created` (→ `/cancel`) or `closed` |
+| `POST` | `/contracts/{id}/cancel` | **Step 4** — pre-delivery only. Body `{notes?}`. 409 if `active` (→ `/return`) or `closed`. **Step 10:** releases the deducted unit back to `stock_quantity` |
+| `POST` | `/contracts/{id}/return` | **Step 4** — post-delivery only. Body `{notes?}`. 409 if `created` (→ `/cancel`) or `closed`. **Step 10:** releases the deducted unit back to `stock_quantity` |
 | `GET` | `/config/parameters` | List business-rule parameters |
 | `PUT` | `/config/parameters/{key}` | **Step 6** — *request* a change → **202** + pending `ApprovalRequest` (no longer applies immediately) |
 | `POST` | `/auth/login` | **Step 5** — username + password → JWT (open, no token) |
@@ -1233,7 +1296,18 @@ signed amount; **replaying a payment or re-running the overdue job never
 duplicates an event**; the posting job moves `pending` → `posted` with a
 `MOCK-GL-…` reference and running it twice never re-posts; RBAC.
 
-### Frontend (Steps 7 & 9) — `cd frontend && npm test`
+**Step 10** — search + stock ([tests/test_inventory.py](tests/test_inventory.py)):
+customer search matches name or national ID; product search matches name or
+category, and returns the stock fields; **omitting `search` on `/products`
+returns every product**; a positive stock adjustment increases
+`stock_quantity`; a negative one that would drop below `reserved_quantity` is
+**rejected (422)** and nothing changes; every adjustment writes an `AuditEvent`
+findable via the existing audit endpoint; accepting an offer deducts one unit;
+cancellation and return each release it back; **offer generation on an
+out-of-stock product is rejected (422)**; a plain end-to-end contract still
+works with stock present; RBAC (search + adjustment).
+
+### Frontend (Steps 7, 9 & 10) — `cd frontend && npm test`
 
 Vitest + React Testing Library, API mocked at `fetch`:
 
@@ -1261,6 +1335,10 @@ Vitest + React Testing Library, API mocked at `fetch`:
   pending-approval message, not an immediate "saved"
 - **`src/test/nav-roles.test.tsx`** *(Step 9)* — nav items are role-gated
   (`sales_employee` / `finance_officer` / `admin` spot-checks)
+- **`src/test/inventory.test.tsx`** *(Step 10)* — a positive adjustment updates
+  the table immediately; a negative one below `reserved_quantity` is rejected
+  and shows the error, table unchanged; the recent-adjustments panel reflects
+  the existing audit endpoint; `sales_employee` does not see "Inventory" in nav
 
 ---
 
@@ -1290,25 +1368,28 @@ app/
                reconciliation (P0-5 matching engine),
                accounting (G-07 event generation + posting job),
                erp_adapter (G-07 mock GL boundary), errors
-  api/         auth, customers (+ exposure, P0-4), products,
-               applications (+ manual review, P0-2), offers (+ contracts),
+  api/         auth, customers (+ exposure P0-4, + search Step 10), products
+               (+ search/stock-adjustment Step 10),
+               applications (+ manual review P0-2, + list Step 9), offers (+ contracts),
                payments (+ receivable + jobs), closure, config, audit,
                collections, approvals, reconciliation (P0-5),
                accounting (G-07) routers
   main.py      FastAPI app + startup seeding (config params + bootstrap admin)
-alembic/       migrations (0001_initial … 0010_accounting_events)
+alembic/       migrations (0001_initial … 0011_product_stock)
 config/        business_rules.yaml  (fictitious placeholder defaults, Steps 1–4)
 scripts/       seed_config.py, create_admin.py
 tests/         backend pytest suite
 
-frontend/      React + Vite staff web app (Steps 7 & 9)
+frontend/      React + Vite staff web app (Steps 7, 9 & 10)
   src/api/     fetch wrapper (token + 401 handling), response types
   src/auth/    AuthContext, RequireAuth route guard
   src/components/  Shell, ScheduleTable, AssessmentPanel, StatusBadge, ui
   src/pages/   Login, Dashboard, CreateCustomer, CreateProduct,
                NewApplication, Offer, Contract (+ closure actions),
                Customer (+ exposure), ReviewQueue, Reconciliation,
-               Approvals, Config, AuditLog  (Step 9)
+               Approvals, Config, AuditLog  (Step 9),
+               CustomerDirectory, ProductDirectory, Snapshot,
+               Collections (+ case detail), Inventory  (Step 10)
   src/styles/  tokens.css (the colour system) + app.css
   src/test/    Vitest + RTL
 ```

@@ -27,6 +27,7 @@ from app.models.contract import (
 )
 from app.models.accounting import AccountingEventType
 from app.models.offer import InstallmentOffer, OfferStatus
+from app.models.product import Product
 from app.models.sales_order import SalesOrder
 from app.services import accounting
 from app.services import config_service as cfg
@@ -130,6 +131,14 @@ def generate_offer(
     config = ConfigService(db)
     product = application.product
     tenor = tenor_months or application.requested_tenor_months
+
+    # Step 10 — the one new stock rule: can't offer a product with no unit free.
+    if product.available_quantity <= 0:
+        raise DomainError(
+            f"Product '{product.name}' is out of stock "
+            f"(available {product.available_quantity}).",
+            status_code=422,
+        )
 
     min_pct = Decimal(str(config.get_float(cfg.KEY_MIN_DOWN_PAYMENT_PCT)))
     min_down_payment = (Decimal(str(product.cash_price)) * min_pct).quantize(Decimal("0.01"))
@@ -283,6 +292,13 @@ def accept_offer(
     offer.accepted_at = _utcnow()
     offer.down_payment_confirmed = True
     offer.down_payment_reference = down_payment_reference
+
+    # Step 10 — deduct one unit at contract creation (the working default
+    # deduction point; BUSINESS DECISION REQUIRED — see the README register).
+    # Additive: never blocks contract creation.
+    product = db.get(Product, application.product_id)
+    if product is not None:
+        product.stock_quantity = (product.stock_quantity or 0) - 1
 
     db.flush()
     return contract

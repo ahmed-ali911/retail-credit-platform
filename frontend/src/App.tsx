@@ -9,11 +9,16 @@ import { NewApplicationPage } from "./pages/NewApplicationPage";
 import { OfferPage } from "./pages/OfferPage";
 import { ContractPage } from "./pages/ContractPage";
 import { CustomerPage } from "./pages/CustomerPage";
+import { CustomerDirectoryPage } from "./pages/CustomerDirectoryPage";
+import { ProductDirectoryPage } from "./pages/ProductDirectoryPage";
 import { ReviewQueuePage, ReviewApplicationPage } from "./pages/ReviewQueuePage";
 import { ReconciliationPage } from "./pages/ReconciliationPage";
 import { ApprovalsPage } from "./pages/ApprovalsPage";
 import { ConfigPage } from "./pages/ConfigPage";
 import { AuditLogPage } from "./pages/AuditLogPage";
+import { CollectionsPage, CollectionCasePage } from "./pages/CollectionsPage";
+import { SnapshotPage } from "./pages/SnapshotPage";
+import { InventoryPage } from "./pages/InventoryPage";
 
 export default function App() {
   return (
@@ -27,8 +32,10 @@ export default function App() {
         }
       >
         <Route index element={<DashboardPage />} />
+        <Route path="customers" element={<CustomerDirectoryPage />} />
         <Route path="customers/new" element={<CreateCustomerPage />} />
         <Route path="customers/:customerId" element={<CustomerPage />} />
+        <Route path="products" element={<ProductDirectoryPage />} />
         <Route path="products/new" element={<CreateProductPage />} />
         <Route path="applications/new" element={<NewApplicationPage />} />
         <Route path="applications/:applicationId/offer" element={<OfferPage />} />
@@ -38,6 +45,10 @@ export default function App() {
         <Route path="review/:applicationId" element={<ReviewApplicationPage />} />
         <Route path="reconciliation" element={<ReconciliationPage />} />
         <Route path="approvals" element={<ApprovalsPage />} />
+        <Route path="collections" element={<CollectionsPage />} />
+        <Route path="collections/:caseId" element={<CollectionCasePage />} />
+        <Route path="snapshot" element={<SnapshotPage />} />
+        <Route path="inventory" element={<InventoryPage />} />
         <Route path="config" element={<ConfigPage />} />
         <Route path="audit" element={<AuditLogPage />} />
       </Route>

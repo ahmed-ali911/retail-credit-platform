@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
+from sqlalchemy import or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -8,7 +9,7 @@ from app.core.auth import authorize_owner_or_roles, get_current_user, require_ro
 from app.core.database import get_db
 from app.models.customer import Customer, CustomerProfile
 from app.models.user import User, UserRole
-from app.schemas.customer import CustomerCreate, CustomerOut
+from app.schemas.customer import CustomerCreate, CustomerListItem, CustomerOut
 from app.schemas.exposure import CustomerExposureOut
 from app.services import exposure as exposure_service
 from app.services.audit import record_event
@@ -16,6 +17,13 @@ from app.services.audit import record_event
 router = APIRouter(prefix="/customers", tags=["customers"])
 
 _EXPOSURE_STAFF_ROLES = (
+    UserRole.credit_officer,
+    UserRole.credit_manager,
+    UserRole.finance_officer,
+    UserRole.admin,
+)
+_DIRECTORY_ROLES = (
+    UserRole.sales_employee,
     UserRole.credit_officer,
     UserRole.credit_manager,
     UserRole.finance_officer,
@@ -58,6 +66,23 @@ def create_customer(
     db.commit()
     db.refresh(customer)
     return customer
+
+
+@router.get("", response_model=list[CustomerListItem])
+def search_customers(
+    db: Session = Depends(get_db),
+    search: str = Query(min_length=1, max_length=100),
+    _: User = Depends(require_roles(*_DIRECTORY_ROLES)),
+):
+    """Step 10 customer directory — partial, case-insensitive match on name OR
+    national_id. `search` is the only supported parameter."""
+    like = f"%{search.strip()}%"
+    stmt = (
+        select(Customer)
+        .where(or_(Customer.name.ilike(like), Customer.national_id.ilike(like)))
+        .order_by(Customer.name)
+    )
+    return db.execute(stmt).scalars().all()
 
 
 @router.get("/{customer_id}", response_model=CustomerOut)

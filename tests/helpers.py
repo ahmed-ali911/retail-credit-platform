@@ -26,13 +26,17 @@ def make_customer(client, *, national_id="ID-1", monthly_income=5000,
     return resp.json()
 
 
-def make_product(client, *, name="Fridge", cash_price=1200, installment_eligible=True):
-    resp = client.post("/products", json={
+def make_product(client, *, name="Fridge", cash_price=1200, installment_eligible=True,
+                 stock_quantity=None):
+    body = {
         "name": name,
         "category": "appliances",
         "cash_price": cash_price,
         "installment_eligible": installment_eligible,
-    })
+    }
+    if stock_quantity is not None:
+        body["stock_quantity"] = stock_quantity
+    resp = client.post("/products", json=body)
     assert resp.status_code == 201, resp.text
     return resp.json()
 

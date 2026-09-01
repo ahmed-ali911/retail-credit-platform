@@ -23,6 +23,8 @@ from app.models.closure import ClosureReason, ContractClosure
 from app.models.contract import ContractStatus, InstallmentContract, InstallmentStatus
 from app.models.ledger import LedgerEntryType, LedgerRelatedAction
 from app.models.payment import LateFeeStatus, Payment, PaymentStatus
+from app.models.product import Product
+from app.models.sales_order import SalesOrder
 from app.services import accounting
 from app.services import config_service as cfg
 from app.services import ledger as ledger_service
@@ -68,6 +70,17 @@ def _emit_closure_event(
         amount=closure.financial_adjustment if closure.financial_adjustment is not None else _ZERO,
         event_date=closure.closed_at,
     )
+
+
+def _release_stock(db: Session, contract: InstallmentContract) -> None:
+    """Step 10 — a cancelled or returned unit goes back on the shelf. Additive;
+    never blocks the closure itself."""
+    sales_order = db.get(SalesOrder, contract.sales_order_id)
+    if sales_order is None:
+        return
+    product = db.get(Product, sales_order.product_id)
+    if product is not None:
+        product.stock_quantity = (product.stock_quantity or 0) + 1
 
 
 def _guard_not_closed(contract: InstallmentContract) -> None:
@@ -288,6 +301,7 @@ def cancel_contract(
 
     # --- accounting-event boundary (additive) ---
     _emit_closure_event(db, contract, closure, AccountingEventType.cancellation)
+    _release_stock(db, contract)
     db.flush()
 
     return CancellationResult(
@@ -377,6 +391,7 @@ def return_contract(
 
     # --- accounting-event boundary (additive) ---
     _emit_closure_event(db, contract, closure, AccountingEventType.return_)
+    _release_stock(db, contract)
     db.flush()
 
     return ReturnResult(

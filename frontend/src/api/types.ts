@@ -42,6 +42,43 @@ export interface ProductOut {
   category: string;
   cash_price: number;
   installment_eligible: boolean;
+  stock_quantity: number;
+  reserved_quantity: number;
+  available_quantity: number;
+}
+
+export interface CustomerListItem {
+  id: number;
+  name: string;
+  national_id: string;
+  status: string;
+  risk_score: number | null;
+}
+
+// --- collections (Step 8/10) ---
+export interface CollectionActivityOut {
+  id: number;
+  collection_case_id: number;
+  created_by: number;
+  activity_type: "call" | "sms" | "email" | "visit" | "promise_to_pay" | "other";
+  notes: string | null;
+  created_at: string;
+  promised_amount: number | null;
+  promised_date: string | null;
+  promise_status: "pending" | "kept" | "broken" | null;
+}
+
+export interface CollectionCaseOut {
+  id: number;
+  contract_id: number;
+  status: "open" | "closed";
+  opened_at: string;
+  opened_reason: string;
+  closed_at: string | null;
+}
+
+export interface CollectionCaseDetailOut extends CollectionCaseOut {
+  activities: CollectionActivityOut[];
 }
 
 export interface TriggeredRule {

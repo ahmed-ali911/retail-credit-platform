@@ -85,6 +85,18 @@ parameters:
       is a later step, not this one.
 
   # ---------------------------------------------------------------------------
+  # Inventory / stock (Step 10)
+  # ---------------------------------------------------------------------------
+  default_initial_stock_quantity:
+    value: 10
+    type: int
+    description: >
+      PLACEHOLDER. Stock units a brand-new product starts with, and the value
+      migration 0011 backfilled every existing product to. There is no real
+      inventory feed yet. BUSINESS DECISION REQUIRED: the real per-product
+      opening counts come from the warehouse / ERP.
+
+  # ---------------------------------------------------------------------------
   # Step 2 — Installment pricing / profit engine
   # ---------------------------------------------------------------------------
   tenor_profit_rate_table:
