@@ -1,5 +1,19 @@
 import { useEffect, useState, type ReactNode } from "react";
 import { Link, useNavigate } from "react-router-dom";
+import {
+  AlertTriangle,
+  Banknote,
+  CheckCircle2,
+  ClipboardList,
+  Clock,
+  FileText,
+  HandCoins,
+  Layers,
+  ShieldAlert,
+  TrendingUp,
+  Users,
+  Wallet,
+} from "lucide-react";
 import { api, errorMessage } from "../api/client";
 import { useAuth } from "../auth/AuthContext";
 import { MetricGrid, MetricTile } from "../components/MetricTile";
@@ -49,26 +63,30 @@ function ExecutiveTab() {
     <TabBody error={error} data={data}>
       {(s) => (
         <MetricGrid>
-          <MetricTile label="Total customers" value={s.total_customers} />
+          <MetricTile label="Total customers" value={s.total_customers} icon={Users} />
           <MetricTile
             label="Active contracts"
             value={s.active_contracts}
             tone="good"
+            icon={FileText}
           />
           <MetricTile
             label="Outstanding receivable"
             value={money(s.total_outstanding_receivable)}
             subLabel="principal + profit, active contracts"
+            icon={Wallet}
           />
           <MetricTile
-            label="Profit recognised to date"
+            label="Profit recognized to date"
             value={money(s.total_profit_recognized)}
             tone="good"
+            icon={TrendingUp}
           />
           <MetricTile
             label="Approval rate"
             value={pct(s.approval_rate)}
             subLabel={`all-time · ${s.decisions_considered} decisions`}
+            icon={CheckCircle2}
           />
         </MetricGrid>
       )}
@@ -89,20 +107,24 @@ function OperationsTab() {
             label="Payments today"
             value={s.payments_today_count}
             subLabel={money(s.payments_today_amount)}
+            icon={Banknote}
           />
           <MetricTile
             label="Applications submitted today"
             value={s.applications_submitted_today}
+            icon={FileText}
           />
           <MetricTile
             label="Overdue installments"
             value={s.overdue_installments}
             tone={s.overdue_installments > 0 ? "warn" : "good"}
+            icon={Clock}
           />
           <MetricTile
             label="Open reconciliation exceptions"
             value={s.open_reconciliation_exceptions}
             tone={s.open_reconciliation_exceptions > 0 ? "warn" : "good"}
+            icon={AlertTriangle}
           />
         </MetricGrid>
       )}
@@ -127,6 +149,7 @@ function PortfolioTab() {
               label="Average contract size"
               value={money(s.average_contract_size)}
               subLabel="installment sale price"
+              icon={Layers}
             />
           </MetricGrid>
           <Card title="Aging distribution (DPD)" soft>
@@ -174,22 +197,31 @@ function CollectionsTab() {
             label="Open collection cases"
             value={s.open_cases}
             tone={s.open_cases > 0 ? "warn" : "good"}
+            icon={ClipboardList}
           />
-          <MetricTile label="Promises kept" value={s.promise_to_pay_kept} tone="good" />
+          <MetricTile
+            label="Promises kept"
+            value={s.promise_to_pay_kept}
+            tone="good"
+            icon={CheckCircle2}
+          />
           <MetricTile
             label="Promises broken"
             value={s.promise_to_pay_broken}
             tone={s.promise_to_pay_broken > 0 ? "warn" : "neutral"}
+            icon={AlertTriangle}
           />
           <MetricTile
             label="Late fees charged"
             value={s.late_fees_charged_count}
             subLabel={money(s.late_fees_charged_amount)}
+            icon={HandCoins}
           />
           <MetricTile
             label="Late fees waived"
             value={s.late_fees_waived_count}
             subLabel={money(s.late_fees_waived_amount)}
+            icon={HandCoins}
           />
         </MetricGrid>
       )}
@@ -211,19 +243,22 @@ function CreditRiskTab() {
               label={`Low risk (≥ ${s.risk_band_thresholds.low_min})`}
               value={s.customers_by_risk_band.low}
               tone="good"
+              icon={CheckCircle2}
             />
             <MetricTile
               label={`Medium (${s.risk_band_thresholds.medium_min}–${s.risk_band_thresholds.low_min - 1})`}
               value={s.customers_by_risk_band.medium}
+              icon={Users}
             />
             <MetricTile
               label={`High risk (< ${s.risk_band_thresholds.medium_min})`}
               value={s.customers_by_risk_band.high}
               tone={s.customers_by_risk_band.high > 0 ? "warn" : "neutral"}
+              icon={ShieldAlert}
             />
-            <MetricTile label="Unscored" value={s.customers_by_risk_band.unscored} />
-            <MetricTile label="Rejection rate" value={pct(s.rejection_rate)} />
-            <MetricTile label="Referral rate" value={pct(s.referral_rate)} />
+            <MetricTile label="Unscored" value={s.customers_by_risk_band.unscored} icon={Users} />
+            <MetricTile label="Rejection rate" value={pct(s.rejection_rate)} icon={TrendingUp} />
+            <MetricTile label="Referral rate" value={pct(s.referral_rate)} icon={TrendingUp} />
           </MetricGrid>
           <Card title="Top 10 customers by exposure" soft>
             {s.top_customers_by_exposure.length === 0 ? (

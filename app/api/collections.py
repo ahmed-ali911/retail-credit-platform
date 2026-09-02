@@ -76,9 +76,14 @@ def list_cases(
             <= datetime(date_to.year, date_to.month, date_to.day, 23, 59, 59, tzinfo=timezone.utc)
         )
     rows = db.execute(stmt).scalars().all()
-    if format == "csv":
-        from app.services.reports import to_csv
+    if format:
+        from app.services import reports as reports_service
 
+        if format not in reports_service.EXPORT_FORMATS:
+            raise HTTPException(
+                status_code=422,
+                detail=f"format must be one of {reports_service.EXPORT_FORMATS}",
+            )
         data = [
             {
                 "id": c.id,
@@ -90,10 +95,15 @@ def list_cases(
             }
             for c in rows
         ]
+        content, media_type, ext = reports_service.export(
+            format, _CASE_CSV_FIELDS, data, title="Collection cases"
+        )
         return Response(
-            content=to_csv(_CASE_CSV_FIELDS, data),
-            media_type="text/csv",
-            headers={"Content-Disposition": 'attachment; filename="collection-cases.csv"'},
+            content=content,
+            media_type=media_type,
+            headers={
+                "Content-Disposition": f'attachment; filename="collection-cases.{ext}"'
+            },
         )
     return rows
 

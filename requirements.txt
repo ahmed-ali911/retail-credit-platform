@@ -8,6 +8,8 @@ pydantic-settings==2.7.0
 PyYAML==6.0.2
 PyJWT==2.10.1
 bcrypt==4.2.1
+openpyxl==3.1.5        # Step 13 — Excel report export
+reportlab==5.0.1       # Step 13 — plain tabular PDF report export
 
 # --- test / dev ---
 pytest==8.3.4

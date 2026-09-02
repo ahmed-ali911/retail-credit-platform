@@ -1,6 +1,6 @@
 # Retail Credit & Installment Sales Platform
 
-**Steps 1–11 — a FastAPI backend (application → assessment → offer → contract → payments → collections → maker-checker, behind JWT auth + RBAC + audit) and a React staff web app (core flow, review queue, exposure, reconciliation, approvals, closure, config, audit-log, directories, Collections, inventory, a bounded reporting layer and a 5-tab Executive Dashboard).** Plus post-[assessment](docs/enterprise-assessment.md) P0 fixes: referred → manual verification (P0-2), an immutable financial ledger in dual-write (P0-1), affordability re-check at offer time (P0-3), company-wide customer exposure aggregation (P0-4), and payment → bank reconciliation (P0-5) — which together close all five most-severe findings (S-1 through S-5) — plus an accounting-event boundary for a downstream ERP (Gap Matrix G-07).
+**Steps 1–13 — a FastAPI backend (application → assessment → offer → contract → payments → collections → maker-checker, behind JWT auth + RBAC + audit) and a React staff web app (core flow, review queue, exposure, reconciliation, approvals, closure, config, audit-log, directories, Collections, inventory, a 5-tab Executive Dashboard and a Reports Center with per-category sub-reports + CSV/Excel/PDF export).** Plus post-[assessment](docs/enterprise-assessment.md) P0 fixes: referred → manual verification (P0-2), an immutable financial ledger in dual-write (P0-1), affordability re-check at offer time (P0-3), company-wide customer exposure aggregation (P0-4), and payment → bank reconciliation (P0-5) — which together close all five most-severe findings (S-1 through S-5) — plus an accounting-event boundary for a downstream ERP (Gap Matrix G-07).
 
 This is a **retail installment-sale** platform, not a cash-loan system. The
 company never disburses cash. A customer buys a product on credit terms; a
@@ -234,9 +234,57 @@ and `GET /collections/cases` (which also gains `date_from` / `date_to` on
 > taken. The real DPD action thresholds are a separate, unconfirmed
 > collections-policy decision.
 
-Out of scope: charts/graphs, Excel/PDF export, scheduled or emailed reports,
-saved report definitions, any metric not computable from existing tables (true
-portfolio-at-risk / ECL), DPD buckets as actual collections policy.
+Out of scope *(for Step 11 — PDF/Excel arrived in Step 13)*: charts/graphs,
+scheduled or emailed reports, saved report definitions, any metric not
+computable from existing tables (true portfolio-at-risk / ECL), DPD buckets as
+actual collections policy.
+
+## What's in Step 13 — report sub-categories, Aging report, PDF/Excel export
+
+*(Step 12 — a `level=portfolio/category/product/customer` selector on the
+profitability report — was not taken; profitability keeps its Step 11
+by-tenor + by-category shape.)*
+
+Step 11's Reports Center only linked out to existing screens for
+Customers/Products/Collections. Step 13 gives all six categories real
+sub-reports, adds an **Aging** category, and adds **PDF / Excel** export
+alongside CSV everywhere. Every figure reuses the calculation that already
+exists — risk bands from the assessment engine, exposure from P0-4, DPD buckets
+from `dpd_report_buckets`, `available_quantity` from Step 10, `LateFeeCharge`
+rows from the accounting-event boundary — no second implementation of any of it.
+
+**New dependencies:** `openpyxl` (Excel) and `reportlab` (plain tabular PDF) —
+in `requirements.txt`. Frontend: `lucide-react` for the icon set (Part 4).
+
+**Every report now available, by category:**
+
+| Category | Sub-reports |
+|---|---|
+| **Contracts** | *All Contracts* (the Step 11 filterable list) · **By Status** (`/reports/contracts/by-status`) · **By Channel** (`/reports/contracts/by-channel` — via Contract → SalesOrder → Application) |
+| **Profitability** | *Portfolio Summary* (the Step 11 contractual / recognized / unearned view, by tenor & category) |
+| **Customers** | *Full Directory* (links out to `/customers`) · **By Risk Band** (`/reports/customers/by-risk`) · **By Exposure** (`/reports/customers/by-exposure` — full ranked list, paginated) |
+| **Products** | *Full Directory* (links out to `/products`) · **By Availability** (`/reports/products/by-availability`) · **By Category** (`/reports/products/by-category` — counts + stock totals) |
+| **Collections** | *Full Case List* (links out to `/collections`) · **Status Summary** (`/reports/collections/status-summary`) · **Promise Performance** (`/reports/collections/promise-performance`) · **Late Fees Summary** (`/reports/collections/late-fees-summary`) |
+| **Aging** *(new)* | **DPD Buckets** (`/reports/aging`) — every currently-overdue installment on an active contract, grouped into the `dpd_report_buckets` bands: per bucket a count and total outstanding. `GET /reports/aging?bucket=<index>` drills into one bucket (contract, customer, DPD, outstanding per installment) |
+
+**Export:** `?format=csv` · `?format=xlsx` · `?format=pdf` on every `/reports/*`
+endpoint (and on the `GET /customers?search=` / `GET /products?search=` /
+`GET /collections/cases` directory endpoints). Excel = one sheet, header + rows,
+auto column widths. PDF = title, generated-at timestamp, a plain bordered table
+(natural pagination only — no charts, no branding). An unknown `format` → 422.
+
+**Frontend:** the Reports Center left rail is now six **category cards** (icon +
+title + one-line description); selecting one shows a **sub-report pill nav** and
+auto-selects the first sub-report. Each report screen's export control is a
+CSV / Excel / PDF button group. Visual polish (icons on metric tiles, tighter
+tile density, category cards) is scoped to the **Reports Center and Executive
+Dashboard only** — no other screen changed. Colours stay on the existing token
+set.
+
+Out of scope: charts inside the app (icons only), Excel/PDF styling beyond
+plain tables, scheduled/emailed/saved reports, a second Aging-style report for
+any other metric, restyling any screen outside Reports Center / Executive
+Dashboard.
 
 ### Explicitly out of scope (later steps)
 
@@ -521,7 +569,7 @@ exist yet), any scheduled posting.
 
 ## Tech stack
 
-**Backend** Python 3.11 · FastAPI · PostgreSQL · SQLAlchemy 2.x · Alembic · PyJWT · bcrypt · Pytest · Docker Compose
+**Backend** Python 3.11 · FastAPI · PostgreSQL · SQLAlchemy 2.x · Alembic · PyJWT · bcrypt · openpyxl + reportlab (report export) · Pytest · Docker Compose
 **Frontend** ([`frontend/`](frontend/)) React 18 · Vite 5 · TypeScript · react-router · Vitest + React Testing Library
 
 ---
@@ -618,7 +666,7 @@ Migrations:
 - [`0010_accounting_events`](alembic/versions/0010_accounting_events.py) — `accounting_events` (one new table, purely additive — Gap Matrix G-07)
 - [`0011_product_stock`](alembic/versions/0011_product_stock.py) — `products.stock_quantity` / `products.reserved_quantity` (Step 10, existing rows backfilled to the placeholder default)
 
-*(P0-4 and Step 11 added no migration — their config values are YAML-seeded `config_parameters` rows.)*
+*(P0-4 and Steps 11 & 13 added no migration — Step 11's config value is a YAML-seeded `config_parameters` row; Step 13 is read-only report queries + export libraries.)*
 
 ---
 
@@ -953,7 +1001,7 @@ Tokens are HS256, `access_token_expire_minutes` (default 30), carrying
 | `GET /reconciliation/exceptions`, `POST /reconciliation/exceptions/{id}/request-match` *(P0-5)* | `finance_officer`, `credit_manager`, `admin` |
 | `GET /accounting/events` *(G-07)* | `finance_officer`, `admin` |
 | `POST /jobs/post-accounting-events` *(G-07)* | `admin` |
-| `GET /reports/*` — contracts, profitability, and all 5 tab summaries *(Step 11)* | `finance_officer`, `credit_manager`, `admin` |
+| `GET /reports/*` — contracts, profitability, 5 tab summaries *(Step 11)*, the Step 13 per-category sub-reports and `/reports/aging` | `finance_officer`, `credit_manager`, `admin` |
 | other authenticated endpoints (`POST /products`, `GET /contracts/{id}`, `GET /offers/{id}`, `GET /customers/{id}`, `GET /products/{id}`, `GET /auth/me`) | any valid token |
 
 **Ownership.** A `customer`-role user is linked to a `Customer` via
@@ -1111,7 +1159,13 @@ seeding and by tests via the `set_config` fixture) is unchanged.
 | `GET` | `/reports/contracts` | **Step 11** — general contract list; filters `status`/`customer_id`/`product_id`/`date_from`/`date_to`, `limit`/`offset`, `?format=csv` (`finance_officer`/`credit_manager`/`admin`) |
 | `GET` | `/reports/profitability` | **Step 11** — contractual / recognized / unearned profit, by tenor & by category; filters `date_from`/`date_to`/`product_id` |
 | `GET` | `/reports/summary/{executive,operations,portfolio,collections,credit-risk}` | **Step 11** — one server-side aggregate per Executive-Dashboard tab |
-| `GET` | `/customers?search=&format=csv` · `/products?search=&format=csv` · `/collections/cases?...&format=csv` | **Step 11** — CSV export added to the existing directory / case-list endpoints; `/collections/cases` also gains `date_from`/`date_to` (on `opened_at`) |
+| `GET` | `/customers?search=` · `/products?search=` · `/collections/cases` | **Step 11/13** — `?format=csv\|xlsx\|pdf` export on the existing directory / case-list endpoints; `/collections/cases` also gains `date_from`/`date_to` (on `opened_at`) |
+| `GET` | `/reports/customers/by-risk` · `/reports/customers/by-exposure` | **Step 13** — customer sub-reports (risk band via the assessment thresholds; full ranked exposure list via the P0-4 calc) |
+| `GET` | `/reports/products/by-availability` · `/reports/products/by-category` | **Step 13** — product sub-reports (available vs sold-out; per-category counts + stock totals) |
+| `GET` | `/reports/contracts/by-status` · `/reports/contracts/by-channel` | **Step 13** — contract sub-reports (status counts; origination-channel counts) |
+| `GET` | `/reports/collections/{status-summary,promise-performance,late-fees-summary}` | **Step 13** — collections sub-reports |
+| `GET` | `/reports/aging` | **Step 13** — overdue installments by DPD bucket; `?bucket=<index>` drills into one bucket's installment list |
+| — | *all `/reports/*`* | **Step 13** — `?format=csv\|xlsx\|pdf` on every report endpoint; unknown format → 422 |
 
 ### Example
 
@@ -1380,7 +1434,18 @@ credit-risk bands reuse the assessment thresholds); CSV export on
 a well-formed CSV (correct headers, correct row count); all summary + report
 endpoints are role-gated.
 
-### Frontend (Steps 7, 9, 10 & 11) — `cd frontend && npm test`
+**Step 13** — report sub-categories + export ([tests/test_report_subcategories.py](tests/test_report_subcategories.py)):
+each new by-X / summary endpoint groups correctly from a seeded scenario
+(customers by risk / exposure, products by availability / category, contracts by
+status / channel, collections status / promise / late-fees); the **Aging report
+buckets match a hand-computed grouping** for installments backdated to DPD 10 /
+45 / 120, and `?bucket=<i>` returns only that bucket (out-of-range → 422); all
+three export formats produce a non-empty correctly-shaped file (CSV headers +
+row count, a valid `.xlsx` zip container, a `%PDF-` document), CSV shape checked
+on several more endpoints, the directory endpoints gained xlsx/pdf, unknown
+format → 422; every new endpoint is role-gated.
+
+### Frontend (Steps 7, 9, 10, 11 & 13) — `cd frontend && npm test`
 
 Vitest + React Testing Library, API mocked at `fetch`:
 
@@ -1421,6 +1486,12 @@ Vitest + React Testing Library, API mocked at `fetch`:
   (totals reconcile on screen); "Export CSV" hits the endpoint with
   `format=csv`; the Customers/Products/Collections categories render a link to
   the existing screen, not a duplicate search box
+- **`src/test/reports-subcategories.test.tsx`** *(Step 13)* — all six category
+  cards render with their sub-report pill nav; selecting a by-X sub-report runs
+  it and shows the grouped rows; the export group offers CSV / Excel / PDF and
+  each hits the endpoint with the right `format`; the Aging report shows buckets
+  and drills into one; the three links-out are preserved for the literal
+  full-list views
 
 ---
 
@@ -1450,33 +1521,36 @@ app/
                reconciliation (P0-5 matching engine),
                accounting (G-07 event generation + posting job),
                erp_adapter (G-07 mock GL boundary),
-               reports (Step 11 aggregate queries + CSV), errors
-  api/         auth, customers (+ exposure P0-4, + search/CSV Step 10-11), products
-               (+ search/stock-adjustment/CSV Step 10-11),
+               reports (Step 11 aggregates + Step 13 sub-reports/aging
+                        + csv/xlsx/pdf export), errors
+  api/         auth, customers (+ exposure P0-4, + search/export Step 10-13), products
+               (+ search/stock-adjustment/export Step 10-13),
                applications (+ manual review P0-2, + list Step 9), offers (+ contracts),
                payments (+ receivable + jobs), closure, config, audit,
-               collections (+ CSV/date filters Step 11), approvals,
+               collections (+ export/date filters Step 11-13), approvals,
                reconciliation (P0-5), accounting (G-07),
-               reports (Step 11) routers
+               reports (Step 11 + Step 13) routers
   main.py      FastAPI app + startup seeding (config params + bootstrap admin)
 alembic/       migrations (0001_initial … 0011_product_stock)
 config/        business_rules.yaml  (fictitious placeholder defaults, Steps 1–4)
 scripts/       seed_config.py, create_admin.py
 tests/         backend pytest suite
 
-frontend/      React + Vite staff web app (Steps 7, 9, 10 & 11)
-  src/api/     fetch wrapper (token + 401 handling, + downloadFile for CSV), types
+frontend/      React + Vite staff web app (Steps 7, 9, 10, 11 & 13)
+  src/api/     fetch wrapper (token + 401 handling, + downloadFile for CSV/xlsx/pdf), types
   src/auth/    AuthContext, RequireAuth route guard
   src/components/  Shell, ScheduleTable, AssessmentPanel, StatusBadge,
-                   MetricTile (Step 11), ui
-  src/pages/   Login, Dashboard (5-tab Executive Dashboard, Step 11),
+                   MetricTile (Step 11, + icon Step 13), ui
+  src/pages/   Login, Dashboard (5-tab Executive Dashboard, Step 11
+                        + icon/density polish Step 13),
                CreateCustomer, CreateProduct,
                NewApplication, Offer, Contract (+ closure actions),
                Customer (+ exposure), ReviewQueue, Reconciliation,
                Approvals, Config, AuditLog  (Step 9),
                CustomerDirectory, ProductDirectory, Snapshot,
                Collections (+ case detail), Inventory  (Step 10),
-               Reports (Reports Center, Step 11)
+               Reports (Reports Center — 6 categories, per-category
+                        sub-reports, csv/xlsx/pdf export; Steps 11 & 13)
   src/styles/  tokens.css (the colour system) + app.css
   src/test/    Vitest + RTL
 ```

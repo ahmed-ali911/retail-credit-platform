@@ -88,9 +88,14 @@ def search_customers(
         .order_by(Customer.name)
     )
     rows = db.execute(stmt).scalars().all()
-    if format == "csv":
-        from app.services.reports import to_csv
+    if format:
+        from app.services import reports as reports_service
 
+        if format not in reports_service.EXPORT_FORMATS:
+            raise HTTPException(
+                status_code=422,
+                detail=f"format must be one of {reports_service.EXPORT_FORMATS}",
+            )
         data = [
             {
                 "id": c.id,
@@ -101,10 +106,15 @@ def search_customers(
             }
             for c in rows
         ]
+        content, media_type, ext = reports_service.export(
+            format, _CUSTOMER_CSV_FIELDS, data, title="Customer directory"
+        )
         return Response(
-            content=to_csv(_CUSTOMER_CSV_FIELDS, data),
-            media_type="text/csv",
-            headers={"Content-Disposition": 'attachment; filename="customers.csv"'},
+            content=content,
+            media_type=media_type,
+            headers={
+                "Content-Disposition": f'attachment; filename="customers.{ext}"'
+            },
         )
     return rows
 

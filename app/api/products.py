@@ -73,9 +73,14 @@ def list_products(
             or_(Product.name.ilike(like), Product.category.ilike(like))
         )
     rows = db.execute(stmt).scalars().all()
-    if format == "csv":
-        from app.services.reports import to_csv
+    if format:
+        from app.services import reports as reports_service
 
+        if format not in reports_service.EXPORT_FORMATS:
+            raise HTTPException(
+                status_code=422,
+                detail=f"format must be one of {reports_service.EXPORT_FORMATS}",
+            )
         data = [
             {
                 "id": p.id,
@@ -89,10 +94,15 @@ def list_products(
             }
             for p in rows
         ]
+        content, media_type, ext = reports_service.export(
+            format, _PRODUCT_CSV_FIELDS, data, title="Product directory"
+        )
         return Response(
-            content=to_csv(_PRODUCT_CSV_FIELDS, data),
-            media_type="text/csv",
-            headers={"Content-Disposition": 'attachment; filename="products.csv"'},
+            content=content,
+            media_type=media_type,
+            headers={
+                "Content-Disposition": f'attachment; filename="products.{ext}"'
+            },
         )
     return rows
 

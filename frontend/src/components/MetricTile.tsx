@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import type { LucideIcon } from "lucide-react";
 
 export type TileTone = "neutral" | "good" | "warn" | "bad";
 
@@ -16,16 +17,21 @@ export function MetricTile({
   subLabel,
   tone = "neutral",
   trend,
+  icon: Icon,
 }: {
   label: string;
   value: ReactNode;
   subLabel?: ReactNode;
   tone?: TileTone;
   trend?: { direction: "up" | "down"; text: string };
+  icon?: LucideIcon;
 }) {
   return (
     <div className={`metric-tile metric-tile--${tone}`} data-testid="metric-tile">
-      <div className="metric-tile__label">{label}</div>
+      <div className="metric-tile__label">
+        {Icon && <Icon size={14} aria-hidden />}
+        <span>{label}</span>
+      </div>
       <div className="metric-tile__value">{value}</div>
       {subLabel != null && (
         <div className="metric-tile__sub">{subLabel}</div>
