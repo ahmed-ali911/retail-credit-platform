@@ -92,19 +92,40 @@ def contracts_report(
 
 
 # --------------------------------------------------------------------------- #
-# Step 11 — profitability (unchanged shape; export added)
+# Step 11 profitability — Step 12 adds the `level` drill-down
 # --------------------------------------------------------------------------- #
 @router.get("/profitability")
 def profitability_report(
     db: Session = Depends(get_db),
+    level: str = Query(default="portfolio"),
+    category: str | None = Query(default=None),
+    product_id: int | None = Query(default=None),
+    customer_id: int | None = Query(default=None),
     date_from: date | None = Query(default=None),
     date_to: date | None = Query(default=None),
-    product_id: int | None = Query(default=None),
     format: str | None = Query(default=None),
     _: User = _roles,
 ):
+    if level not in reports_service.PROFITABILITY_LEVELS:
+        raise HTTPException(
+            status_code=422,
+            detail=f"level must be one of {reports_service.PROFITABILITY_LEVELS}",
+        )
+    _required = {"category": category, "product": product_id, "customer": customer_id}
+    if level in _required and _required[level] is None:
+        name = "category" if level == "category" else f"{level}_id"
+        raise HTTPException(
+            status_code=422, detail=f"level={level} requires the '{name}' parameter"
+        )
+
     report = reports_service.profitability(
-        db, date_from=date_from, date_to=date_to, product_id=product_id
+        db,
+        level=level,
+        category=category,
+        product_id=product_id,
+        customer_id=customer_id,
+        date_from=date_from,
+        date_to=date_to,
     )
     if format:
         fields, rows = reports_service.profitability_table(report)

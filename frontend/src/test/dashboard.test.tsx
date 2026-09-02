@@ -93,17 +93,49 @@ describe("Executive Dashboard tabs", () => {
     expect(await screen.findByTestId("top-exp-4")).toHaveTextContent("Big Spender");
   });
 
-  it("keeps the Start-a-new-flow / Open-a-record panels below the tabs", async () => {
+  it("no longer renders the Start-a-new-flow / Open-a-record sections (Step 12 D)", async () => {
     mockFetch(SUMMARIES);
     renderWithProviders(<DashboardPage />, { user: { role: "admin" } });
-    expect(await screen.findByRole("button", { name: /create customer/i })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /open contract/i })).toBeInTheDocument();
+    await screen.findByText("Total customers");
+    expect(screen.queryByText(/start a new flow/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/open an existing record/i)).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /open contract/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /create customer/i })).not.toBeInTheDocument();
   });
 
-  it("hides the tabs for a non-privileged role but keeps the flow panels", () => {
+  it("hides the tabs for a non-privileged role", () => {
     mockFetch(SUMMARIES);
     renderWithProviders(<DashboardPage />, { user: { role: "sales_employee" } });
     expect(screen.queryByRole("tab")).not.toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /new application/i })).toBeInTheDocument();
+  });
+
+  it("every tab panel is read-only — no mutating action buttons (Step 12 C)", async () => {
+    mockFetch(SUMMARIES);
+    renderWithProviders(<DashboardPage />, { user: { role: "finance_officer" } });
+    const user = userEvent.setup();
+    await screen.findByText("Total customers");
+
+    const MUTATING =
+      /\b(create|new|add|approve|reject|cancel|settle|adjust|waive|delete|remove|submit|run|save|update|edit|request|record|post|match|resolve|confirm|generate)\b/i;
+
+    for (const tabName of [
+      "Executive",
+      "Operations",
+      "Portfolio",
+      "Collections",
+      "Credit & Risk",
+    ]) {
+      await user.click(screen.getByRole("tab", { name: tabName }));
+      const panel = await screen.findByTestId(`tab-${tabName}`);
+      const buttons = panel.querySelectorAll("button");
+      for (const b of buttons) {
+        expect(b.textContent ?? "").not.toMatch(MUTATING);
+      }
+      // links inside a panel only navigate to record detail pages
+      const links = panel.querySelectorAll("a");
+      for (const a of links) {
+        expect(a.getAttribute("href") ?? "").toMatch(/^\/(customers|contracts|reports)\//);
+      }
+    }
   });
 });

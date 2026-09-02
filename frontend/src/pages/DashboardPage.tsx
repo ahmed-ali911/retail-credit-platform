@@ -1,5 +1,5 @@
 import { useEffect, useState, type ReactNode } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import { Link } from "react-router-dom";
 import {
   AlertTriangle,
   Banknote,
@@ -313,22 +313,17 @@ const TAB_COMPONENTS: Record<Tab, () => ReactNode> = {
 };
 
 export function DashboardPage() {
-  const navigate = useNavigate();
   const { user } = useAuth();
   const showTabs = user != null && DASHBOARD_ROLES.includes(user.role);
   const [tab, setTab] = useState<Tab>("Executive");
-  const [customerId, setCustomerId] = useState("");
-  const [appId, setAppId] = useState("");
-  const [offerId, setOfferId] = useState("");
-  const [contractId, setContractId] = useState("");
 
   const ActiveTab = TAB_COMPONENTS[tab];
 
   return (
-    <div className="stack">
+    <div className="stack dashboard-page">
       <h1>Dashboard</h1>
 
-      {showTabs && (
+      {showTabs ? (
         <Card>
           <div className="tabs" role="tablist">
             {TABS.map((t) => (
@@ -347,102 +342,20 @@ export function DashboardPage() {
             <ActiveTab />
           </div>
           <p className="muted" style={{ marginTop: "1rem" }}>
-            Snapshot figures — every number is a live query over existing data,
-            not a forecast. For downloadable detail see{" "}
-            <Link to="/reports">Reports</Link>.
+            Read-only snapshot — every number is a live query over existing data,
+            not a forecast, and nothing here changes anything. Use the nav to
+            create records, or the directories and{" "}
+            <Link to="/reports">Reports</Link> for detail.
+          </p>
+        </Card>
+      ) : (
+        <Card>
+          <p className="muted">
+            Use the navigation to create customers, products and applications, or
+            open the directories to browse existing records.
           </p>
         </Card>
       )}
-
-      <Card title="Start a new flow">
-        <p className="muted">
-          Create the records you need, then run an application through assessment,
-          turn an approval into an offer, and accept it into a contract.
-        </p>
-        <div className="stack" style={{ marginTop: "0.75rem" }}>
-          <button className="btn-primary" onClick={() => navigate("/customers/new")}>
-            Create customer
-          </button>{" "}
-          <button className="btn-secondary" onClick={() => navigate("/products/new")}>
-            Create product
-          </button>{" "}
-          <button className="btn-secondary" onClick={() => navigate("/applications/new")}>
-            New application
-          </button>
-        </div>
-      </Card>
-
-      <Card title="Open an existing record" soft>
-        <p className="muted">Open records by id (or use the directories in the nav).</p>
-        <div className="inline-form">
-          <label className="field">
-            <span>Customer #</span>
-            <input
-              inputMode="numeric"
-              value={customerId}
-              onChange={(e) => setCustomerId(e.target.value)}
-            />
-          </label>
-          <button
-            className="btn-secondary"
-            disabled={!customerId}
-            onClick={() => navigate(`/customers/${customerId}`)}
-          >
-            Open customer
-          </button>
-        </div>
-        <div className="inline-form" style={{ marginTop: "0.75rem" }}>
-          <label className="field">
-            <span>Application #</span>
-            <input
-              inputMode="numeric"
-              value={appId}
-              onChange={(e) => setAppId(e.target.value)}
-            />
-          </label>
-          <button
-            className="btn-secondary"
-            disabled={!appId}
-            onClick={() => navigate(`/applications/${appId}/offer`)}
-          >
-            Open → offer
-          </button>
-        </div>
-        <div className="inline-form" style={{ marginTop: "0.75rem" }}>
-          <label className="field">
-            <span>Offer #</span>
-            <input
-              inputMode="numeric"
-              value={offerId}
-              onChange={(e) => setOfferId(e.target.value)}
-            />
-          </label>
-          <button
-            className="btn-secondary"
-            disabled={!offerId}
-            onClick={() => navigate(`/offers/${offerId}`)}
-          >
-            Open offer
-          </button>
-        </div>
-        <div className="inline-form" style={{ marginTop: "0.75rem" }}>
-          <label className="field">
-            <span>Contract #</span>
-            <input
-              inputMode="numeric"
-              value={contractId}
-              onChange={(e) => setContractId(e.target.value)}
-            />
-          </label>
-          <button
-            className="btn-secondary"
-            disabled={!contractId}
-            onClick={() => navigate(`/contracts/${contractId}`)}
-          >
-            Open contract
-          </button>
-        </div>
-      </Card>
     </div>
   );
 }

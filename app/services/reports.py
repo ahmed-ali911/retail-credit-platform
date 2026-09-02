@@ -182,23 +182,53 @@ def _recognized_profit_for(contract: InstallmentContract) -> Decimal:
     return sum((i.profit_paid or _ZERO for i in contract.installments), _ZERO)
 
 
+PROFITABILITY_LEVELS = ("portfolio", "category", "product", "customer")
+
+
 def profitability(
-    db: Session, *, date_from=None, date_to=None, product_id: int | None = None
+    db: Session,
+    *,
+    level: str = "portfolio",
+    category: str | None = None,
+    product_id: int | None = None,
+    customer_id: int | None = None,
+    date_from=None,
+    date_to=None,
 ) -> dict:
-    """Contractual / recognized / unearned profit, and the same split by tenor
-    and by product category.
+    """Contractual / recognized / unearned profit, split by tenor and category.
+
+    ``level`` (Step 12) scopes the SAME aggregation to a slice of the book:
+    ``portfolio`` (all), ``category`` (one product category), ``product`` (one
+    product), ``customer`` (one customer's contracts). Every level runs the one
+    query below — only the WHERE clause changes.
 
     Contracts closed by **cancellation** are excluded — the sale never
-    completed, so they generated no profit of any kind. For every other
-    contract the identity ``recognized + unearned == contractual`` holds by
-    construction (unearned is computed as ``total_profit - recognized``)."""
+    completed. For every other contract ``recognized + unearned == contractual``
+    holds by construction (unearned is ``total_profit - recognized``)."""
+    if level not in PROFITABILITY_LEVELS:
+        raise ValueError(f"level must be one of {PROFITABILITY_LEVELS}")
+
     stmt = (
         select(InstallmentContract, SalesOrder, Product)
         .join(SalesOrder, InstallmentContract.sales_order_id == SalesOrder.id)
         .join(Product, SalesOrder.product_id == Product.id)
+        .join(CreditApplication, SalesOrder.application_id == CreditApplication.id)
     )
-    if product_id is not None:
+    scope: dict = {"level": level}
+    if level == "category":
+        stmt = stmt.where(Product.category == category)
+        scope["category"] = category
+    elif level == "product":
         stmt = stmt.where(SalesOrder.product_id == product_id)
+        scope["product_id"] = product_id
+    elif level == "customer":
+        stmt = stmt.where(CreditApplication.customer_id == customer_id)
+        scope["customer_id"] = customer_id
+    # product_id is also accepted at portfolio level for backward compatibility
+    if level == "portfolio" and product_id is not None:
+        stmt = stmt.where(SalesOrder.product_id == product_id)
+        scope["product_id"] = product_id
+
     df, dt = _as_dt(date_from), _as_dt(date_to)
     if df is not None:
         stmt = stmt.where(InstallmentContract.created_at >= df)
@@ -252,6 +282,8 @@ def profitability(
         }
 
     return {
+        "level": level,
+        "scope": scope,
         "contracts_counted": counted,
         "total_contractual_profit": _f(contractual),
         "total_recognized_profit": _f(recognized),

@@ -59,13 +59,24 @@ _PRODUCT_CSV_FIELDS = [
 def list_products(
     db: Session = Depends(get_db),
     search: str | None = Query(default=None, max_length=100),
+    status: str = Query(default="all"),
     format: str | None = Query(default=None),
     _: User = Depends(require_roles(*_DIRECTORY_ROLES)),
 ):
-    """Step 10 product directory. `search` (the only filter) does a partial,
-    case-insensitive match on name OR category; omitted → every product (the
-    Inventory screen needs the full list and there is no other list endpoint).
-    `format=csv` (Step 11) returns the same rows as a CSV download."""
+    """Step 10 product directory. `search` (optional) does a partial,
+    case-insensitive match on name OR category; omitted → every product.
+    `format=csv|xlsx|pdf` returns the rows as a download.
+
+    Step 12 note: `status` accepts only `all`. `Product` has no
+    active/inactive field today, and `installment_eligible` is a different
+    concept — conflating them would be misleading — so no product-status field
+    was invented. The param exists for API symmetry with the customer
+    directory and as the wiring point if a real status is added later."""
+    if status != "all":
+        raise HTTPException(
+            status_code=422,
+            detail="products have no status field yet; only status=all is supported",
+        )
     stmt = select(Product).order_by(Product.name)
     if search and search.strip():
         like = f"%{search.strip()}%"

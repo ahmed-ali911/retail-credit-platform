@@ -7,7 +7,7 @@ from sqlalchemy.orm import Session
 
 from app.core.auth import authorize_owner_or_roles, get_current_user, require_roles
 from app.core.database import get_db
-from app.models.customer import Customer, CustomerProfile
+from app.models.customer import Customer, CustomerProfile, CustomerStatus
 from app.models.user import User, UserRole
 from app.schemas.customer import CustomerCreate, CustomerListItem, CustomerOut
 from app.schemas.exposure import CustomerExposureOut
@@ -71,22 +71,36 @@ def create_customer(
 _CUSTOMER_CSV_FIELDS = ["id", "name", "national_id", "status", "risk_score"]
 
 
+_CUSTOMER_STATUS_FILTER = {
+    "active": CustomerStatus.active,
+    "inactive": CustomerStatus.inactive,
+}
+
+
 @router.get("", response_model=list[CustomerListItem])
 def search_customers(
     db: Session = Depends(get_db),
-    search: str = Query(min_length=1, max_length=100),
+    search: str | None = Query(default=None, max_length=100),
+    status: str = Query(default="all"),
     format: str | None = Query(default=None),
     _: User = Depends(require_roles(*_DIRECTORY_ROLES)),
 ):
-    """Step 10 customer directory — partial, case-insensitive match on name OR
-    national_id. `search` is the only supported parameter; `format=csv`
-    (Step 11) returns the same rows as a CSV download."""
-    like = f"%{search.strip()}%"
-    stmt = (
-        select(Customer)
-        .where(or_(Customer.name.ilike(like), Customer.national_id.ilike(like)))
-        .order_by(Customer.name)
-    )
+    """Step 10 customer directory. `search` (optional, Step 12) is a partial,
+    case-insensitive match on name OR national_id — omitted → every customer.
+    `status` (Step 12) = `all` (default) / `active` / `inactive`.
+    `format=csv|xlsx|pdf` returns the rows as a download."""
+    if status not in ("all", "active", "inactive"):
+        raise HTTPException(
+            status_code=422, detail="status must be all, active or inactive"
+        )
+    stmt = select(Customer).order_by(Customer.name)
+    if search and search.strip():
+        like = f"%{search.strip()}%"
+        stmt = stmt.where(
+            or_(Customer.name.ilike(like), Customer.national_id.ilike(like))
+        )
+    if status != "all":
+        stmt = stmt.where(Customer.status == _CUSTOMER_STATUS_FILTER[status])
     rows = db.execute(stmt).scalars().all()
     if format:
         from app.services import reports as reports_service

@@ -154,43 +154,80 @@ table.data tr.is-overdue { background: rgba(192, 57, 43, 0.06); }
 .muted { color: var(--color-muted); }
 .stack > * + * { margin-top: 1rem; }
 
-/* --- dashboard metric tiles (Step 11; density pass Step 13) --- */
+/* --- dashboard metric tiles (Step 11; density Step 13; refinement Step 12) --- */
 .metric-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
-  gap: 0.6rem;
+  grid-template-columns: repeat(auto-fill, minmax(190px, 1fr));
+  gap: 0.85rem;
 }
 .metric-tile {
-  background: var(--color-surface);
-  border: 1px solid var(--color-border);
+  /* very light neutral-primary tint instead of pure white */
+  background: color-mix(in srgb, var(--color-bg) 96%, var(--color-primary) 4%);
+  border: 1px solid color-mix(in srgb, var(--color-border) 80%, var(--color-primary) 6%);
   border-left: 3px solid var(--color-border);
-  border-radius: var(--radius);
-  padding: 0.6rem 0.75rem;
+  border-radius: 14px;
+  padding: 1.25rem 1.4rem;
 }
 .metric-tile--good { border-left-color: var(--color-secondary); }
 .metric-tile--warn { border-left-color: var(--color-warm); }
 .metric-tile--bad  { border-left-color: var(--color-danger); }
-.metric-tile__label {
+
+.metric-tile__head {
   display: flex;
   align-items: center;
-  gap: 0.35rem;
+  gap: 0.55rem;
+  margin-bottom: 0.35rem;
+}
+.metric-tile__label {
   font-size: 0.72rem;
   color: var(--color-muted);
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.02em;
 }
-.metric-tile--good .metric-tile__label svg { color: var(--color-secondary); }
-.metric-tile--warn .metric-tile__label svg { color: var(--color-warm); }
-.metric-tile--bad  .metric-tile__label svg { color: var(--color-danger); }
+/* icon badge: rounded square, ~9% tint background, solid tone icon */
+.metric-tile__badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  border-radius: 10px;
+  flex-shrink: 0;
+  background: color-mix(in srgb, var(--color-primary) 9%, transparent);
+  color: var(--color-primary);
+}
+.metric-tile--good .metric-tile__badge {
+  background: color-mix(in srgb, var(--color-secondary) 12%, transparent);
+  color: var(--color-secondary);
+}
+.metric-tile--warn .metric-tile__badge {
+  background: color-mix(in srgb, var(--color-warm) 14%, transparent);
+  color: var(--color-warm);
+}
+.metric-tile--bad .metric-tile__badge {
+  background: color-mix(in srgb, var(--color-danger) 11%, transparent);
+  color: var(--color-danger);
+}
 .metric-tile__value {
-  font-size: 1.35rem;
+  font-size: 1.4rem;
   font-weight: 700;
   font-variant-numeric: tabular-nums;
-  margin-top: 0.15rem;
 }
-.metric-tile__sub { font-size: 0.74rem; color: var(--color-muted); margin-top: 0.1rem; }
-.metric-tile__trend { font-size: 0.74rem; margin-top: 0.25rem; }
+.metric-tile__sub { font-size: 0.74rem; color: var(--color-muted); margin-top: 0.15rem; }
+.metric-tile__trend { font-size: 0.74rem; margin-top: 0.3rem; }
+
+/* card refinement — scoped to Reports Center + Executive Dashboard only */
+.reports-page .card,
+.dashboard-page .card {
+  background: color-mix(in srgb, var(--color-bg) 96%, var(--color-primary) 4%);
+  border-color: color-mix(in srgb, var(--color-border) 80%, var(--color-primary) 6%);
+  border-radius: 14px;
+}
+.reports-page .card--soft,
+.dashboard-page .card--soft {
+  background: color-mix(in srgb, var(--color-bg) 92%, var(--color-primary) 8%);
+}
 
 /* --- Reports Center category cards + sub-report pills (Step 13) --- */
 .report-cats { display: flex; flex-direction: column; gap: 0.5rem; width: 230px; flex-shrink: 0; }

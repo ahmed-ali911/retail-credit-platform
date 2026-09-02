@@ -272,23 +272,54 @@ function ContractsReport() {
 }
 
 // --------------------------------------------------------------------------- //
-// Profitability — the Step 11 view (kept)
+// Profitability — the Step 11 view + Step 12 `level` drill-down
 // --------------------------------------------------------------------------- //
+const PROFIT_CATEGORIES = [
+  "electronics",
+  "appliances",
+  "furniture",
+  "automotive",
+  "other",
+];
+
 function ProfitabilityReportView() {
-  const [filters, setFilters] = useState({ date_from: "", date_to: "", product_id: "" });
-  const [report, setReport] = useState<ProfitabilityReport | null>(null);
+  const [filters, setFilters] = useState({
+    level: "portfolio",
+    category: "electronics",
+    product_id: "",
+    customer_id: "",
+    date_from: "",
+    date_to: "",
+  });
+  const [report, setReport] = useState<
+    (ProfitabilityReport & { level?: string; scope?: Record<string, unknown> }) | null
+  >(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
   const set = (k: keyof typeof filters) => (e: { target: { value: string } }) =>
     setFilters((f) => ({ ...f, [k]: e.target.value }));
 
+  function scopedQuery(): string {
+    const p: Record<string, string> = {
+      level: filters.level,
+      date_from: filters.date_from,
+      date_to: filters.date_to,
+    };
+    if (filters.level === "category") p.category = filters.category;
+    if (filters.level === "product") p.product_id = filters.product_id;
+    if (filters.level === "customer") p.customer_id = filters.customer_id;
+    return qs(p);
+  }
+
   async function run(e: FormEvent) {
     e.preventDefault();
     setError(null);
     setBusy(true);
     try {
-      setReport(await api<ProfitabilityReport>(`/reports/profitability?${qs(filters)}`));
+      setReport(
+        await api<ProfitabilityReport>(`/reports/profitability?${scopedQuery()}`),
+      );
     } catch (err) {
       setError(errorMessage(err));
     } finally {
@@ -298,19 +329,59 @@ function ProfitabilityReportView() {
 
   return (
     <div className="stack">
-      <Card title="Profitability — portfolio summary">
+      <Card title="Profitability">
         <form className="stack" onSubmit={run}>
+          <div className="field-row">
+            <label className="field">
+              <span>Level</span>
+              <select value={filters.level} onChange={set("level")}>
+                <option value="portfolio">Portfolio</option>
+                <option value="category">Category</option>
+                <option value="product">Product</option>
+                <option value="customer">Customer</option>
+              </select>
+            </label>
+            {filters.level === "category" && (
+              <label className="field">
+                <span>Category</span>
+                <select value={filters.category} onChange={set("category")}>
+                  {PROFIT_CATEGORIES.map((c) => (
+                    <option key={c} value={c}>
+                      {c}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            )}
+            {filters.level === "product" && (
+              <Field
+                label="Product #"
+                inputMode="numeric"
+                value={filters.product_id}
+                onChange={set("product_id")}
+                required
+              />
+            )}
+            {filters.level === "customer" && (
+              <Field
+                label="Customer #"
+                inputMode="numeric"
+                value={filters.customer_id}
+                onChange={set("customer_id")}
+                required
+              />
+            )}
+          </div>
           <div className="field-row">
             <Field label="Created from" type="date" value={filters.date_from} onChange={set("date_from")} />
             <Field label="Created to" type="date" value={filters.date_to} onChange={set("date_to")} />
-            <Field label="Product #" inputMode="numeric" value={filters.product_id} onChange={set("product_id")} />
           </div>
           <div className="inline-form">
             <button className="btn-primary" type="submit" disabled={busy}>
               Run report
             </button>
             <ExportGroup
-              path={`/reports/profitability?${qs(filters)}`}
+              path={`/reports/profitability?${scopedQuery()}`}
               base="profitability"
               onError={setError}
             />
@@ -324,8 +395,18 @@ function ProfitabilityReportView() {
         <>
           <Card soft>
             <dl className="kv">
+              <dt>Level</dt>
+              <dd data-testid="prof-level">
+                {report.level ?? "portfolio"}
+                {report.scope && Object.keys(report.scope).length > 1
+                  ? ` (${Object.entries(report.scope)
+                      .filter(([k]) => k !== "level")
+                      .map(([k, v]) => `${k}=${v}`)
+                      .join(", ")})`
+                  : ""}
+              </dd>
               <dt>Contracts counted</dt>
-              <dd>{report.contracts_counted}</dd>
+              <dd data-testid="prof-count">{report.contracts_counted}</dd>
               <dt>Total contractual profit</dt>
               <dd data-testid="prof-contractual">{money(report.total_contractual_profit)}</dd>
               <dt>Recognized profit</dt>
@@ -695,7 +776,7 @@ export function ReportsPage() {
   }
 
   return (
-    <div className="stack">
+    <div className="stack reports-page">
       <h1>Reports</h1>
       <p className="muted">
         Bounded reporting — every figure is a live query over existing tables.

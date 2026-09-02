@@ -28,9 +28,13 @@ export function MetricTile({
 }) {
   return (
     <div className={`metric-tile metric-tile--${tone}`} data-testid="metric-tile">
-      <div className="metric-tile__label">
-        {Icon && <Icon size={14} aria-hidden />}
-        <span>{label}</span>
+      <div className="metric-tile__head">
+        {Icon && (
+          <span className="metric-tile__badge" aria-hidden>
+            <Icon size={16} />
+          </span>
+        )}
+        <span className="metric-tile__label">{label}</span>
       </div>
       <div className="metric-tile__value">{value}</div>
       {subLabel != null && (

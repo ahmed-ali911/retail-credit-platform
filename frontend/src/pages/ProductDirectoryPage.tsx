@@ -1,4 +1,4 @@
-import { useState, type FormEvent } from "react";
+import { useCallback, useEffect, useState, type FormEvent } from "react";
 import { api, downloadFile, errorMessage } from "../api/client";
 import type { ProductOut } from "../api/types";
 import { Card, ErrorNote, Field, money } from "../components/ui";
@@ -20,18 +20,27 @@ export function ProductDirectoryPage() {
   const [rows, setRows] = useState<ProductOut[] | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  async function search(e: FormEvent) {
-    e.preventDefault();
+  const load = useCallback(async (q: string) => {
     setError(null);
     try {
       setRows(
         await api<ProductOut[]>(
-          `/products?search=${encodeURIComponent(term.trim())}`,
+          `/products${q ? `?search=${encodeURIComponent(q)}` : ""}`,
         ),
       );
     } catch (err) {
       setError(errorMessage(err));
     }
+  }, []);
+
+  // full list on page load — no search term required
+  useEffect(() => {
+    void load("");
+  }, [load]);
+
+  function search(e: FormEvent) {
+    e.preventDefault();
+    void load(term.trim());
   }
 
   return (

@@ -1,6 +1,6 @@
 # Retail Credit & Installment Sales Platform
 
-**Steps 1–13 — a FastAPI backend (application → assessment → offer → contract → payments → collections → maker-checker, behind JWT auth + RBAC + audit) and a React staff web app (core flow, review queue, exposure, reconciliation, approvals, closure, config, audit-log, directories, Collections, inventory, a 5-tab Executive Dashboard and a Reports Center with per-category sub-reports + CSV/Excel/PDF export).** Plus post-[assessment](docs/enterprise-assessment.md) P0 fixes: referred → manual verification (P0-2), an immutable financial ledger in dual-write (P0-1), affordability re-check at offer time (P0-3), company-wide customer exposure aggregation (P0-4), and payment → bank reconciliation (P0-5) — which together close all five most-severe findings (S-1 through S-5) — plus an accounting-event boundary for a downstream ERP (Gap Matrix G-07).
+**Steps 1–13 — a FastAPI backend (application → assessment → offer → contract → payments → collections → maker-checker, behind JWT auth + RBAC + audit) and a React staff web app (core flow, review queue, exposure, reconciliation, approvals, closure, config, audit-log, filterable directories, Collections, inventory, a read-only 5-tab Executive Dashboard and a Reports Center with per-category sub-reports, a profitability drill-down and CSV/Excel/PDF export).** Plus post-[assessment](docs/enterprise-assessment.md) P0 fixes: referred → manual verification (P0-2), an immutable financial ledger in dual-write (P0-1), affordability re-check at offer time (P0-3), company-wide customer exposure aggregation (P0-4), and payment → bank reconciliation (P0-5) — which together close all five most-severe findings (S-1 through S-5) — plus an accounting-event boundary for a downstream ERP (Gap Matrix G-07).
 
 This is a **retail installment-sale** platform, not a cash-loan system. The
 company never disburses cash. A customer buys a product on credit terms; a
@@ -239,11 +239,58 @@ scheduled or emailed reports, saved report definitions, any metric not
 computable from existing tables (true portfolio-at-risk / ECL), DPD buckets as
 actual collections policy.
 
+## What's in Step 12 — directory filters, profitability drill-down, dashboard cleanup, visual refinement
+
+*(Delivered after Step 13. Five fixes from user testing of Steps 10-11 — all
+extend existing endpoints/screens; no new entity or status field.)*
+
+**A. Customer & Product directories — show everything by default + a status
+filter.**
+- `GET /customers?search=` — `search` is now **optional** (omitted → every
+  customer, same paginated shape). New `status` param: `all` (default) /
+  `active` / `inactive`, on the existing `Customer.status`. Bad value → 422.
+- `GET /products?search=` — already returned everything when omitted (verified,
+  no regression). A `status` param is accepted for API symmetry but **only
+  `all` works** — `Product` has no active/inactive field and `installment_eligible`
+  is a different concept, so no product-status field was invented (any other
+  value → 422 with that explanation).
+- Frontend: both directory screens now **load the full list on page open** — no
+  search term required. The Customer Directory gains an `All / Active / Inactive`
+  status control next to the search box; the search box on both screens is
+  unchanged.
+
+**B. Profitability report — `level` drill-down** (one endpoint, not four):
+- `GET /reports/profitability?level=portfolio` — default, unchanged.
+- `?level=category&category=<value>` · `?level=product&product_id=<id>` ·
+  `?level=customer&customer_id=<id>` — the **same** aggregation (the one query
+  is just given an extra `WHERE`), scoped to that slice; the response echoes the
+  `level` + `scope`. Missing the required param for a non-portfolio level → 422.
+- Reports Center → Profitability gains a **Level** selector; picking
+  Category/Product/Customer reveals the matching picker; Run and the
+  CSV/Excel/PDF export both carry the scope.
+
+**C. The Executive Dashboard tabs are read-only — pinned down.** A test renders
+every one of the 5 tabs and asserts no panel contains a button with a mutating
+label (create / approve / settle / adjust / waive / …) — links to a record's
+detail page are fine (navigation, not mutation).
+
+**D. Removed the "Start a new flow" / "Open an existing record" sections from
+the Dashboard.** They duplicated the nav (New Customer/Product/Application) and
+the Step 10 directories, and contradicted a read-only landing page. Not
+relocated — the nav and directories already cover them.
+
+**E. Visual refinement — Reports Center + Executive Dashboard only** (no other
+screen touched, no font change, no new hues beyond the 4 tokens): metric
+tiles / cards get a very light `--color-primary` tint instead of pure white, a
+softer 1px border, 14px radius, and roomier padding; each metric-tile icon now
+sits in a **rounded-square badge** tinted ~9-14% of that tile's tone colour with
+the icon in the solid tone (teal-on-pale-teal for healthy, gold-on-pale-gold for
+attention, etc.).
+
 ## What's in Step 13 — report sub-categories, Aging report, PDF/Excel export
 
-*(Step 12 — a `level=portfolio/category/product/customer` selector on the
-profitability report — was not taken; profitability keeps its Step 11
-by-tenor + by-category shape.)*
+*(Step 12 — the profitability `level` selector and directory filters — was
+delivered after this step; see "What's in Step 12" above.)*
 
 Step 11's Reports Center only linked out to existing screens for
 Customers/Products/Collections. Step 13 gives all six categories real
@@ -974,7 +1021,7 @@ Tokens are HS256, `access_token_expire_minutes` (default 30), carrying
 | Endpoint | Allowed roles |
 |---|---|
 | `POST /customers` | `sales_employee`, `admin` |
-| `GET /customers?search=` *(Step 10)* | `sales_employee`, `credit_officer`, `credit_manager`, `finance_officer`, `admin` |
+| `GET /customers?search=&status=` *(Step 10, filters Step 12)* | `sales_employee`, `credit_officer`, `credit_manager`, `finance_officer`, `admin` |
 | `GET /products?search=` *(Step 10)* | same as above |
 | `POST /products/{id}/stock-adjustment` *(Step 10)* | `finance_officer`, `admin` |
 | `GET /customers/{id}/exposure` *(P0-4)* | `credit_officer`, `credit_manager`, `finance_officer`, `admin`, **or the owning `customer`** |
@@ -1157,9 +1204,9 @@ seeding and by tests via the `set_config` fixture) is unchanged.
 | `GET` | `/accounting/events` | **G-07** — list accounting events, filter `event_type` / `accounting_status` / `contract_id` (`finance_officer`/`admin`) |
 | `POST` | `/jobs/post-accounting-events` | **G-07** — on-demand: post every non-`posted` event via the mock ERP adapter; idempotent (**admin**) |
 | `GET` | `/reports/contracts` | **Step 11** — general contract list; filters `status`/`customer_id`/`product_id`/`date_from`/`date_to`, `limit`/`offset`, `?format=csv` (`finance_officer`/`credit_manager`/`admin`) |
-| `GET` | `/reports/profitability` | **Step 11** — contractual / recognized / unearned profit, by tenor & by category; filters `date_from`/`date_to`/`product_id` |
+| `GET` | `/reports/profitability` | **Step 11 + 12** — contractual / recognized / unearned profit, by tenor & category. **Step 12:** `level=portfolio` (default) / `category` (+`category`) / `product` (+`product_id`) / `customer` (+`customer_id`) scopes the same aggregation; missing the required param → 422 |
 | `GET` | `/reports/summary/{executive,operations,portfolio,collections,credit-risk}` | **Step 11** — one server-side aggregate per Executive-Dashboard tab |
-| `GET` | `/customers?search=` · `/products?search=` · `/collections/cases` | **Step 11/13** — `?format=csv\|xlsx\|pdf` export on the existing directory / case-list endpoints; `/collections/cases` also gains `date_from`/`date_to` (on `opened_at`) |
+| `GET` | `/customers?search=` · `/products?search=` · `/collections/cases` | **Steps 10-13** — `search` optional (omitted → all); **Step 12:** `/customers` gains `status=all\|active\|inactive`; `?format=csv\|xlsx\|pdf` export on all three; `/collections/cases` also has `date_from`/`date_to` (on `opened_at`) |
 | `GET` | `/reports/customers/by-risk` · `/reports/customers/by-exposure` | **Step 13** — customer sub-reports (risk band via the assessment thresholds; full ranked exposure list via the P0-4 calc) |
 | `GET` | `/reports/products/by-availability` · `/reports/products/by-category` | **Step 13** — product sub-reports (available vs sold-out; per-category counts + stock totals) |
 | `GET` | `/reports/contracts/by-status` · `/reports/contracts/by-channel` | **Step 13** — contract sub-reports (status counts; origination-channel counts) |
@@ -1445,7 +1492,17 @@ row count, a valid `.xlsx` zip container, a `%PDF-` document), CSV shape checked
 on several more endpoints, the directory endpoints gained xlsx/pdf, unknown
 format → 422; every new endpoint is role-gated.
 
-### Frontend (Steps 7, 9, 10, 11 & 13) — `cd frontend && npm test`
+**Step 12** — directory filters + profitability levels ([tests/test_step12.py](tests/test_step12.py)):
+`GET /customers` returns everything with no `search`; `status=active|inactive`
+narrows it (bad value → 422); search still works alongside `status`;
+`GET /products` still returns all by default and rejects any `status` but `all`;
+the profitability report at each of the 4 levels returns correctly scoped and
+correctly summed figures from a seeded multi-customer / multi-product scenario
+(the `recognized + unearned == contractual` identity holds at every level), a
+non-portfolio level without its required param → 422, and a scoped export
+carries the scope.
+
+### Frontend (Steps 7, 9, 10, 11, 12 & 13) — `cd frontend && npm test`
 
 Vitest + React Testing Library, API mocked at `fetch`:
 
@@ -1477,10 +1534,11 @@ Vitest + React Testing Library, API mocked at `fetch`:
   the table immediately; a negative one below `reserved_quantity` is rejected
   and shows the error, table unchanged; the recent-adjustments panel reflects
   the existing audit endpoint; `sales_employee` does not see "Inventory" in nav
-- **`src/test/dashboard.test.tsx`** *(Step 11)* — the 5 tabs render `MetricTile`s
-  from mocked summary responses and switch (Portfolio DPD table, Credit-Risk
-  top-exposure list); the flow panels stay below; a non-privileged role sees no
-  tabs but keeps the panels
+- **`src/test/dashboard.test.tsx`** *(Step 11, updated Step 12)* — the 5 tabs
+  render `MetricTile`s from mocked summary responses and switch (Portfolio DPD
+  table, Credit-Risk top-exposure list); the "Start a new flow" / "Open a
+  record" sections are **gone** (Step 12 D); **every tab panel is read-only** —
+  no mutating-action button (Step 12 C); a non-privileged role sees no tabs
 - **`src/test/reports.test.tsx`** *(Step 11)* — Reports Center runs a filtered
   Contracts report (URL carries `status=active`) and a Profitability report
   (totals reconcile on screen); "Export CSV" hits the endpoint with
@@ -1492,6 +1550,12 @@ Vitest + React Testing Library, API mocked at `fetch`:
   each hits the endpoint with the right `format`; the Aging report shows buckets
   and drills into one; the three links-out are preserved for the literal
   full-list views
+- **`src/test/step12.test.tsx`** *(Step 12)* — the Customer Directory loads the
+  full list on mount (no `search=` in the first call) and the status control
+  re-queries with `?status=active`; the Product Directory loads all on mount;
+  the Reports Center Profitability screen switches `level` to Customer, reveals
+  the picker, re-runs scoped (`customer_id` in the URL), and a Category-level
+  export carries `level` + `category`
 
 ---
 

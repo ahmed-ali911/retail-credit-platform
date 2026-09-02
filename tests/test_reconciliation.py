@@ -59,12 +59,15 @@ def test_fallback_amount_and_date_reconciles(client, db):
     cid = ctx["contract_id"]
     amount = _first_total(ctx)
     payment = _pay(client, cid, amount, "MERCHANT-REF-2")
+    # derive the line's value_date from the payment's actual (UTC) received date
+    # so the test doesn't straddle the local/UTC midnight boundary
+    pay_date = payment["received_at"][:10]
 
     # bank_reference does NOT match any payment reference -> falls through to
     # the amount + value-date rule (placeholder tolerance: same calendar day).
     client.post(
         "/reconciliation/bank-lines",
-        json={"bank_reference": "UNRELATED-9", "amount": amount, "value_date": TODAY},
+        json={"bank_reference": "UNRELATED-9", "amount": amount, "value_date": pay_date},
     )
     run = client.post("/reconciliation/run").json()
     assert run == {"lines_processed": 1, "matched": 1, "exceptions_created": 0}
@@ -300,9 +303,11 @@ def test_date_tolerance_window_is_configurable(client, set_config):
     ctx = active_contract(client, national_id="REC-12")
     cid = ctx["contract_id"]
     amount = _first_total(ctx)
-    _pay(client, cid, amount, "MERCH-ONLY")
+    payment = _pay(client, cid, amount, "MERCH-ONLY")
 
-    yesterday = (date.today() - timedelta(days=1)).isoformat()
+    # one day before the payment's actual (UTC) received date
+    pay_date = date.fromisoformat(payment["received_at"][:10])
+    yesterday = (pay_date - timedelta(days=1)).isoformat()
     client.post(
         "/reconciliation/bank-lines",
         json={"bank_reference": "X", "amount": amount, "value_date": yesterday},
