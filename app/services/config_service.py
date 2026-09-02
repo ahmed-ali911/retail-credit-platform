@@ -41,6 +41,8 @@ KEY_EXPOSURE_AGGREGATION_LEVEL = "exposure_aggregation_level"  # only 'company_w
 KEY_RECON_DATE_TOLERANCE_DAYS = "reconciliation_date_tolerance_days"
 # --- inventory / stock (Step 10) ---
 KEY_DEFAULT_INITIAL_STOCK = "default_initial_stock_quantity"
+# --- reporting (Step 11) ---
+KEY_DPD_REPORT_BUCKETS = "dpd_report_buckets"
 # --- pricing / offers (Step 2) ---
 KEY_TENOR_PROFIT_RATE_TABLE = "tenor_profit_rate_table"
 KEY_MIN_DOWN_PAYMENT_PCT = "minimum_down_payment_pct"

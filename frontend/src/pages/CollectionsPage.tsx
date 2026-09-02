@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState, type FormEvent } from "react";
 import { Link, useParams } from "react-router-dom";
-import { api, errorMessage } from "../api/client";
+import { api, downloadFile, errorMessage } from "../api/client";
 import { useAuth } from "../auth/AuthContext";
 import type {
   CollectionCaseDetailOut,
@@ -14,25 +14,34 @@ export function CollectionsPage() {
   const [rows, setRows] = useState<CollectionCaseOut[] | null>(null);
   const [statusFilter, setStatusFilter] = useState<"" | "open" | "closed">("");
   const [contractFilter, setContractFilter] = useState("");
+  const [dateFrom, setDateFrom] = useState("");
+  const [dateTo, setDateTo] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
-  const load = useCallback(async () => {
-    setError(null);
+  const buildQuery = useCallback(() => {
     const qs = new URLSearchParams();
     if (statusFilter) qs.set("status", statusFilter);
     if (contractFilter) qs.set("contract_id", contractFilter);
+    if (dateFrom) qs.set("date_from", dateFrom);
+    if (dateTo) qs.set("date_to", dateTo);
+    return qs.toString();
+  }, [statusFilter, contractFilter, dateFrom, dateTo]);
+
+  const load = useCallback(async () => {
+    setError(null);
+    const q = buildQuery();
     try {
       setRows(
         await api<CollectionCaseOut[]>(
-          `/collections/cases${qs.toString() ? `?${qs}` : ""}`,
+          `/collections/cases${q ? `?${q}` : ""}`,
         ),
       );
     } catch (err) {
       setError(errorMessage(err));
     }
-  }, [statusFilter, contractFilter]);
+  }, [buildQuery]);
 
   useEffect(() => {
     void load();
@@ -97,6 +106,31 @@ export function CollectionsPage() {
             value={contractFilter}
             onChange={(e) => setContractFilter(e.target.value)}
           />
+          <Field
+            label="Opened from"
+            type="date"
+            value={dateFrom}
+            onChange={(e) => setDateFrom(e.target.value)}
+          />
+          <Field
+            label="Opened to"
+            type="date"
+            value={dateTo}
+            onChange={(e) => setDateTo(e.target.value)}
+          />
+          <button
+            type="button"
+            className="btn-secondary"
+            onClick={() => {
+              const q = buildQuery();
+              downloadFile(
+                `/collections/cases?${q ? `${q}&` : ""}format=csv`,
+                "collection-cases.csv",
+              ).catch((err) => setError(errorMessage(err)));
+            }}
+          >
+            Export CSV
+          </button>
         </div>
 
         {rows == null ? (

@@ -81,6 +81,35 @@ export async function api<T>(path: string, opts: ApiOptions = {}): Promise<T> {
   return data as T;
 }
 
+/**
+ * Fetch a file (e.g. a CSV export) with the bearer token and trigger a browser
+ * download. Kept separate from `api()` because the response is not JSON.
+ */
+export async function downloadFile(path: string, filename: string): Promise<void> {
+  const token = getToken();
+  const res = await fetch(`${BASE}${path}`, {
+    headers: token ? { Authorization: `Bearer ${token}` } : {},
+  });
+  if (res.status === 401) {
+    setToken(null);
+    onUnauthorized();
+    throw new ApiError(401, "Session expired — please sign in again.");
+  }
+  if (!res.ok) {
+    const text = await res.text();
+    throw new ApiError(res.status, text || `Download failed (${res.status})`);
+  }
+  const blob = await res.blob();
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
+}
+
 export function errorMessage(err: unknown): string {
   if (err instanceof ApiError) {
     if (typeof err.detail === "string") return err.detail;

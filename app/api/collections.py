@@ -1,6 +1,8 @@
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from datetime import date, datetime, timezone
+
+from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -36,19 +38,64 @@ def _get_case(db: Session, case_id: int) -> CollectionCase:
     return case
 
 
+_CASE_CSV_FIELDS = [
+    "id",
+    "contract_id",
+    "status",
+    "opened_at",
+    "opened_reason",
+    "closed_at",
+]
+
+
 @router.get("/cases", response_model=list[CollectionCaseOut])
 def list_cases(
     db: Session = Depends(get_db),
     status_: CollectionCaseStatus | None = Query(default=None, alias="status"),
     contract_id: int | None = Query(default=None),
+    date_from: date | None = Query(default=None),
+    date_to: date | None = Query(default=None),
+    format: str | None = Query(default=None),
     _: User = Depends(require_roles(*_VIEW_ROLES)),
 ):
+    """`date_from` / `date_to` filter on `opened_at`; `format=csv` (Step 11)
+    returns the same rows as a CSV download."""
     stmt = select(CollectionCase).order_by(CollectionCase.id.desc())
     if status_ is not None:
         stmt = stmt.where(CollectionCase.status == status_)
     if contract_id is not None:
         stmt = stmt.where(CollectionCase.contract_id == contract_id)
-    return db.execute(stmt).scalars().all()
+    if date_from is not None:
+        stmt = stmt.where(
+            CollectionCase.opened_at
+            >= datetime(date_from.year, date_from.month, date_from.day, tzinfo=timezone.utc)
+        )
+    if date_to is not None:
+        stmt = stmt.where(
+            CollectionCase.opened_at
+            <= datetime(date_to.year, date_to.month, date_to.day, 23, 59, 59, tzinfo=timezone.utc)
+        )
+    rows = db.execute(stmt).scalars().all()
+    if format == "csv":
+        from app.services.reports import to_csv
+
+        data = [
+            {
+                "id": c.id,
+                "contract_id": c.contract_id,
+                "status": c.status.value,
+                "opened_at": c.opened_at.isoformat(),
+                "opened_reason": c.opened_reason,
+                "closed_at": c.closed_at.isoformat() if c.closed_at else "",
+            }
+            for c in rows
+        ]
+        return Response(
+            content=to_csv(_CASE_CSV_FIELDS, data),
+            media_type="text/csv",
+            headers={"Content-Disposition": 'attachment; filename="collection-cases.csv"'},
+        )
+    return rows
 
 
 @router.get("/cases/{case_id}", response_model=CollectionCaseDetailOut)

@@ -51,6 +51,11 @@ const NAV: NavItem[] = [
     label: "Snapshot",
     roles: ["finance_officer", "credit_manager", "admin"],
   },
+  {
+    to: "/reports",
+    label: "Reports",
+    roles: ["finance_officer", "credit_manager", "admin"],
+  },
   { to: "/inventory", label: "Inventory", roles: ["finance_officer", "admin"] },
   { to: "/config", label: "Configuration", roles: ["admin"] },
   { to: "/audit", label: "Audit Log", roles: ["admin", "credit_manager"] },

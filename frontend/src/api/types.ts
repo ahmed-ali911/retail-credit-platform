@@ -55,6 +55,94 @@ export interface CustomerListItem {
   risk_score: number | null;
 }
 
+// --- reports / dashboards (Step 11) ---
+export interface ContractReportRow {
+  contract_id: number;
+  status: string;
+  customer_id: number;
+  customer_name: string;
+  product_id: number;
+  product_name: string;
+  category: string;
+  tenor_months: number;
+  installment_sale_price: number;
+  created_at: string;
+}
+
+export interface ContractReportPage {
+  items: ContractReportRow[];
+  total: number;
+  limit: number;
+  offset: number;
+}
+
+export interface ProfitabilityBucket {
+  contractual_profit: number;
+  recognized_profit: number;
+  unearned_profit: number;
+  contracts: number;
+}
+
+export interface ProfitabilityReport {
+  contracts_counted: number;
+  total_contractual_profit: number;
+  total_recognized_profit: number;
+  total_unearned_profit: number;
+  by_tenor: Record<string, ProfitabilityBucket>;
+  by_category: Record<string, ProfitabilityBucket>;
+}
+
+export interface ExecutiveSummary {
+  total_customers: number;
+  active_contracts: number;
+  total_outstanding_receivable: number;
+  total_profit_recognized: number;
+  approval_rate: number | null;
+  decisions_considered: number;
+}
+
+export interface OperationsSummary {
+  payments_today_count: number;
+  payments_today_amount: number;
+  applications_submitted_today: number;
+  overdue_installments: number;
+  open_reconciliation_exceptions: number;
+  as_of: string;
+}
+
+export interface PortfolioSummary {
+  contracts_by_status: Record<string, number>;
+  dpd_distribution: {
+    current: number;
+    buckets: Record<string, number>;
+    as_of: string;
+  };
+  average_contract_size: number;
+}
+
+export interface CollectionsSummary {
+  open_cases: number;
+  promise_to_pay_kept: number;
+  promise_to_pay_broken: number;
+  late_fees_charged_count: number;
+  late_fees_charged_amount: number;
+  late_fees_waived_count: number;
+  late_fees_waived_amount: number;
+}
+
+export interface CreditRiskSummary {
+  customers_by_risk_band: Record<string, number>;
+  risk_band_thresholds: { low_min: number; medium_min: number };
+  top_customers_by_exposure: {
+    customer_id: number;
+    name: string;
+    total_outstanding: number;
+  }[];
+  rejection_rate: number | null;
+  referral_rate: number | null;
+  decisions_considered: number;
+}
+
 // --- collections (Step 8/10) ---
 export interface CollectionActivityOut {
   id: number;

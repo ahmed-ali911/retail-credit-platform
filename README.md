@@ -1,6 +1,6 @@
 # Retail Credit & Installment Sales Platform
 
-**Steps 1–10 — a FastAPI backend (application → assessment → offer → contract → payments → collections → maker-checker, behind JWT auth + RBAC + audit) and a React staff web app (core flow plus review queue, exposure, reconciliation, approvals, closure, config, audit-log, customer/product directories, portfolio snapshot, Collections and inventory-adjustment screens).** Plus post-[assessment](docs/enterprise-assessment.md) P0 fixes: referred → manual verification (P0-2), an immutable financial ledger in dual-write (P0-1), affordability re-check at offer time (P0-3), company-wide customer exposure aggregation (P0-4), and payment → bank reconciliation (P0-5) — which together close all five most-severe findings (S-1 through S-5) — plus an accounting-event boundary for a downstream ERP (Gap Matrix G-07).
+**Steps 1–11 — a FastAPI backend (application → assessment → offer → contract → payments → collections → maker-checker, behind JWT auth + RBAC + audit) and a React staff web app (core flow, review queue, exposure, reconciliation, approvals, closure, config, audit-log, directories, Collections, inventory, a bounded reporting layer and a 5-tab Executive Dashboard).** Plus post-[assessment](docs/enterprise-assessment.md) P0 fixes: referred → manual verification (P0-2), an immutable financial ledger in dual-write (P0-1), affordability re-check at offer time (P0-3), company-wide customer exposure aggregation (P0-4), and payment → bank reconciliation (P0-5) — which together close all five most-severe findings (S-1 through S-5) — plus an accounting-event boundary for a downstream ERP (Gap Matrix G-07).
 
 This is a **retail installment-sale** platform, not a cash-loan system. The
 company never disburses cash. A customer buys a product on credit terms; a
@@ -181,6 +181,62 @@ closure itself).
 Out of scope (unchanged): warehouse/branch-level stock, barcode/serial
 tracking, low-stock alerts, bulk stock import, anything from a future deep
 audit pass.
+
+## What's in Step 11 — reporting layer + Executive Dashboard
+
+The Gap Matrix flagged Reports/KPIs as needing its own design pass since Phase 1
+— this is that pass. **Bounded on purpose:** no BI engine, no charts, no
+scheduled/emailed reports, no saved definitions, CSV export only. **Every figure
+is a live query over real tables** — if a number can't be computed from data
+that exists today (true portfolio-at-risk needs ECL, which still doesn't
+exist), it is simply absent rather than estimated.
+
+**Backend — 4 report endpoints + 5 dashboard summaries** (all
+`finance_officer` / `credit_manager` / `admin`, matching how the P0-4 exposure
+endpoint is scoped):
+
+| Endpoint | Returns |
+|---|---|
+| `GET /reports/contracts` | the one genuinely missing general contract list — filters `status` / `customer_id` / `product_id` / `date_from` / `date_to` (on `created_at`), paginated (`limit`/`offset`), `?format=csv` |
+| `GET /reports/profitability` | total contractual / recognized (`Σ profit_paid`) / unearned profit, split by tenor and by product category; filters `date_from` / `date_to` / `product_id`. Contracts closed by **cancellation** are excluded (no sale completed); for every other contract `recognized + unearned == contractual` holds by construction |
+| `GET /reports/summary/executive` | total customers, active contracts, outstanding receivable (Σ over active), profit recognized to date, all-time approval rate `approved / (approved+rejected+referred)` |
+| `GET /reports/summary/operations` | payments today (count + amount), applications submitted today, currently-overdue installments, open reconciliation exceptions |
+| `GET /reports/summary/portfolio` | contracts by status, DPD aging distribution (`dpd_report_buckets` config), average contract size (`installment_sale_price`) |
+| `GET /reports/summary/collections` | open cases, promises kept vs broken, late fees charged vs waived (count + amount) |
+| `GET /reports/summary/credit-risk` | customers by risk band (**reusing the assessment engine's own `risk_score_auto_approve_min` / `risk_score_refer_min`** — not a second copy), top 10 by exposure (reusing the P0-4 calc), rejection & referral rates |
+
+**CSV export added to the existing Step 8/10 screens** (extended, not
+duplicated): `?format=csv` on `GET /customers?search=`, `GET /products?search=`
+and `GET /collections/cases` (which also gains `date_from` / `date_to` on
+`opened_at`).
+
+**Frontend:**
+
+- **Executive Dashboard** — the Dashboard landing is now a 5-tab dashboard
+  (**Executive · Operations · Portfolio · Collections · Credit & Risk**),
+  visible to `finance_officer` / `credit_manager` / `admin`. Each tab is a grid
+  of `MetricTile`s from its summary endpoint; healthy figures in
+  `--color-secondary`, attention figures (overdue, open exceptions, high-risk)
+  in `--color-warm`, `--color-danger` reserved for genuinely broken states.
+  No charts. The existing "Start a new flow" / "Open an existing record" panels
+  are kept, below the tabs. Non-privileged roles see the Dashboard with the
+  panels but no tabs.
+- **Reports Center** (`/reports`, nav "Reports", same roles) — a left category
+  list: **Contracts** and **Profitability** are the two new report screens
+  (filter form → Run Report → results table → Export CSV); **Customers**,
+  **Products**, **Collections** link to the existing directory / case-list
+  screens (with the Part-1C export button now on them) rather than duplicating.
+
+> **BUSINESS DECISION REQUIRED** (register): **DPD bucket boundaries**. The new
+> `dpd_report_buckets` config (`[[1,30],[31,60],[61,90],[91,null]]`) is a
+> **reporting-display grouping only** — it drives how the Portfolio tab groups
+> aging, and is explicitly **not** a collections policy on when action should be
+> taken. The real DPD action thresholds are a separate, unconfirmed
+> collections-policy decision.
+
+Out of scope: charts/graphs, Excel/PDF export, scheduled or emailed reports,
+saved report definitions, any metric not computable from existing tables (true
+portfolio-at-risk / ECL), DPD buckets as actual collections policy.
 
 ### Explicitly out of scope (later steps)
 
@@ -562,7 +618,7 @@ Migrations:
 - [`0010_accounting_events`](alembic/versions/0010_accounting_events.py) — `accounting_events` (one new table, purely additive — Gap Matrix G-07)
 - [`0011_product_stock`](alembic/versions/0011_product_stock.py) — `products.stock_quantity` / `products.reserved_quantity` (Step 10, existing rows backfilled to the placeholder default)
 
-*(P0-4 added no migration — the exposure config is two YAML-seeded `config_parameters` rows.)*
+*(P0-4 and Step 11 added no migration — their config values are YAML-seeded `config_parameters` rows.)*
 
 ---
 
@@ -616,6 +672,7 @@ Default (placeholder) parameters:
 | `exposure_aggregation_level` | `company_wide` | **P0-4, BUSINESS DECISION REQUIRED** — only `company_wide` implemented; per-category/brand/BU is a future value that raises if configured |
 | `reconciliation_date_tolerance_days` | 0 | **P0-5, placeholder / BUSINESS DECISION REQUIRED** — fallback bank-line matching: `|payment date − value date|` allowed for an amount-only match. `0` = same calendar day |
 | `default_initial_stock_quantity` | 10 | **Step 10, placeholder** — opening `stock_quantity` for a brand-new product and the value migration `0011` backfilled every existing product to. No real inventory feed yet |
+| `dpd_report_buckets` | `[[1,30],[31,60],[61,90],[91,null]]` | **Step 11, DISPLAY GROUPING ONLY** — inclusive `[low, high]` days-past-due ranges for the Portfolio dashboard's aging distribution (`null` high = "and beyond"). **Not** a collections-action policy; the real DPD action thresholds are a separate unconfirmed decision |
 
 The rate table is stored as a single JSON parameter, so the tenor→rate mapping
 is edited as one unit (via `PUT /config/parameters/tenor_profit_rate_table` with
@@ -896,6 +953,7 @@ Tokens are HS256, `access_token_expire_minutes` (default 30), carrying
 | `GET /reconciliation/exceptions`, `POST /reconciliation/exceptions/{id}/request-match` *(P0-5)* | `finance_officer`, `credit_manager`, `admin` |
 | `GET /accounting/events` *(G-07)* | `finance_officer`, `admin` |
 | `POST /jobs/post-accounting-events` *(G-07)* | `admin` |
+| `GET /reports/*` — contracts, profitability, and all 5 tab summaries *(Step 11)* | `finance_officer`, `credit_manager`, `admin` |
 | other authenticated endpoints (`POST /products`, `GET /contracts/{id}`, `GET /offers/{id}`, `GET /customers/{id}`, `GET /products/{id}`, `GET /auth/me`) | any valid token |
 
 **Ownership.** A `customer`-role user is linked to a `Customer` via
@@ -1050,6 +1108,10 @@ seeding and by tests via the `set_config` fixture) is unchanged.
 | `GET` | `/contracts/{id}/receivable` | *(P0-5)* now also returns `reconciliation_summary` — this contract's payments counted by reconciliation status (all other figures unchanged) |
 | `GET` | `/accounting/events` | **G-07** — list accounting events, filter `event_type` / `accounting_status` / `contract_id` (`finance_officer`/`admin`) |
 | `POST` | `/jobs/post-accounting-events` | **G-07** — on-demand: post every non-`posted` event via the mock ERP adapter; idempotent (**admin**) |
+| `GET` | `/reports/contracts` | **Step 11** — general contract list; filters `status`/`customer_id`/`product_id`/`date_from`/`date_to`, `limit`/`offset`, `?format=csv` (`finance_officer`/`credit_manager`/`admin`) |
+| `GET` | `/reports/profitability` | **Step 11** — contractual / recognized / unearned profit, by tenor & by category; filters `date_from`/`date_to`/`product_id` |
+| `GET` | `/reports/summary/{executive,operations,portfolio,collections,credit-risk}` | **Step 11** — one server-side aggregate per Executive-Dashboard tab |
+| `GET` | `/customers?search=&format=csv` · `/products?search=&format=csv` · `/collections/cases?...&format=csv` | **Step 11** — CSV export added to the existing directory / case-list endpoints; `/collections/cases` also gains `date_from`/`date_to` (on `opened_at`) |
 
 ### Example
 
@@ -1307,7 +1369,18 @@ cancellation and return each release it back; **offer generation on an
 out-of-stock product is rejected (422)**; a plain end-to-end contract still
 works with stock present; RBAC (search + adjustment).
 
-### Frontend (Steps 7, 9 & 10) — `cd frontend && npm test`
+**Step 11** — reporting ([tests/test_reports.py](tests/test_reports.py)):
+`/reports/contracts` filters by status and by date range; **profitability totals
+reconcile** — `recognized + unearned == contractual` for a known contract,
+before and after a payment, and per tenor bucket; each of the 5 summary
+endpoints returns the right shape and the right aggregates from a seeded
+scenario (portfolio DPD bucketing verified by backdating one installment;
+credit-risk bands reuse the assessment thresholds); CSV export on
+`/reports/contracts`, `/customers`, `/products` and `/collections/cases` returns
+a well-formed CSV (correct headers, correct row count); all summary + report
+endpoints are role-gated.
+
+### Frontend (Steps 7, 9, 10 & 11) — `cd frontend && npm test`
 
 Vitest + React Testing Library, API mocked at `fetch`:
 
@@ -1339,6 +1412,15 @@ Vitest + React Testing Library, API mocked at `fetch`:
   the table immediately; a negative one below `reserved_quantity` is rejected
   and shows the error, table unchanged; the recent-adjustments panel reflects
   the existing audit endpoint; `sales_employee` does not see "Inventory" in nav
+- **`src/test/dashboard.test.tsx`** *(Step 11)* — the 5 tabs render `MetricTile`s
+  from mocked summary responses and switch (Portfolio DPD table, Credit-Risk
+  top-exposure list); the flow panels stay below; a non-privileged role sees no
+  tabs but keeps the panels
+- **`src/test/reports.test.tsx`** *(Step 11)* — Reports Center runs a filtered
+  Contracts report (URL carries `status=active`) and a Profitability report
+  (totals reconcile on screen); "Export CSV" hits the endpoint with
+  `format=csv`; the Customers/Products/Collections categories render a link to
+  the existing screen, not a duplicate search box
 
 ---
 
@@ -1367,29 +1449,34 @@ app/
                ledger (P0-1 dual-write helper), exposure (P0-4),
                reconciliation (P0-5 matching engine),
                accounting (G-07 event generation + posting job),
-               erp_adapter (G-07 mock GL boundary), errors
-  api/         auth, customers (+ exposure P0-4, + search Step 10), products
-               (+ search/stock-adjustment Step 10),
+               erp_adapter (G-07 mock GL boundary),
+               reports (Step 11 aggregate queries + CSV), errors
+  api/         auth, customers (+ exposure P0-4, + search/CSV Step 10-11), products
+               (+ search/stock-adjustment/CSV Step 10-11),
                applications (+ manual review P0-2, + list Step 9), offers (+ contracts),
                payments (+ receivable + jobs), closure, config, audit,
-               collections, approvals, reconciliation (P0-5),
-               accounting (G-07) routers
+               collections (+ CSV/date filters Step 11), approvals,
+               reconciliation (P0-5), accounting (G-07),
+               reports (Step 11) routers
   main.py      FastAPI app + startup seeding (config params + bootstrap admin)
 alembic/       migrations (0001_initial … 0011_product_stock)
 config/        business_rules.yaml  (fictitious placeholder defaults, Steps 1–4)
 scripts/       seed_config.py, create_admin.py
 tests/         backend pytest suite
 
-frontend/      React + Vite staff web app (Steps 7, 9 & 10)
-  src/api/     fetch wrapper (token + 401 handling), response types
+frontend/      React + Vite staff web app (Steps 7, 9, 10 & 11)
+  src/api/     fetch wrapper (token + 401 handling, + downloadFile for CSV), types
   src/auth/    AuthContext, RequireAuth route guard
-  src/components/  Shell, ScheduleTable, AssessmentPanel, StatusBadge, ui
-  src/pages/   Login, Dashboard, CreateCustomer, CreateProduct,
+  src/components/  Shell, ScheduleTable, AssessmentPanel, StatusBadge,
+                   MetricTile (Step 11), ui
+  src/pages/   Login, Dashboard (5-tab Executive Dashboard, Step 11),
+               CreateCustomer, CreateProduct,
                NewApplication, Offer, Contract (+ closure actions),
                Customer (+ exposure), ReviewQueue, Reconciliation,
                Approvals, Config, AuditLog  (Step 9),
                CustomerDirectory, ProductDirectory, Snapshot,
-               Collections (+ case detail), Inventory  (Step 10)
+               Collections (+ case detail), Inventory  (Step 10),
+               Reports (Reports Center, Step 11)
   src/styles/  tokens.css (the colour system) + app.css
   src/test/    Vitest + RTL
 ```

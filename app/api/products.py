@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from sqlalchemy import or_, select
 from sqlalchemy.orm import Session
 
@@ -43,22 +43,58 @@ def create_product(payload: ProductCreate, db: Session = Depends(get_db)):
     return product
 
 
+_PRODUCT_CSV_FIELDS = [
+    "id",
+    "name",
+    "category",
+    "cash_price",
+    "installment_eligible",
+    "stock_quantity",
+    "reserved_quantity",
+    "available_quantity",
+]
+
+
 @router.get("", response_model=list[ProductListItem])
 def list_products(
     db: Session = Depends(get_db),
     search: str | None = Query(default=None, max_length=100),
+    format: str | None = Query(default=None),
     _: User = Depends(require_roles(*_DIRECTORY_ROLES)),
 ):
-    """Step 10 product directory. `search` (the only parameter) does a partial,
+    """Step 10 product directory. `search` (the only filter) does a partial,
     case-insensitive match on name OR category; omitted → every product (the
-    Inventory screen needs the full list and there is no other list endpoint)."""
+    Inventory screen needs the full list and there is no other list endpoint).
+    `format=csv` (Step 11) returns the same rows as a CSV download."""
     stmt = select(Product).order_by(Product.name)
     if search and search.strip():
         like = f"%{search.strip()}%"
         stmt = stmt.where(
             or_(Product.name.ilike(like), Product.category.ilike(like))
         )
-    return db.execute(stmt).scalars().all()
+    rows = db.execute(stmt).scalars().all()
+    if format == "csv":
+        from app.services.reports import to_csv
+
+        data = [
+            {
+                "id": p.id,
+                "name": p.name,
+                "category": p.category.value,
+                "cash_price": float(p.cash_price),
+                "installment_eligible": p.installment_eligible,
+                "stock_quantity": p.stock_quantity,
+                "reserved_quantity": p.reserved_quantity,
+                "available_quantity": p.available_quantity,
+            }
+            for p in rows
+        ]
+        return Response(
+            content=to_csv(_PRODUCT_CSV_FIELDS, data),
+            media_type="text/csv",
+            headers={"Content-Disposition": 'attachment; filename="products.csv"'},
+        )
+    return rows
 
 
 @router.get("/{product_id}", response_model=ProductOut)

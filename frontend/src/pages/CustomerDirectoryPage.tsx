@@ -1,6 +1,6 @@
 import { useState, type FormEvent } from "react";
 import { Link } from "react-router-dom";
-import { api, errorMessage } from "../api/client";
+import { api, downloadFile, errorMessage } from "../api/client";
 import type { CustomerListItem } from "../api/types";
 import { Card, ErrorNote, Field } from "../components/ui";
 import { StatusBadge } from "../components/StatusBadge";
@@ -39,6 +39,19 @@ export function CustomerDirectoryPage() {
           />
           <button className="btn-primary" type="submit">
             Search
+          </button>
+          <button
+            type="button"
+            className="btn-secondary"
+            disabled={!term.trim()}
+            onClick={() =>
+              downloadFile(
+                `/customers?search=${encodeURIComponent(term.trim())}&format=csv`,
+                "customers.csv",
+              ).catch((err) => setError(errorMessage(err)))
+            }
+          >
+            Export CSV
           </button>
         </form>
       </Card>

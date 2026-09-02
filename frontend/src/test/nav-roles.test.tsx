@@ -15,12 +15,14 @@ describe("Role-gated navigation", () => {
     expect(nav).not.toHaveTextContent("Review Queue");
     expect(nav).not.toHaveTextContent("Configuration");
     expect(nav).not.toHaveTextContent("Approvals");
+    expect(nav).not.toHaveTextContent("Reports");
   });
 
-  it("a finance_officer sees Reconciliation and Approvals but not Configuration", () => {
+  it("a finance_officer sees Reconciliation, Approvals and Reports but not Configuration", () => {
     const nav = navFor("finance_officer");
     expect(nav).toHaveTextContent("Reconciliation");
     expect(nav).toHaveTextContent("Approvals");
+    expect(nav).toHaveTextContent("Reports");
     expect(nav).not.toHaveTextContent("Configuration");
     expect(nav).not.toHaveTextContent("Review Queue");
   });
@@ -30,6 +32,7 @@ describe("Role-gated navigation", () => {
     expect(nav).toHaveTextContent("Review Queue");
     expect(nav).toHaveTextContent("Reconciliation");
     expect(nav).toHaveTextContent("Approvals");
+    expect(nav).toHaveTextContent("Reports");
     expect(nav).toHaveTextContent("Configuration");
     expect(nav).toHaveTextContent("Audit Log");
   });

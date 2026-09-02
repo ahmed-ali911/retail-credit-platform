@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from sqlalchemy import or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
@@ -68,21 +68,45 @@ def create_customer(
     return customer
 
 
+_CUSTOMER_CSV_FIELDS = ["id", "name", "national_id", "status", "risk_score"]
+
+
 @router.get("", response_model=list[CustomerListItem])
 def search_customers(
     db: Session = Depends(get_db),
     search: str = Query(min_length=1, max_length=100),
+    format: str | None = Query(default=None),
     _: User = Depends(require_roles(*_DIRECTORY_ROLES)),
 ):
     """Step 10 customer directory — partial, case-insensitive match on name OR
-    national_id. `search` is the only supported parameter."""
+    national_id. `search` is the only supported parameter; `format=csv`
+    (Step 11) returns the same rows as a CSV download."""
     like = f"%{search.strip()}%"
     stmt = (
         select(Customer)
         .where(or_(Customer.name.ilike(like), Customer.national_id.ilike(like)))
         .order_by(Customer.name)
     )
-    return db.execute(stmt).scalars().all()
+    rows = db.execute(stmt).scalars().all()
+    if format == "csv":
+        from app.services.reports import to_csv
+
+        data = [
+            {
+                "id": c.id,
+                "name": c.name,
+                "national_id": c.national_id,
+                "status": c.status.value,
+                "risk_score": c.risk_score,
+            }
+            for c in rows
+        ]
+        return Response(
+            content=to_csv(_CUSTOMER_CSV_FIELDS, data),
+            media_type="text/csv",
+            headers={"Content-Disposition": 'attachment; filename="customers.csv"'},
+        )
+    return rows
 
 
 @router.get("/{customer_id}", response_model=CustomerOut)

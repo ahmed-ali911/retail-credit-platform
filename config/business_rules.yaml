@@ -97,6 +97,19 @@ parameters:
       opening counts come from the warehouse / ERP.
 
   # ---------------------------------------------------------------------------
+  # Reporting (Step 11)
+  # ---------------------------------------------------------------------------
+  dpd_report_buckets:
+    type: json
+    value: [[1, 30], [31, 60], [61, 90], [91, null]]
+    description: >
+      DISPLAY GROUPING ONLY — a reporting-display placeholder, NOT a collections
+      policy on when action should be taken. Inclusive [low, high] day-past-due
+      ranges for the Portfolio dashboard's aging distribution; a null high means
+      "and beyond". The real DPD action thresholds are a separate, unconfirmed
+      collections-policy decision.
+
+  # ---------------------------------------------------------------------------
   # Step 2 — Installment pricing / profit engine
   # ---------------------------------------------------------------------------
   tenor_profit_rate_table:

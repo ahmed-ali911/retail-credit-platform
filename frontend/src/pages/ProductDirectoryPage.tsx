@@ -1,5 +1,5 @@
 import { useState, type FormEvent } from "react";
-import { api, errorMessage } from "../api/client";
+import { api, downloadFile, errorMessage } from "../api/client";
 import type { ProductOut } from "../api/types";
 import { Card, ErrorNote, Field, money } from "../components/ui";
 
@@ -49,10 +49,21 @@ export function ProductDirectoryPage() {
             label="Search by name or category"
             value={term}
             onChange={(e) => setTerm(e.target.value)}
-            required
           />
           <button className="btn-primary" type="submit">
             Search
+          </button>
+          <button
+            type="button"
+            className="btn-secondary"
+            onClick={() =>
+              downloadFile(
+                `/products?search=${encodeURIComponent(term.trim())}&format=csv`,
+                "products.csv",
+              ).catch((err) => setError(errorMessage(err)))
+            }
+          >
+            Export CSV
           </button>
         </form>
       </Card>
