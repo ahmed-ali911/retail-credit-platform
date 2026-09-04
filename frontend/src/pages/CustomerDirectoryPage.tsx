@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState, type FormEvent } from "react";
 import { Link } from "react-router-dom";
 import { api, downloadFile, errorMessage } from "../api/client";
 import type { CustomerListItem } from "../api/types";
-import { Card, ErrorNote, Field } from "../components/ui";
+import { Card, ErrorNote, Field, RefCode } from "../components/ui";
 import { StatusBadge } from "../components/StatusBadge";
 
 type StatusFilter = "all" | "active" | "inactive";
@@ -95,7 +95,7 @@ export function CustomerDirectoryPage() {
             <table className="data" aria-label="Customer results">
               <thead>
                 <tr>
-                  <th>#</th>
+                  <th>Reference</th>
                   <th>Name</th>
                   <th>National ID</th>
                   <th>Status</th>
@@ -105,7 +105,9 @@ export function CustomerDirectoryPage() {
               <tbody>
                 {rows.map((c) => (
                   <tr key={c.id} data-testid={`customer-row-${c.id}`}>
-                    <td>{c.id}</td>
+                    <td>
+                      <RefCode code={c.reference_code} to={`/customers/${c.id}`} />
+                    </td>
                     <td>
                       <Link to={`/customers/${c.id}`}>{c.name}</Link>
                     </td>

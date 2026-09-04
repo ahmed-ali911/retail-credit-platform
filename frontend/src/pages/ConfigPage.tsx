@@ -3,8 +3,12 @@ import { Link } from "react-router-dom";
 import { api, errorMessage } from "../api/client";
 import type { ConfigParameterOut } from "../api/types";
 import { Card, ErrorNote } from "../components/ui";
+import { AppearancePanel } from "../components/AppearancePanel";
+
+type ConfigSection = "parameters" | "appearance";
 
 export function ConfigPage() {
+  const [section, setSection] = useState<ConfigSection>("parameters");
   const [params, setParams] = useState<ConfigParameterOut[] | null>(null);
   const [editing, setEditing] = useState<string | null>(null);
   const [value, setValue] = useState("");
@@ -61,6 +65,72 @@ export function ConfigPage() {
   return (
     <div className="stack">
       <h1>Configuration</h1>
+
+      <div className="tabs" role="tablist">
+        <button
+          role="tab"
+          aria-selected={section === "parameters"}
+          className={section === "parameters" ? "active" : undefined}
+          onClick={() => setSection("parameters")}
+        >
+          Business rules
+        </button>
+        <button
+          role="tab"
+          aria-selected={section === "appearance"}
+          className={section === "appearance" ? "active" : undefined}
+          onClick={() => setSection("appearance")}
+        >
+          Appearance
+        </button>
+      </div>
+
+      {section === "appearance" ? (
+        <AppearancePanel />
+      ) : (
+        <ConfigParameters
+          params={params}
+          editing={editing}
+          value={value}
+          error={error}
+          pending={pending}
+          busy={busy}
+          setValue={setValue}
+          setEditing={setEditing}
+          startEdit={startEdit}
+          submit={submit}
+        />
+      )}
+    </div>
+  );
+}
+
+function ConfigParameters(props: {
+  params: ConfigParameterOut[] | null;
+  editing: string | null;
+  value: string;
+  error: string | null;
+  pending: string | null;
+  busy: boolean;
+  setValue: (v: string) => void;
+  setEditing: (v: string | null) => void;
+  startEdit: (p: ConfigParameterOut) => void;
+  submit: (e: FormEvent, p: ConfigParameterOut) => void;
+}) {
+  const {
+    params,
+    editing,
+    value,
+    error,
+    pending,
+    busy,
+    setValue,
+    setEditing,
+    startEdit,
+    submit,
+  } = props;
+  return (
+    <div className="stack">
       <p className="muted">
         Business-rule parameters. Changes are <strong>maker-checker gated</strong>{" "}
         — a save creates a pending request, it is not applied until a different

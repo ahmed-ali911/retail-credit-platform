@@ -2,7 +2,7 @@ import { useState, type FormEvent } from "react";
 import { Link } from "react-router-dom";
 import { api, errorMessage } from "../api/client";
 import type { CustomerOut } from "../api/types";
-import { Card, ErrorNote, Field } from "../components/ui";
+import { Card, ErrorNote, Field, RefCode } from "../components/ui";
 
 export function CreateCustomerPage() {
   const [form, setForm] = useState({
@@ -54,7 +54,7 @@ export function CreateCustomerPage() {
     <div className="stack">
       <h1>Create customer</h1>
       {created ? (
-        <Card soft title={`Customer #${created.id} created`}>
+        <Card soft title={<>Customer <RefCode code={created.reference_code} /> created</>}>
           <dl className="kv">
             <dt>Name</dt>
             <dd>{created.name}</dd>

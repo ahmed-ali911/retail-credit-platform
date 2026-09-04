@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useState, type FormEvent } from "react";
 import { api, errorMessage } from "../api/client";
 import type { AuditEventOut, ProductOut } from "../api/types";
-import { Card, ErrorNote, Field, money } from "../components/ui";
+import { Card, ErrorNote, Field, RefCode, money } from "../components/ui";
+import { formatReference } from "../lib/reference";
 
 export function InventoryPage() {
   const [products, setProducts] = useState<ProductOut[] | null>(null);
@@ -55,7 +56,7 @@ export function InventoryPage() {
         (ps ?? []).map((p) => (p.id === productId ? updated : p)),
       );
       setNotice(
-        `Product #${productId} stock is now ${updated.stock_quantity}.`,
+        `${formatReference("Product", productId)} stock is now ${updated.stock_quantity}.`,
       );
       setAdjustFor(null);
       setForm({ delta: "", reason: "" });
@@ -85,7 +86,7 @@ export function InventoryPage() {
           <table className="data" aria-label="Inventory">
             <thead>
               <tr>
-                <th>#</th>
+                <th>Product</th>
                 <th>Name</th>
                 <th className="num">Stock</th>
                 <th className="num">Reserved</th>
@@ -97,7 +98,7 @@ export function InventoryPage() {
             <tbody>
               {products.map((p) => (
                 <tr key={p.id} data-testid={`inv-row-${p.id}`}>
-                  <td>{p.id}</td>
+                  <td><RefCode code={p.reference_code} /></td>
                   <td>{p.name}</td>
                   <td className="num" data-testid={`inv-stock-${p.id}`}>
                     {p.stock_quantity}
@@ -160,7 +161,7 @@ export function InventoryPage() {
               <tr>
                 <th>When</th>
                 <th>User</th>
-                <th>Product #</th>
+                <th>Product</th>
                 <th className="num">Delta</th>
                 <th className="num">Stock after</th>
                 <th>Reason</th>
@@ -170,8 +171,14 @@ export function InventoryPage() {
               {events.map((e) => (
                 <tr key={e.id} data-testid={`inv-event-${e.id}`}>
                   <td>{new Date(e.timestamp).toLocaleString()}</td>
-                  <td>{e.user_id == null ? "system" : `#${e.user_id}`}</td>
-                  <td>{e.entity_id}</td>
+                  <td>{e.user_id == null ? "system" : `user ${e.user_id}`}</td>
+                  <td>
+                    {e.entity_id ? (
+                      <RefCode code={formatReference("Product", e.entity_id)} />
+                    ) : (
+                      "—"
+                    )}
+                  </td>
                   <td className="num">
                     {(e.after_value?.delta as number) ?? "—"}
                   </td>

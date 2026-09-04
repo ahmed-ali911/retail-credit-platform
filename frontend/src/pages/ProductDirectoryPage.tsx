@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState, type FormEvent } from "react";
 import { api, downloadFile, errorMessage } from "../api/client";
 import type { ProductOut } from "../api/types";
-import { Card, ErrorNote, Field, money } from "../components/ui";
+import { Card, ErrorNote, Field, RefCode, money } from "../components/ui";
 
 function StockBadge({ available }: { available: number }) {
   const soldOut = available <= 0;
@@ -87,7 +87,7 @@ export function ProductDirectoryPage() {
             <table className="data" aria-label="Product results">
               <thead>
                 <tr>
-                  <th>#</th>
+                  <th>Reference</th>
                   <th>Name</th>
                   <th>Category</th>
                   <th className="num">Cash price</th>
@@ -99,7 +99,7 @@ export function ProductDirectoryPage() {
               <tbody>
                 {rows.map((p) => (
                   <tr key={p.id} data-testid={`product-row-${p.id}`}>
-                    <td>{p.id}</td>
+                    <td><RefCode code={p.reference_code} /></td>
                     <td>{p.name}</td>
                     <td>{p.category}</td>
                     <td className="num">{money(p.cash_price)}</td>

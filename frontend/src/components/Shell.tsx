@@ -21,6 +21,7 @@ import {
   type LucideIcon,
 } from "lucide-react";
 import { useAuth } from "../auth/AuthContext";
+import { referenceForSegment } from "../lib/reference";
 
 interface NavItem {
   to: string;
@@ -201,16 +202,19 @@ const CRUMB_LABELS: Record<string, string> = {
   offer: "Offer",
 };
 
-function crumbLabel(seg: string): string {
+function crumbLabel(seg: string, prev: string | undefined): string {
   if (CRUMB_LABELS[seg]) return CRUMB_LABELS[seg];
-  if (/^\d+$/.test(seg)) return `#${seg}`;
+  if (/^\d+$/.test(seg)) return referenceForSegment(prev, seg); // e.g. CN-000012
   return seg.charAt(0).toUpperCase() + seg.slice(1);
 }
 
 function Breadcrumb() {
   const { pathname } = useLocation();
   const segments = pathname.split("/").filter(Boolean);
-  const crumbs = segments.length === 0 ? ["Dashboard"] : segments.map(crumbLabel);
+  const crumbs =
+    segments.length === 0
+      ? ["Dashboard"]
+      : segments.map((s, i) => crumbLabel(s, segments[i - 1]));
 
   return (
     // a <div>, not <nav>: the sidebar is the single primary navigation landmark

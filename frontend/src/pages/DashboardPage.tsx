@@ -17,6 +17,7 @@ import {
 import { api, errorMessage } from "../api/client";
 import { useAuth } from "../auth/AuthContext";
 import { MetricGrid, MetricTile } from "../components/MetricTile";
+import { AgingBarChart, RiskBandDonut, StatusDonut } from "../components/charts";
 import { Card, ErrorNote, money } from "../components/ui";
 import type {
   CollectionsSummary,
@@ -152,11 +153,21 @@ function PortfolioTab() {
               icon={Layers}
             />
           </MetricGrid>
-          <Card title="Aging distribution (DPD)" soft>
-            <p className="muted">
-              Display grouping only (config `dpd_report_buckets`) — not a
-              collections-action policy. As of {s.dpd_distribution.as_of}.
-            </p>
+
+          <div className="chart-row">
+            <Card title="Contracts by status">
+              <StatusDonut byStatus={s.contracts_by_status} />
+            </Card>
+            <Card title="Aging distribution (DPD)">
+              <p className="muted">
+                Display grouping only (config <code>dpd_report_buckets</code>) —
+                not a collections-action policy. As of {s.dpd_distribution.as_of}.
+              </p>
+              <AgingBarChart distribution={s.dpd_distribution} />
+            </Card>
+          </div>
+
+          <Card title="Aging distribution — detail" soft>
             <table className="data" aria-label="DPD distribution">
               <thead>
                 <tr>
@@ -260,6 +271,9 @@ function CreditRiskTab() {
             <MetricTile label="Rejection rate" value={pct(s.rejection_rate)} icon={TrendingUp} />
             <MetricTile label="Referral rate" value={pct(s.referral_rate)} icon={TrendingUp} />
           </MetricGrid>
+          <Card title="Customers by risk band">
+            <RiskBandDonut bands={s.customers_by_risk_band} />
+          </Card>
           <Card title="Top 10 customers by exposure" soft>
             {s.top_customers_by_exposure.length === 0 ? (
               <p className="muted">No customers with outstanding exposure.</p>

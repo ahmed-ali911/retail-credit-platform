@@ -3,8 +3,9 @@ import { Link, useSearchParams } from "react-router-dom";
 import { api, errorMessage } from "../api/client";
 import type { ApplicationOut } from "../api/types";
 import { AssessmentPanel } from "../components/AssessmentPanel";
-import { Card, ErrorNote, Field, SelectField } from "../components/ui";
+import { Card, ErrorNote, Field, RefCode, SelectField } from "../components/ui";
 import { StatusBadge } from "../components/StatusBadge";
+import { coerceId } from "../lib/reference";
 
 export function NewApplicationPage() {
   const [params] = useSearchParams();
@@ -31,8 +32,9 @@ export function NewApplicationPage() {
       const created = await api<ApplicationOut>("/applications", {
         method: "POST",
         body: {
-          customer_id: Number(form.customer_id),
-          product_id: Number(form.product_id),
+          // accepts either a raw id or a reference code (CU-… / PR-…)
+          customer_id: Number(coerceId(form.customer_id)),
+          product_id: Number(coerceId(form.product_id)),
           requested_amount: Number(form.requested_amount),
           requested_tenor_months: Number(form.requested_tenor_months),
           channel: form.channel,
@@ -59,15 +61,13 @@ export function NewApplicationPage() {
           <ErrorNote message={error} />
           <div className="field-row">
             <Field
-              label="Customer #"
-              inputMode="numeric"
+              label="Customer # (or CU-code)"
               value={form.customer_id}
               onChange={set("customer_id")}
               required
             />
             <Field
-              label="Product #"
-              inputMode="numeric"
+              label="Product # (or PR-code)"
               value={form.product_id}
               onChange={set("product_id")}
               required
@@ -103,7 +103,8 @@ export function NewApplicationPage() {
         <Card
           title={
             <>
-              Application #{result.id} <StatusBadge status={result.status} />
+              Application <RefCode code={result.reference_code} />{" "}
+              <StatusBadge status={result.status} />
             </>
           }
         >

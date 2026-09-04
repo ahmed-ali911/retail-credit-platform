@@ -2,8 +2,9 @@ from __future__ import annotations
 
 from datetime import date, datetime
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, computed_field
 
+from app.core.references import format_reference
 from app.models.payment import PaymentReconciliationStatus, PaymentStatus
 
 
@@ -37,6 +38,16 @@ class PaymentOut(BaseModel):
     unallocated_amount: float
     allocations: list[PaymentAllocationOut]
 
+    @computed_field  # type: ignore[prop-decorator]
+    @property
+    def reference_code(self) -> str:
+        return format_reference("Payment", self.id)
+
+    @computed_field  # type: ignore[prop-decorator]
+    @property
+    def contract_reference(self) -> str:
+        return format_reference("InstallmentContract", self.contract_id)
+
 
 class PaymentResult(BaseModel):
     replayed: bool
@@ -53,6 +64,11 @@ class ReceivableOut(BaseModel):
     total_installments_paid: int
     total_installments_remaining: int
     reconciliation_summary: dict[str, int] = {}  # P0-5, additive
+
+    @computed_field  # type: ignore[prop-decorator]
+    @property
+    def contract_reference(self) -> str:
+        return format_reference("InstallmentContract", self.contract_id)
 
 
 class AssessOverdueRequest(BaseModel):

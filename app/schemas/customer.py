@@ -2,8 +2,9 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, computed_field
 
+from app.core.references import format_reference
 from app.models.customer import CustomerStatus
 
 
@@ -45,6 +46,11 @@ class CustomerOut(BaseModel):
     created_at: datetime
     profile: CustomerProfileOut | None = None
 
+    @computed_field  # type: ignore[prop-decorator]
+    @property
+    def reference_code(self) -> str:
+        return format_reference("Customer", self.id)
+
 
 class CustomerListItem(BaseModel):
     """Compact row for the Step 10 customer directory (`GET /customers?search=`)."""
@@ -55,3 +61,8 @@ class CustomerListItem(BaseModel):
     national_id: str
     status: CustomerStatus
     risk_score: int | None
+
+    @computed_field  # type: ignore[prop-decorator]
+    @property
+    def reference_code(self) -> str:
+        return format_reference("Customer", self.id)

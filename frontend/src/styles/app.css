@@ -110,10 +110,29 @@ table.data tr.is-overdue { background: rgba(192, 57, 43, 0.06); }
 .badge--dark { background: var(--color-primary-dark); color: #fff; }
 .badge--cured { background: #e6efe1; color: var(--color-natural); border-color: var(--color-natural); }
 
+/* --- reference codes & numeric legibility (Step 14, Part B) --- */
+/* Applied only to reference codes, monetary amounts and ID-like numbers — not
+   to body text. Slightly wider tracking + tabular figures so codes like
+   CN-000012 stop visually running into adjacent words. */
+.ref-code {
+  font-family: var(--font-family-mono);
+  font-variant-numeric: tabular-nums;
+  font-size: 0.92em;
+  letter-spacing: 0.02em;
+  font-weight: 600;
+  white-space: nowrap;
+  color: inherit;
+}
+a > .ref-code, .ref-code a { color: inherit; }
+.num, .ref-code, .metric-tile__value, table.data td.num, table.data th.num,
+.kv dd {
+  font-variant-numeric: tabular-nums;
+}
+
 /* --- misc --- */
-.kv { display: grid; grid-template-columns: max-content 1fr; gap: 0.35rem 1.5rem; font-size: 0.9rem; }
-.kv dt { color: var(--color-muted); font-weight: 600; }
-.kv dd { margin: 0; font-variant-numeric: tabular-nums; }
+.kv { display: grid; grid-template-columns: max-content 1fr; gap: 0.4rem 1.75rem; font-size: 0.9rem; }
+.kv dt { color: var(--color-muted); font-weight: 600; padding-right: var(--space-2); }
+.kv dd { margin: 0; font-variant-numeric: tabular-nums; font-weight: 500; }
 
 .alert { padding: 0.7rem 0.9rem; border-radius: var(--radius); margin-bottom: 1rem; font-size: 0.9rem; }
 .alert--error { background: #f8e4e1; color: var(--color-danger); border: 1px solid var(--color-danger); }
@@ -185,6 +204,25 @@ table.data tr.is-overdue { background: rgba(192, 57, 43, 0.06); }
 .metric-tile__sub { font-size: 0.74rem; color: var(--color-muted); margin-top: 0.15rem; }
 .metric-tile__trend { font-size: 0.74rem; margin-top: 0.3rem; }
 
+/* --- dashboard charts (Step 14, Part D — recharts) --- */
+.chart-row {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+  gap: 1rem;
+}
+.chart-row > .card { margin-bottom: 0; }
+.chart {
+  display: flex;
+  justify-content: center;
+  overflow-x: auto;
+}
+.chart .recharts-legend-item-text { font-size: 0.78rem; color: var(--color-text); }
+.chart .recharts-default-tooltip {
+  border-radius: var(--radius-md) !important;
+  border-color: var(--color-border) !important;
+  font-size: 0.8rem;
+}
+
 /* card refinement — scoped to Reports Center + Executive Dashboard only */
 .reports-page .card,
 .dashboard-page .card {
@@ -234,6 +272,26 @@ table.data tr.is-overdue { background: rgba(192, 57, 43, 0.06); }
 }
 .export-group { display: inline-flex; gap: 0.4rem; align-items: center; }
 .export-group > span { font-size: 0.8rem; color: var(--color-muted); font-weight: 600; }
+
+/* --- appearance panel (Step 14, Part E) --- */
+.appearance-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+  gap: 0.9rem;
+  margin-top: 1rem;
+}
+.appearance-swatch { display: flex; flex-direction: column; gap: 0.35rem; }
+.appearance-swatch__label { font-size: 0.8rem; font-weight: 600; color: var(--color-muted); }
+.appearance-swatch__row { display: flex; align-items: center; gap: 0.5rem; }
+.appearance-swatch input[type="color"] {
+  width: 44px;
+  height: 30px;
+  padding: 2px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface);
+  cursor: pointer;
+}
 
 /* --- tab bar --- */
 .tabs { display: flex; gap: 0.25rem; border-bottom: 1px solid var(--color-border); flex-wrap: wrap; }

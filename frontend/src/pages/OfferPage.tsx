@@ -4,7 +4,7 @@ import { api, errorMessage } from "../api/client";
 import type { AcceptResult, ApplicationOut, OfferOut } from "../api/types";
 import { ScheduleTable } from "../components/ScheduleTable";
 import { StatusBadge } from "../components/StatusBadge";
-import { Card, ErrorNote, Field, money } from "../components/ui";
+import { Card, ErrorNote, Field, RefCode, money } from "../components/ui";
 
 export function OfferPage() {
   const { applicationId, offerId } = useParams();
@@ -77,7 +77,13 @@ export function OfferPage() {
       <ErrorNote message={error} />
 
       {!offer && application && (
-        <Card title={`Application #${application.id}`}>
+        <Card
+          title={
+            <>
+              Application <RefCode code={application.reference_code} />
+            </>
+          }
+        >
           <p>
             <StatusBadge status={application.status} />
           </p>
@@ -105,7 +111,13 @@ export function OfferPage() {
 
       {offer && (
         <>
-          <Card title={`Offer #${offer.id}`}>
+          <Card
+            title={
+              <>
+                Offer <RefCode code={offer.reference_code} />
+              </>
+            }
+          >
             <p>
               <StatusBadge status={offer.status} />
             </p>

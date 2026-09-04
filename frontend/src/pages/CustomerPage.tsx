@@ -1,8 +1,8 @@
 import { useEffect, useState } from "react";
-import { Link, useParams } from "react-router-dom";
+import { useParams } from "react-router-dom";
 import { api, errorMessage } from "../api/client";
 import type { CustomerExposure, CustomerOut } from "../api/types";
-import { Card, ErrorNote, money } from "../components/ui";
+import { Card, ErrorNote, RefCode, money } from "../components/ui";
 import { StatusBadge } from "../components/StatusBadge";
 
 export function CustomerPage() {
@@ -43,7 +43,10 @@ export function CustomerPage() {
   return (
     <div className="stack">
       <h1>
-        {customer.name} <span className="muted">#{customer.id}</span>
+        {customer.name}{" "}
+        <span className="muted">
+          <RefCode code={customer.reference_code} />
+        </span>
       </h1>
       <ErrorNote message={error} />
 
@@ -93,7 +96,7 @@ export function CustomerPage() {
               >
                 <thead>
                   <tr>
-                    <th>Contract #</th>
+                    <th>Contract</th>
                     <th>Status</th>
                     <th className="num">Principal</th>
                     <th className="num">Profit</th>
@@ -105,9 +108,11 @@ export function CustomerPage() {
                   {exposure.contracts.map((c) => (
                     <tr key={c.contract_id} data-testid={`exposure-row-${c.contract_id}`}>
                       <td>
-                        <Link to={`/contracts/${c.contract_id}`}>
-                          {c.contract_id}
-                        </Link>
+                        <RefCode
+                          entity="InstallmentContract"
+                          id={c.contract_id}
+                          to={`/contracts/${c.contract_id}`}
+                        />
                       </td>
                       <td>
                         <StatusBadge status={c.status} />

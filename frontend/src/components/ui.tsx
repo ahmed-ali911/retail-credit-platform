@@ -1,4 +1,6 @@
 import type { InputHTMLAttributes, ReactNode, SelectHTMLAttributes } from "react";
+import { Link } from "react-router-dom";
+import { formatReference, type RefEntity } from "../lib/reference";
 
 export function Card({
   children,
@@ -48,6 +50,35 @@ export function ErrorNote({ message }: { message: string | null }) {
     <div className="alert alert--error" role="alert">
       {message}
     </div>
+  );
+}
+
+/**
+ * A structured reference code (Step 14, Part C) — e.g. `CN-000012`. Replaces
+ * every `#<id>` display. Pass the backend's `reference_code` string directly,
+ * or an `entity` + `id` when the frontend only has the raw id (route params,
+ * report rows). Optionally wraps in a router `<Link to={to}>`.
+ */
+export function RefCode({
+  code,
+  entity,
+  id,
+  to,
+}: {
+  code?: string;
+  entity?: RefEntity;
+  id?: number | string;
+  to?: string;
+}) {
+  const text =
+    code ?? (entity != null && id != null ? formatReference(entity, id) : "—");
+  const inner = <span className="ref-code">{text}</span>;
+  return to ? (
+    <Link to={to} className="ref-code-link">
+      {inner}
+    </Link>
+  ) : (
+    inner
   );
 }
 

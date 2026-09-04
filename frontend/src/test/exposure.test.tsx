@@ -40,6 +40,7 @@ describe("Customer exposure panel", () => {
           id: 9,
           name: "Dana Q",
           national_id: "ID-9",
+          reference_code: "CU-000009",
           phone: null,
           email: null,
           status: "active",
@@ -64,8 +65,8 @@ describe("Customer exposure panel", () => {
     expect(await screen.findByTestId("exposure-total")).toHaveTextContent("3,100.50");
     expect(screen.getByTestId("exposure-row-21")).toHaveTextContent("1,950.50");
     expect(screen.getByTestId("exposure-row-22")).toHaveTextContent("1,150.00");
-    // each contract row links into the contract detail screen
-    expect(screen.getByRole("link", { name: "21" })).toHaveAttribute(
+    // each contract row links (by its reference code) into the contract screen
+    expect(screen.getByRole("link", { name: "CN-000021" })).toHaveAttribute(
       "href",
       "/contracts/21",
     );

@@ -3,8 +3,9 @@ from __future__ import annotations
 import enum
 from datetime import datetime
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, computed_field
 
+from app.core.references import format_reference
 from app.models.credit_application import (
     ApplicationChannel,
     ApplicationStatus,
@@ -60,6 +61,11 @@ class ApplicationOut(BaseModel):
     latest_assessment: AssessmentResultOut | None = None
     assessments: list[AssessmentResultOut] = []
 
+    @computed_field  # type: ignore[prop-decorator]
+    @property
+    def reference_code(self) -> str:
+        return format_reference("CreditApplication", self.id)
+
 
 class ApplicationListItem(BaseModel):
     """Compact row for the Step 9 review queue (`GET /applications?status=…`).
@@ -76,3 +82,8 @@ class ApplicationListItem(BaseModel):
     requested_amount: float
     status: ApplicationStatus
     submitted_at: datetime = Field(validation_alias="created_at")
+
+    @computed_field  # type: ignore[prop-decorator]
+    @property
+    def reference_code(self) -> str:
+        return format_reference("CreditApplication", self.id)

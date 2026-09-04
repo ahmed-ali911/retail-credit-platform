@@ -3,6 +3,7 @@ import { api, errorMessage } from "../api/client";
 import { useAuth } from "../auth/AuthContext";
 import type { ApprovalRequestOut } from "../api/types";
 import { Card, ErrorNote } from "../components/ui";
+import { formatReference } from "../lib/reference";
 
 function payloadSummary(req: ApprovalRequestOut): string {
   const p = req.payload ?? {};
@@ -12,9 +13,10 @@ function payloadSummary(req: ApprovalRequestOut): string {
     case "late_fee.waive":
       return `waive late fee #${req.entity_id}${p.reason ? ` — ${p.reason}` : ""}`;
     case "reconciliation.manual_match":
-      return `match bank exception #${req.entity_id} → payment #${p.payment_id}${
-        p.reason ? ` — ${p.reason}` : ""
-      }`;
+      return `match bank exception #${req.entity_id} → payment ${formatReference(
+        "Payment",
+        p.payment_id as number,
+      )}${p.reason ? ` — ${p.reason}` : ""}`;
     default: {
       const parts = Object.entries(p).map(([k, v]) => `${k}=${JSON.stringify(v)}`);
       return parts.length ? parts.join(", ") : `${req.entity_type} #${req.entity_id}`;

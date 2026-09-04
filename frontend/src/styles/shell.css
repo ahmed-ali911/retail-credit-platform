@@ -28,10 +28,14 @@ body {
 /* --------------------------------------------------------------------- */
 /* Sidebar                                                               */
 /* --------------------------------------------------------------------- */
+/* Light theme (Step 14, Part A) — the sidebar is white, matching the content
+   area. --color-primary/-dark still mean "structure/action" everywhere else
+   (page headers, primary buttons, links); they are just no longer a full fill. */
 .appshell__sidebar {
   grid-column: 1;
-  background: var(--color-primary-dark);
-  color: color-mix(in srgb, #ffffff 82%, var(--color-primary));
+  background: var(--surface-1);
+  color: var(--text-muted);
+  border-right: 1px solid var(--color-border);
   display: flex;
   flex-direction: column;
   position: sticky;
@@ -47,7 +51,7 @@ body {
   align-items: center;
   gap: var(--space-3);
   padding: var(--space-4) var(--space-4) var(--space-3);
-  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  border-bottom: 1px solid var(--color-border);
   flex-shrink: 0;
 }
 .appshell__brand-mark {
@@ -65,13 +69,13 @@ body {
 .appshell__brand-text { line-height: var(--leading-tight); min-width: 0; }
 .appshell__brand-name {
   font-weight: var(--font-weight-bold);
-  color: #fff;
+  color: var(--text-strong);
   font-size: var(--text-sm);
   letter-spacing: 0.01em;
 }
 .appshell__brand-sub {
   font-size: var(--text-2xs);
-  color: color-mix(in srgb, #ffffff 55%, var(--color-primary));
+  color: var(--text-subtle);
   text-transform: uppercase;
   letter-spacing: 0.06em;
 }
@@ -90,16 +94,16 @@ body {
   gap: var(--space-2);
   background: transparent;
   border: 0;
-  padding: var(--space-2) var(--space-3) var(--space-1);
-  color: color-mix(in srgb, #ffffff 48%, var(--color-primary));
+  padding: var(--space-3) var(--space-3) var(--space-1);
+  color: var(--text-subtle); /* muted gray-navy, not white-on-navy */
   font-size: var(--text-2xs);
   font-weight: var(--font-weight-bold);
   text-transform: uppercase;
   letter-spacing: 0.08em;
   cursor: pointer;
 }
-.navgroup__header:hover { color: color-mix(in srgb, #ffffff 72%, var(--color-primary)); }
-.navgroup__chevron { transition: transform 0.15s ease; opacity: 0.7; }
+.navgroup__header:hover { color: var(--text-muted); }
+.navgroup__chevron { transition: transform 0.15s ease; opacity: 0.6; }
 .navgroup--collapsed .navgroup__chevron { transform: rotate(-90deg); }
 .navgroup--collapsed .navgroup__items { display: none; }
 
@@ -111,24 +115,25 @@ body {
   gap: var(--space-3);
   padding: var(--space-2) var(--space-3);
   border-radius: var(--radius-md);
-  color: color-mix(in srgb, #ffffff 78%, var(--color-primary));
+  color: var(--text-muted);
   font-size: var(--text-sm);
   font-weight: var(--font-weight-medium);
   text-decoration: none;
   line-height: var(--leading-tight);
 }
 .navlink:hover {
-  background: rgba(255, 255, 255, 0.07);
-  color: #fff;
+  background: var(--status-neutral-bg);
+  color: var(--text-strong);
   text-decoration: none;
 }
 .navlink.active {
-  background: var(--color-primary);
-  color: #fff;
+  /* a light tint of --color-primary, with primary text/icon — not a solid block */
+  background: color-mix(in srgb, var(--color-primary) 12%, var(--surface-1));
+  color: var(--color-primary);
   font-weight: var(--font-weight-semibold);
 }
-.navlink__icon { flex-shrink: 0; opacity: 0.9; }
-.navlink.active .navlink__icon { opacity: 1; }
+.navlink__icon { flex-shrink: 0; opacity: 0.85; }
+.navlink.active .navlink__icon { opacity: 1; color: var(--color-primary); }
 .navlink__label { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 /* --------------------------------------------------------------------- */

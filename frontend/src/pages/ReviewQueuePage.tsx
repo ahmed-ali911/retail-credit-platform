@@ -4,7 +4,7 @@ import { api, errorMessage } from "../api/client";
 import type { ApplicationListItem, ApplicationOut } from "../api/types";
 import { AssessmentPanel } from "../components/AssessmentPanel";
 import { StatusBadge } from "../components/StatusBadge";
-import { Card, ErrorNote, money } from "../components/ui";
+import { Card, ErrorNote, RefCode, money } from "../components/ui";
 
 export function ReviewQueuePage() {
   const [rows, setRows] = useState<ApplicationListItem[] | null>(null);
@@ -43,9 +43,9 @@ export function ReviewQueuePage() {
           <table className="data" aria-label="Referred applications">
             <thead>
               <tr>
-                <th>App #</th>
-                <th>Customer #</th>
-                <th>Product #</th>
+                <th>Application</th>
+                <th>Customer</th>
+                <th>Product</th>
                 <th className="num">Requested</th>
                 <th>Submitted</th>
                 <th />
@@ -54,9 +54,17 @@ export function ReviewQueuePage() {
             <tbody>
               {rows.map((r) => (
                 <tr key={r.id} data-testid={`review-row-${r.id}`}>
-                  <td>{r.id}</td>
-                  <td>{r.customer_id}</td>
-                  <td>{r.product_id}</td>
+                  <td>
+                    <RefCode code={r.reference_code} to={`/review/${r.id}`} />
+                  </td>
+                  <td>
+                    <RefCode
+                      entity="Customer"
+                      id={r.customer_id}
+                      to={`/customers/${r.customer_id}`}
+                    />
+                  </td>
+                  <td><RefCode entity="Product" id={r.product_id} /></td>
                   <td className="num">{money(r.requested_amount)}</td>
                   <td>{new Date(r.submitted_at).toLocaleDateString()}</td>
                   <td>
@@ -141,7 +149,7 @@ export function ReviewApplicationPage() {
   return (
     <div className="stack">
       <h1>
-        Review application #{app.id}{" "}
+        Review application <RefCode code={app.reference_code} />{" "}
         <StatusBadge status={done ? outcome!.status : app.status} />
       </h1>
       <p>
@@ -153,10 +161,16 @@ export function ReviewApplicationPage() {
 
       <Card title="Application">
         <dl className="kv">
-          <dt>Customer #</dt>
-          <dd>{app.customer_id}</dd>
-          <dt>Product #</dt>
-          <dd>{app.product_id}</dd>
+          <dt>Customer</dt>
+          <dd>
+            <RefCode
+              entity="Customer"
+              id={app.customer_id}
+              to={`/customers/${app.customer_id}`}
+            />
+          </dd>
+          <dt>Product</dt>
+          <dd><RefCode entity="Product" id={app.product_id} /></dd>
           <dt>Requested amount</dt>
           <dd>{money(app.requested_amount)}</dd>
           <dt>Requested tenor</dt>

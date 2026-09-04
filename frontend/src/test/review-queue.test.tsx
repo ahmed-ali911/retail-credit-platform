@@ -13,6 +13,7 @@ describe("Review Queue", () => {
         json: [
           {
             id: 11,
+            reference_code: "AP-000011",
             customer_id: 3,
             product_id: 2,
             requested_amount: 1200,
@@ -21,6 +22,7 @@ describe("Review Queue", () => {
           },
           {
             id: 12,
+            reference_code: "AP-000012",
             customer_id: 4,
             product_id: 2,
             requested_amount: 800,
@@ -46,6 +48,7 @@ describe("Review Queue", () => {
         url: "/applications/7",
         json: {
           id: 7,
+          reference_code: "AP-000007",
           customer_id: 1,
           product_id: 1,
           requested_amount: 1000,
@@ -82,6 +85,7 @@ describe("Review Queue", () => {
           requested_tenor_months: 12,
           channel: "branch",
           status: "approved",
+          reference_code: "AP-000007",
           created_at: "2026-01-01T00:00:00Z",
           created_by: "system",
           latest_assessment: null,

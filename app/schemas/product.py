@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from pydantic import BaseModel, ConfigDict, Field, computed_field
 
+from app.core.references import format_reference
 from app.models.product import ProductCategory
 
 
@@ -28,6 +29,11 @@ class ProductOut(BaseModel):
     @property
     def available_quantity(self) -> int:
         return (self.stock_quantity or 0) - (self.reserved_quantity or 0)
+
+    @computed_field  # type: ignore[prop-decorator]
+    @property
+    def reference_code(self) -> str:
+        return format_reference("Product", self.id)
 
 
 class ProductListItem(ProductOut):

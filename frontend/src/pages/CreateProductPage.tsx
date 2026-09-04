@@ -2,7 +2,7 @@ import { useState, type FormEvent } from "react";
 import { Link } from "react-router-dom";
 import { api, errorMessage } from "../api/client";
 import type { ProductOut } from "../api/types";
-import { Card, ErrorNote, Field, SelectField, money } from "../components/ui";
+import { Card, ErrorNote, Field, RefCode, SelectField, money } from "../components/ui";
 
 const CATEGORIES = ["electronics", "appliances", "furniture", "automotive", "other"];
 
@@ -35,7 +35,7 @@ export function CreateProductPage() {
     <div className="stack">
       <h1>Create product</h1>
       {created ? (
-        <Card soft title={`Product #${created.id} created`}>
+        <Card soft title={<>Product <RefCode code={created.reference_code} /> created</>}>
           <dl className="kv">
             <dt>Name</dt>
             <dd>{created.name}</dd>

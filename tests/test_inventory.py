@@ -21,7 +21,11 @@ def test_customer_search_matches_name_or_national_id(client):
 
     by_nid = client.get("/customers?search=bbb").json()
     assert [c["name"] for c in by_nid] == ["Omar Said"]
-    assert set(by_nid[0]) == {"id", "name", "national_id", "status", "risk_score"}
+    assert set(by_nid[0]) == {
+        "id", "name", "national_id", "status", "risk_score",
+        "reference_code",  # Step 14
+    }
+    assert by_nid[0]["reference_code"] == f"CU-{by_nid[0]['id']:06d}"
 
 
 def test_customer_search_is_role_gated(client_as):

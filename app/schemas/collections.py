@@ -2,8 +2,9 @@ from __future__ import annotations
 
 from datetime import date, datetime
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, computed_field
 
+from app.core.references import format_reference
 from app.models.collections import (
     CollectionActivityType,
     CollectionCaseStatus,
@@ -40,6 +41,16 @@ class CollectionCaseOut(BaseModel):
     opened_at: datetime
     opened_reason: str
     closed_at: datetime | None
+
+    @computed_field  # type: ignore[prop-decorator]
+    @property
+    def reference_code(self) -> str:
+        return format_reference("CollectionCase", self.id)
+
+    @computed_field  # type: ignore[prop-decorator]
+    @property
+    def contract_reference(self) -> str:
+        return format_reference("InstallmentContract", self.contract_id)
 
 
 class CollectionCaseDetailOut(CollectionCaseOut):

@@ -333,6 +333,90 @@ plain tables, scheduled/emailed/saved reports, a second Aging-style report for
 any other metric, restyling any screen outside Reports Center / Executive
 Dashboard.
 
+## What's in Step 14 — light theme, typography fix, reference codes, dashboard charts, Appearance
+
+*(Follows the Phase 1/2 frontend redesign — see
+[docs/frontend-redesign-audit.md](docs/frontend-redesign-audit.md). Phase 2's
+grouped nav, token system, breadcrumb header and mobile drawer all stay; Step 14
+revises the shell **colour treatment** only, on direct user feedback.)*
+
+- **Light theme.** The sidebar is now light (`--surface-1`), matching the content
+  area; the active nav item is a light `--color-primary` tint behind primary-
+  coloured text, not a solid navy block. `--color-primary` / `--color-primary-dark`
+  keep their values and still drive page headers, primary buttons and links.
+- **Typography / numeric legibility.** Reference codes, monetary amounts and
+  ID-like numbers in tables, KPI tiles and detail panels now render with
+  `font-variant-numeric: tabular-nums` (reference codes also in
+  `--font-family-mono`), so they no longer run into surrounding text. Body text
+  is unchanged — no font-family swap.
+
+### Reference-code scheme
+
+Every entity shown in the UI has a human reference code instead of a bare
+`#<id>`. The code is **computed, never stored** — no column, no migration, no
+sequence table:
+
+```
+format_reference(entity_type, id) -> f"{PREFIX}-{id:06d}"     # AP-000004, CN-000012
+```
+
+| Entity | Prefix | | Entity | Prefix |
+|---|---|---|---|---|
+| `Customer` | `CU` | | `InstallmentContract` | `CN` |
+| `Product` | `PR` | | `Payment` | `PY` |
+| `CreditApplication` | `AP` | | `CollectionCase` | `CC` |
+| `InstallmentOffer` | `OF` | | `SalesOrder` | `SO` |
+
+- **Backend:** `app/core/references.py` is the single source of truth for the
+  prefix map. Every relevant `*Out` schema adds a `reference_code` (and, where
+  useful, `*_reference` for a linked entity) as a Pydantic `computed_field` at
+  serialization time. **The numeric `id` field is unchanged and still present** —
+  internal code and tests rely on it; `reference_code` is purely additive.
+- **Frontend:** `src/lib/reference.ts` mirrors the map. The `<RefCode>` component
+  renders codes in directories, detail pages, tables, breadcrumbs and the
+  audit-log entity column.
+- **ID-lookup inputs** (e.g. "Customer #" on New Application, contract filters)
+  accept **either** the raw numeric id **or** the reference code —
+  `coerceId()` normalises both — and the field labels say so
+  (`"Customer # (or CU-code)"`).
+- **Adding a new entity later:** register its 2-letter uppercase prefix in
+  `REFERENCE_PREFIXES` in `app/core/references.py` **and** the mirror in
+  `src/lib/reference.ts`, then add `reference_code` to its `*Out` schema. Same
+  `{PREFIX}-{id:06d}` pattern — nothing else to wire.
+
+### Dashboard charts
+
+`recharts` (frontend dependency). Three charts, each fed **only** by data an
+existing `summary` endpoint already returns — no fabricated trend lines, no new
+historical endpoint:
+
+- **Portfolio tab:** contracts-by-status donut (from the portfolio summary) and a
+  DPD aging-distribution bar chart (from `dpd_distribution`). The numeric DPD
+  table is kept below the chart as "detail".
+- **Credit & Risk tab:** customers-by-risk-band donut (from the credit-risk
+  summary).
+
+### Appearance (browser-local only)
+
+A new **Appearance** tab **inside** the Configuration screen (admin only — not a
+new nav item). Colour pickers for `--color-primary`, `--color-secondary`,
+`--color-warm` and `--color-danger`, with a live preview and "Reset to defaults".
+
+**This is a personal cosmetic setting, not a business-rule config value:**
+
+- stored in `localStorage["rc.appearance"]` **only** — applied by setting CSS
+  custom properties on `:root` at runtime (`initAppearance()` runs in `main.tsx`
+  before first paint);
+- **not** saved on the server, **not** shared across users or devices;
+- **not** routed through the Step 6 maker-checker config-approval flow.
+
+The panel states this limitation directly in its own copy.
+
+Out of scope for Step 14: any change to backend business logic, financial
+calculations or the meaning of existing config tokens; a backend-persisted /
+org-wide theme; new historical/time-series endpoints for more charts; removing
+the numeric `id` fields; a full font-family replacement.
+
 ### Explicitly out of scope (later steps)
 
 **Backend:** maker-checker on contract settlement / cancellation / return,

@@ -6,8 +6,9 @@ import type {
   CollectionCaseDetailOut,
   CollectionCaseOut,
 } from "../api/types";
-import { Card, ErrorNote, Field, money } from "../components/ui";
+import { Card, ErrorNote, Field, RefCode, money } from "../components/ui";
 import { StatusBadge } from "../components/StatusBadge";
+import { coerceId } from "../lib/reference";
 
 export function CollectionsPage() {
   const { user } = useAuth();
@@ -23,7 +24,7 @@ export function CollectionsPage() {
   const buildQuery = useCallback(() => {
     const qs = new URLSearchParams();
     if (statusFilter) qs.set("status", statusFilter);
-    if (contractFilter) qs.set("contract_id", contractFilter);
+    if (contractFilter) qs.set("contract_id", coerceId(contractFilter) || contractFilter);
     if (dateFrom) qs.set("date_from", dateFrom);
     if (dateTo) qs.set("date_to", dateTo);
     return qs.toString();
@@ -101,8 +102,7 @@ export function CollectionsPage() {
             </select>
           </label>
           <Field
-            label="Contract #"
-            inputMode="numeric"
+            label="Contract # (or CN-code)"
             value={contractFilter}
             onChange={(e) => setContractFilter(e.target.value)}
           />
@@ -143,8 +143,8 @@ export function CollectionsPage() {
           <table className="data" aria-label="Collection cases">
             <thead>
               <tr>
-                <th>#</th>
-                <th>Contract #</th>
+                <th>Case</th>
+                <th>Contract</th>
                 <th>Status</th>
                 <th>Opened</th>
                 <th>Reason</th>
@@ -154,8 +154,15 @@ export function CollectionsPage() {
             <tbody>
               {rows.map((c) => (
                 <tr key={c.id} data-testid={`case-row-${c.id}`}>
-                  <td>{c.id}</td>
-                  <td>{c.contract_id}</td>
+                  <td>
+                    <RefCode code={c.reference_code} to={`/collections/${c.id}`} />
+                  </td>
+                  <td>
+                    <RefCode
+                      code={c.contract_reference}
+                      to={`/contracts/${c.contract_id}`}
+                    />
+                  </td>
                   <td>
                     <StatusBadge status={c.status} />
                   </td>
@@ -249,7 +256,8 @@ export function CollectionCasePage() {
   return (
     <div className="stack">
       <h1>
-        Case #{detail.id} <StatusBadge status={detail.status} />
+        Case <RefCode code={detail.reference_code} />{" "}
+        <StatusBadge status={detail.status} />
       </h1>
       <p>
         <Link className="btn-link" to="/collections">
@@ -260,8 +268,13 @@ export function CollectionCasePage() {
 
       <Card title="Case">
         <dl className="kv">
-          <dt>Contract #</dt>
-          <dd>{detail.contract_id}</dd>
+          <dt>Contract</dt>
+          <dd>
+            <RefCode
+              code={detail.contract_reference}
+              to={`/contracts/${detail.contract_id}`}
+            />
+          </dd>
           <dt>Opened</dt>
           <dd>{new Date(detail.opened_at).toLocaleString()}</dd>
           <dt>Reason</dt>

@@ -93,10 +93,11 @@ def test_list_referred_applications_for_the_review_queue(client):
     row = rows[0]
     assert set(row) == {
         "id", "customer_id", "product_id", "requested_amount",
-        "status", "submitted_at",
+        "status", "submitted_at", "reference_code",  # reference_code: Step 14
     }
     assert row["status"] == "referred"
     assert row["submitted_at"] is not None
+    assert row["reference_code"] == f"AP-{row['id']:06d}"
 
 
 def test_review_queue_list_is_role_gated(client_as):

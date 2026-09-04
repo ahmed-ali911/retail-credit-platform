@@ -33,6 +33,7 @@ export interface CustomerOut {
   status: string;
   risk_score: number | null;
   created_at: string;
+  reference_code: string;
   profile: (CustomerProfileIn & { id: number; customer_id: number }) | null;
 }
 
@@ -45,6 +46,7 @@ export interface ProductOut {
   stock_quantity: number;
   reserved_quantity: number;
   available_quantity: number;
+  reference_code: string;
 }
 
 export interface CustomerListItem {
@@ -53,6 +55,7 @@ export interface CustomerListItem {
   national_id: string;
   status: string;
   risk_score: number | null;
+  reference_code: string;
 }
 
 // --- reports / dashboards (Step 11) ---
@@ -163,6 +166,8 @@ export interface CollectionCaseOut {
   opened_at: string;
   opened_reason: string;
   closed_at: string | null;
+  reference_code: string;
+  contract_reference: string;
 }
 
 export interface CollectionCaseDetailOut extends CollectionCaseOut {
@@ -201,6 +206,7 @@ export interface ApplicationOut {
   created_by: string;
   latest_assessment: AssessmentResultOut | null;
   assessments: AssessmentResultOut[];
+  reference_code: string;
 }
 
 export interface ApplicationListItem {
@@ -210,6 +216,7 @@ export interface ApplicationListItem {
   requested_amount: number;
   status: ApplicationOut["status"];
   submitted_at: string;
+  reference_code: string;
 }
 
 // --- P0-4 exposure ---
@@ -345,6 +352,8 @@ export interface OfferOut {
   down_payment_reference: string | null;
   accepted_at: string | null;
   schedule_preview: ScheduleLine[];
+  reference_code: string;
+  application_reference: string;
 }
 
 export interface SalesOrderOut {
@@ -355,6 +364,9 @@ export interface SalesOrderOut {
   sale_price: number;
   down_payment_amount: number;
   created_at: string;
+  reference_code: string;
+  application_reference: string;
+  product_reference: string;
 }
 
 export interface InstallmentOut {
@@ -385,6 +397,7 @@ export interface ContractOut {
   sales_order: SalesOrderOut;
   installments: InstallmentOut[];
   closure?: ContractClosureOut | null;
+  reference_code: string;
 }
 
 export interface AcceptResult {
@@ -392,6 +405,7 @@ export interface AcceptResult {
   sales_order_id: number;
   contract_id: number;
   contract: ContractOut;
+  contract_reference: string;
 }
 
 export interface ReceivableOut {
@@ -402,6 +416,7 @@ export interface ReceivableOut {
   outstanding_late_fees: number;
   total_installments_paid: number;
   total_installments_remaining: number;
+  contract_reference?: string;
 }
 
 export interface PaymentResult {
@@ -413,5 +428,7 @@ export interface PaymentResult {
     status: string;
     allocated_amount: number;
     unallocated_amount: number;
+    reference_code: string;
+    contract_reference: string;
   };
 }

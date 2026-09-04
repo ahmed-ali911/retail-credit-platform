@@ -8,7 +8,7 @@ import type {
   SettlementQuoteOut,
 } from "../api/types";
 import { StatusBadge } from "../components/StatusBadge";
-import { Card, ErrorNote, Field, money } from "../components/ui";
+import { Card, ErrorNote, Field, RefCode, money } from "../components/ui";
 
 export function ContractPage() {
   const { contractId } = useParams();
@@ -69,8 +69,8 @@ export function ContractPage() {
       });
       setNotice(
         res.replayed
-          ? `Reference already recorded — no double allocation (payment #${res.payment.id}).`
-          : `Payment #${res.payment.id} recorded; ${money(res.payment.allocated_amount)} allocated.`,
+          ? `Reference already recorded — no double allocation (payment ${res.payment.reference_code}).`
+          : `Payment ${res.payment.reference_code} recorded; ${money(res.payment.allocated_amount)} allocated.`,
       );
       setAmount("");
       setReference("");
@@ -151,19 +151,20 @@ export function ContractPage() {
   return (
     <div className="stack">
       <h1>
-        Contract #{contract.id} <StatusBadge status={contract.status} />
+        Contract <RefCode code={contract.reference_code} />{" "}
+        <StatusBadge status={contract.status} />
       </h1>
       <ErrorNote message={error} />
       {notice && <div className="alert alert--info">{notice}</div>}
 
       <Card title="Sales order">
         <dl className="kv">
-          <dt>Sales order #</dt>
-          <dd>{so.id}</dd>
-          <dt>Application #</dt>
-          <dd>{so.application_id}</dd>
-          <dt>Product #</dt>
-          <dd>{so.product_id}</dd>
+          <dt>Sales order</dt>
+          <dd><RefCode code={so.reference_code} /></dd>
+          <dt>Application</dt>
+          <dd><RefCode code={so.application_reference} /></dd>
+          <dt>Product</dt>
+          <dd><RefCode code={so.product_reference} /></dd>
           <dt>Sale price</dt>
           <dd>{money(so.sale_price)}</dd>
           <dt>Down payment</dt>

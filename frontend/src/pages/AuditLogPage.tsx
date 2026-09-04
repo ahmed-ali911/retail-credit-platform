@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState, type FormEvent } from "react";
 import { api, errorMessage } from "../api/client";
 import type { AuditEventOut } from "../api/types";
 import { Card, ErrorNote, Field } from "../components/ui";
+import { auditEntityRef, coerceId } from "../lib/reference";
 
 export function AuditLogPage() {
   const [events, setEvents] = useState<AuditEventOut[] | null>(null);
@@ -12,7 +13,8 @@ export function AuditLogPage() {
     setError(null);
     const qs = new URLSearchParams();
     if (filters.entity_type) qs.set("entity_type", filters.entity_type);
-    if (filters.entity_id) qs.set("entity_id", filters.entity_id);
+    if (filters.entity_id)
+      qs.set("entity_id", coerceId(filters.entity_id) || filters.entity_id);
     if (filters.action) qs.set("action", filters.action);
     const suffix = qs.toString() ? `?${qs}` : "";
     try {
@@ -47,7 +49,7 @@ export function AuditLogPage() {
             placeholder="e.g. installment_contract"
           />
           <Field
-            label="Entity id"
+            label="Entity id (or reference code)"
             value={filters.entity_id}
             onChange={(e) =>
               setFilters((f) => ({ ...f, entity_id: e.target.value }))
@@ -78,7 +80,7 @@ export function AuditLogPage() {
           <table className="data" aria-label="Audit events">
             <thead>
               <tr>
-                <th>#</th>
+                <th>Event</th>
                 <th>When</th>
                 <th>User</th>
                 <th>Action</th>
@@ -88,14 +90,11 @@ export function AuditLogPage() {
             <tbody>
               {events.map((e) => (
                 <tr key={e.id} data-testid={`audit-row-${e.id}`}>
-                  <td>{e.id}</td>
+                  <td className="num">{e.id}</td>
                   <td>{new Date(e.timestamp).toLocaleString()}</td>
-                  <td>{e.user_id == null ? "system" : `#${e.user_id}`}</td>
+                  <td>{e.user_id == null ? "system" : `user ${e.user_id}`}</td>
                   <td>{e.action}</td>
-                  <td>
-                    {e.entity_type}
-                    {e.entity_id ? ` #${e.entity_id}` : ""}
-                  </td>
+                  <td>{auditEntityRef(e.entity_type, e.entity_id)}</td>
                 </tr>
               ))}
             </tbody>

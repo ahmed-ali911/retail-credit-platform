@@ -338,3 +338,42 @@ was added.
 Global search, notifications, environment chip, dashboard consolidation, any
 page-body change, ad-hoc-colour normalisation, new components, responsive
 breakpoints beyond a basic sidebar toggle.
+
+---
+
+## 10. Step 14 — light-theme revision, typography, reference codes, charts, appearance
+
+Direct user feedback after seeing Phase 2 live. Everything Phase 1/2 built
+(grouped nav structure, token system, breadcrumb header, mobile drawer) **stays**
+— only the colour treatment of the shell changed.
+
+- **A — light sidebar.** `.appshell__sidebar` is now `var(--surface-1)` with a
+  `--color-border` right edge (was `--color-primary-dark`). Section headers are
+  `--text-subtle` (muted gray-navy, not white-on-navy). The active nav item is a
+  12% `color-mix` tint of `--color-primary` behind `--color-primary` text/icon,
+  not a solid fill. `--color-primary` / `--color-primary-dark` keep their values
+  and still drive page headers, primary buttons and links — only the shell's
+  *usage* changed. Mobile scrim `rgba(15,35,80,.4)` kept (overlay, not text).
+- **B — numeric legibility.** New `.ref-code` class (mono, `tabular-nums`,
+  600 weight, `white-space: nowrap`) and a `tabular-nums` rule on `.num`,
+  `.metric-tile__value`, `table.data .num` and `.kv dd`. `.kv` label↔value
+  spacing/weight tightened. Not a font-family change.
+- **C — reference codes.** `#<id>` is gone from every screen. Codes are
+  `{PREFIX}-{id:06d}` (`AP-000004`, `CN-000012`), computed at serialization
+  backend-side (`app/core/references.py`) and mirrored in `src/lib/reference.ts`.
+  `<RefCode>` component renders them; breadcrumbs and the audit-log entity column
+  use them. ID-lookup inputs accept **either** the raw number or the code
+  (`coerceId()`), and their labels say so.
+- **D — dashboard charts.** `recharts` added. Portfolio tab: contracts-by-status
+  donut + DPD aging bar chart. Credit & Risk tab: customers-by-risk-band donut.
+  Every chart is fed only by data an existing `summary` endpoint already returns
+  — no fabricated time-series. The old DPD detail table is kept below the chart.
+- **E — Appearance.** New tab **inside** Configuration (admin), not a nav item.
+  Colour pickers for `--color-primary/-secondary/-warm/-danger` with live
+  preview + Reset. Stored in `localStorage["rc.appearance"]` only, applied as
+  `:root` custom properties at runtime (`initAppearance()` in `main.tsx` before
+  first paint). Explicitly **not** server-synced and **not** maker-checker
+  gated; the panel says so.
+
+Tests: `frontend/src/test/step14.test.tsx` (14) + `tests/test_references.py` (7).
+Full suite green — backend 209, frontend 55, `tsc` + `vite build` clean.

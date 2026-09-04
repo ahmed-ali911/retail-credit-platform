@@ -16,7 +16,8 @@ import {
 } from "lucide-react";
 import { api, downloadFile, errorMessage } from "../api/client";
 import type { ContractReportPage, ProfitabilityReport } from "../api/types";
-import { Card, ErrorNote, Field, money } from "../components/ui";
+import { Card, ErrorNote, Field, RefCode, money } from "../components/ui";
+import { coerceId } from "../lib/reference";
 import { StatusBadge } from "../components/StatusBadge";
 
 function qs(params: Record<string, string>): string {
@@ -170,8 +171,8 @@ function ContractsReport() {
   const query = () =>
     qs({
       status: filters.status,
-      customer_id: filters.customer_id,
-      product_id: filters.product_id,
+      customer_id: coerceId(filters.customer_id) || filters.customer_id,
+      product_id: coerceId(filters.product_id) || filters.product_id,
       date_from: filters.date_from,
       date_to: filters.date_to,
     });
@@ -206,8 +207,8 @@ function ContractsReport() {
                 <option value="closed">closed</option>
               </select>
             </label>
-            <Field label="Customer #" inputMode="numeric" value={filters.customer_id} onChange={set("customer_id")} />
-            <Field label="Product #" inputMode="numeric" value={filters.product_id} onChange={set("product_id")} />
+            <Field label="Customer # (or CU-code)" value={filters.customer_id} onChange={set("customer_id")} />
+            <Field label="Product # (or PR-code)" value={filters.product_id} onChange={set("product_id")} />
           </div>
           <div className="field-row">
             <Field label="Created from" type="date" value={filters.date_from} onChange={set("date_from")} />
@@ -236,7 +237,7 @@ function ContractsReport() {
           <table className="data" aria-label="Contracts report results">
             <thead>
               <tr>
-                <th>#</th>
+                <th>Contract</th>
                 <th>Status</th>
                 <th>Customer</th>
                 <th>Product</th>
@@ -250,7 +251,11 @@ function ContractsReport() {
               {page.items.map((r) => (
                 <tr key={r.contract_id} data-testid={`contract-report-row-${r.contract_id}`}>
                   <td>
-                    <Link to={`/contracts/${r.contract_id}`}>{r.contract_id}</Link>
+                    <RefCode
+                      entity="InstallmentContract"
+                      id={r.contract_id}
+                      to={`/contracts/${r.contract_id}`}
+                    />
                   </td>
                   <td>
                     <StatusBadge status={r.status} />
@@ -307,8 +312,8 @@ function ProfitabilityReportView() {
       date_to: filters.date_to,
     };
     if (filters.level === "category") p.category = filters.category;
-    if (filters.level === "product") p.product_id = filters.product_id;
-    if (filters.level === "customer") p.customer_id = filters.customer_id;
+    if (filters.level === "product") p.product_id = coerceId(filters.product_id) || filters.product_id;
+    if (filters.level === "customer") p.customer_id = coerceId(filters.customer_id) || filters.customer_id;
     return qs(p);
   }
 
@@ -355,8 +360,7 @@ function ProfitabilityReportView() {
             )}
             {filters.level === "product" && (
               <Field
-                label="Product #"
-                inputMode="numeric"
+                label="Product # (or PR-code)"
                 value={filters.product_id}
                 onChange={set("product_id")}
                 required
@@ -364,8 +368,7 @@ function ProfitabilityReportView() {
             )}
             {filters.level === "customer" && (
               <Field
-                label="Customer #"
-                inputMode="numeric"
+                label="Customer # (or CU-code)"
                 value={filters.customer_id}
                 onChange={set("customer_id")}
                 required

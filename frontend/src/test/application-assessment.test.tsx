@@ -13,6 +13,7 @@ const baseApp = {
   channel: "branch" as const,
   created_at: "2026-01-01T00:00:00Z",
   created_by: "system",
+  reference_code: "AP-000007",
   assessments: [],
 };
 
