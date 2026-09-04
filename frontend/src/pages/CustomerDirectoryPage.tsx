@@ -92,7 +92,11 @@ export function CustomerDirectoryPage() {
               No customers match.
             </p>
           ) : (
-            <table className="data" aria-label="Customer results">
+            <>
+              <p className="muted" data-testid="customers-count">
+                {rows.length} customer{rows.length === 1 ? "" : "s"}
+              </p>
+              <table className="data" aria-label="Customer results">
               <thead>
                 <tr>
                   <th>Reference</th>
@@ -120,6 +124,7 @@ export function CustomerDirectoryPage() {
                 ))}
               </tbody>
             </table>
+            </>
           )}
         </Card>
       )}

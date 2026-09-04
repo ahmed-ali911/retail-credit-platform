@@ -8,8 +8,9 @@ pydantic-settings==2.7.0
 PyYAML==6.0.2
 PyJWT==2.10.1
 bcrypt==4.2.1
-openpyxl==3.1.5        # Step 13 — Excel report export
+openpyxl==3.1.5        # Step 13 — Excel report export; Step 15 also parses uploads with it
 reportlab==5.0.1       # Step 13 — plain tabular PDF report export
+python-multipart==0.0.32  # Step 15 — bank-statement .xlsx upload (FastAPI UploadFile)
 
 # --- test / dev ---
 pytest==8.3.4

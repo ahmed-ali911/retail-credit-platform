@@ -35,6 +35,11 @@ describe("Customer exposure panel", () => {
       },
       {
         method: "GET",
+        url: /\/reports\/contracts/,
+        json: { items: [], total: 0, limit: 200, offset: 0, totals: { row_count: 0 } },
+      },
+      {
+        method: "GET",
         url: "/customers/9",
         json: {
           id: 9,

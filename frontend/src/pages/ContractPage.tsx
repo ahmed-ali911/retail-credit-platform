@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState, type FormEvent } from "react";
 import { useParams } from "react-router-dom";
 import { api, errorMessage } from "../api/client";
 import type {
+  ApplicationOut,
   ContractOut,
   PaymentResult,
   ReceivableOut,
@@ -14,6 +15,8 @@ export function ContractPage() {
   const { contractId } = useParams();
   const [contract, setContract] = useState<ContractOut | null>(null);
   const [receivable, setReceivable] = useState<ReceivableOut | null>(null);
+  const [origination, setOrigination] = useState<ApplicationOut | null>(null);
+  const [originationError, setOriginationError] = useState<string | null>(null);
   const [amount, setAmount] = useState("");
   const [reference, setReference] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -31,6 +34,18 @@ export function ContractPage() {
         setReceivable(await api<ReceivableOut>(`/contracts/${contractId}/receivable`));
       } catch {
         setReceivable(null); // role may not permit the receivable view
+      }
+      try {
+        // Part B — "Origination" section: channel and who created the sale
+        // already exist on the originating application, just weren't shown
+        // here. Degrades gracefully if the viewer's role can't read it.
+        setOrigination(
+          await api<ApplicationOut>(
+            `/applications/${c.sales_order.application_id}`,
+          ),
+        );
+      } catch (err) {
+        setOriginationError(errorMessage(err));
       }
     } catch (err) {
       setError(errorMessage(err));
@@ -174,6 +189,25 @@ export function ContractPage() {
           <dt>Unearned profit</dt>
           <dd>{money(contract.unearned_profit_balance)}</dd>
         </dl>
+      </Card>
+
+      {/* Part B — channel and who created the sale already exist on the
+          originating application; just weren't surfaced on this screen. */}
+      <Card title="Origination" soft>
+        {originationError ? (
+          <p className="muted">{originationError}</p>
+        ) : !origination ? (
+          <p className="muted">Loading…</p>
+        ) : (
+          <dl className="kv">
+            <dt>Channel</dt>
+            <dd data-testid="origination-channel">{origination.channel}</dd>
+            <dt>Created by</dt>
+            <dd data-testid="origination-created-by">{origination.created_by}</dd>
+            <dt>Application created</dt>
+            <dd>{new Date(origination.created_at).toLocaleString()}</dd>
+          </dl>
+        )}
       </Card>
 
       <Card title="Delivery">

@@ -61,6 +61,12 @@ def _f(value) -> float:
     return round(float(value or 0), 2)
 
 
+def _num(value) -> float:
+    """Coerce a report-row cell to a summable number; anything else (None,
+    strings, labels) contributes 0 rather than raising."""
+    return value if isinstance(value, (int, float)) and not isinstance(value, bool) else 0
+
+
 def _as_dt(value: str | date | datetime | None) -> datetime | None:
     if value is None:
         return None
@@ -97,6 +103,12 @@ CONTRACT_FIELDS = [
     "tenor_months",
     "installment_sale_price",
     "created_at",
+    # Step 15, Part C — added so the same query/endpoint the Reports Center
+    # already used can also drive the new Contracts Directory's table
+    # (reference code, customer, product, status, outstanding total, next due
+    # date) without a second contract-listing query.
+    "outstanding_total",
+    "next_due_date",
 ]
 
 
@@ -106,10 +118,11 @@ class ContractListPage:
     total: int
     limit: int
     offset: int
+    totals: dict = field(default_factory=dict)
 
 
 def _contract_base_query(
-    *, status, customer_id, product_id, date_from, date_to
+    *, status, customer_id, product_id, contract_id, date_from, date_to
 ):
     stmt = (
         select(InstallmentContract, SalesOrder, CreditApplication, Product)
@@ -123,6 +136,11 @@ def _contract_base_query(
         stmt = stmt.where(CreditApplication.customer_id == customer_id)
     if product_id is not None:
         stmt = stmt.where(SalesOrder.product_id == product_id)
+    if contract_id is not None:
+        # Step 15, Part C — minimal extension so the Contracts Directory can
+        # search by reference code (decoded to the numeric id on the
+        # frontend) without a second contract-listing query.
+        stmt = stmt.where(InstallmentContract.id == contract_id)
     df, dt = _as_dt(date_from), _as_dt(date_to)
     if df is not None:
         stmt = stmt.where(InstallmentContract.created_at >= df)
@@ -137,6 +155,7 @@ def contract_list(
     status: ContractStatus | None = None,
     customer_id: int | None = None,
     product_id: int | None = None,
+    contract_id: int | None = None,
     date_from=None,
     date_to=None,
     limit: int = 50,
@@ -146,12 +165,19 @@ def contract_list(
         status=status,
         customer_id=customer_id,
         product_id=product_id,
+        contract_id=contract_id,
         date_from=date_from,
         date_to=date_to,
     )
-    total = db.execute(
-        select(func.count()).select_from(base.subquery())
-    ).scalar_one()
+    # One aggregate query over the same filtered set for both the row count
+    # and the sale-price total — Part A's totals row, computed over every
+    # matching contract, not just the current page.
+    base_sub = base.subquery()
+    total, sale_price_sum = db.execute(
+        select(
+            func.count(), func.coalesce(func.sum(base_sub.c.sale_price), 0)
+        ).select_from(base_sub)
+    ).one()
 
     rows = db.execute(
         base.order_by(InstallmentContract.id.desc()).limit(limit).offset(offset)
@@ -159,6 +185,15 @@ def contract_list(
 
     items = []
     for contract, sales_order, application, product in rows:
+        receivable = build_receivable(contract)
+        next_due = next(
+            (
+                i.due_date.isoformat()
+                for i in sorted(contract.installments, key=lambda x: x.sequence_number)
+                if i.status != InstallmentStatus.paid
+            ),
+            None,
+        )
         items.append(
             {
                 "contract_id": contract.id,
@@ -171,9 +206,19 @@ def contract_list(
                 "tenor_months": contract.tenor_months,
                 "installment_sale_price": _f(sales_order.sale_price),
                 "created_at": contract.created_at.isoformat(),
+                "outstanding_total": _f(
+                    receivable.outstanding_receivable + receivable.outstanding_late_fees
+                ),
+                "next_due_date": next_due,
             }
         )
-    return ContractListPage(items=items, total=total, limit=limit, offset=offset)
+    return ContractListPage(
+        items=items,
+        total=total,
+        limit=limit,
+        offset=offset,
+        totals={"row_count": total, "installment_sale_price": _f(sale_price_sum)},
+    )
 
 
 # --------------------------------------------------------------------------- #
@@ -616,17 +661,37 @@ class ReportResult:
     ``extra`` carries any summary counts alongside the table.
 
     The JSON body is uniform across every sub-report:
-    ``{"columns": [...], "rows": [...], **extra}`` — so one generic frontend
-    renderer handles all of them."""
+    ``{"columns": [...], "rows": [...], "totals": {...}, **extra}`` — so one
+    generic frontend renderer handles all of them.
+
+    ``sum_fields`` (Step 15, Part A) names which columns are meaningful to sum
+    across rows — an amount or a count, never an id or a rate. ``totals``
+    always carries ``row_count`` (every report gets at least a count) plus one
+    entry per ``sum_fields`` column. The same dict drives both the on-screen
+    totals row/footer and the totals row appended to CSV/Excel/PDF exports —
+    one computation, both places."""
 
     fieldnames: list[str]
     rows: list[dict] = field(default_factory=list)
     title: str = "Report"
     extra: dict = field(default_factory=dict)
+    sum_fields: list[str] = field(default_factory=list)
+
+    @property
+    def totals(self) -> dict:
+        t: dict = {"row_count": len(self.rows)}
+        for f in self.sum_fields:
+            t[f] = _f(sum((_num(r.get(f)) for r in self.rows), 0))
+        return t
 
     @property
     def data(self) -> dict:
-        return {"columns": self.fieldnames, "rows": self.rows, **self.extra}
+        return {
+            "columns": self.fieldnames,
+            "rows": self.rows,
+            "totals": self.totals,
+            **self.extra,
+        }
 
 
 # --- export renderers ----------------------------------------------------- #
@@ -702,8 +767,33 @@ _MEDIA = {
 }
 
 
-def export(fmt: str, fieldnames: list[str], rows: list[dict], *, title: str):
+def _with_totals_row(
+    fieldnames: list[str], rows: list[dict], totals: dict | None
+) -> list[dict]:
+    """Step 15, Part A — append one totals row so CSV/Excel/PDF exports carry
+    the same totals shown on screen, not just the live table. The label goes
+    in the first column (whatever it is — status/category/customer_id/…);
+    every column present in ``totals`` gets its sum, everything else is
+    blank. A no-op if there's nothing to total."""
+    if not totals or not fieldnames:
+        return rows
+    label_col = fieldnames[0]
+    row = {f: totals.get(f, "") for f in fieldnames}
+    if label_col not in totals:
+        row[label_col] = f"TOTAL ({totals.get('row_count', len(rows))} rows)"
+    return [*rows, row]
+
+
+def export(
+    fmt: str,
+    fieldnames: list[str],
+    rows: list[dict],
+    *,
+    title: str,
+    totals: dict | None = None,
+):
     """Returns (content: str|bytes, media_type: str, extension: str)."""
+    rows = _with_totals_row(fieldnames, rows, totals)
     if fmt == "csv":
         content: str | bytes = to_csv(fieldnames, rows)
     elif fmt == "xlsx":
@@ -735,11 +825,26 @@ def customers_by_exposure(
 ) -> ReportResult:
     all_rows = customer_exposure_rows(db)
     page = all_rows[offset : offset + limit]
+    # The grand total is over the FULL list, not just this page — sum_fields
+    # would only total what's on the current page, so it's computed directly
+    # and carried in `extra` instead (still reaches both JSON and export,
+    # since `full` is re-fetched with no pagination for export — see the router).
+    full_total_outstanding = _f(sum((r["total_outstanding"] for r in all_rows), 0))
     return ReportResult(
         fieldnames=["customer_id", "name", "total_outstanding"],
         rows=page,
         title="Customers by exposure",
-        extra={"total": len(all_rows), "limit": limit, "offset": offset},
+        extra={
+            "total": len(all_rows),
+            "limit": limit,
+            "offset": offset,
+            "total_outstanding_sum": full_total_outstanding,
+        },
+        # only correct when `rows` is the FULL list (the export path re-fetches
+        # with no pagination — see `_result`'s caller in api/reports.py); the
+        # on-screen JSON uses `total_outstanding_sum` above instead, since
+        # `rows` there is just the current page.
+        sum_fields=["total_outstanding"],
     )
 
 
@@ -772,6 +877,7 @@ def products_by_availability(db: Session) -> ReportResult:
         rows=rows,
         title="Products by availability",
         extra={"available": available, "sold_out": sold_out},
+        sum_fields=["stock_quantity", "reserved_quantity", "available_quantity"],
     )
 
 
@@ -795,6 +901,7 @@ def products_by_category(db: Session) -> ReportResult:
         ],
         rows=rows,
         title="Products by category",
+        sum_fields=["products", "stock_quantity", "reserved_quantity", "available_quantity"],
     )
 
 
@@ -813,6 +920,7 @@ def contracts_by_status(db: Session) -> ReportResult:
         rows=rows,
         title="Contracts by status",
         extra={"counts": counts},
+        sum_fields=["contracts"],
     )
 
 
@@ -834,6 +942,7 @@ def contracts_by_channel(db: Session) -> ReportResult:
         rows=rows,
         title="Contracts by origination channel",
         extra={"counts": counts},
+        sum_fields=["contracts"],
     )
 
 
@@ -850,6 +959,7 @@ def collections_status_summary(db: Session) -> ReportResult:
         rows=rows,
         title="Collection cases by status",
         extra={"counts": counts},
+        sum_fields=["cases"],
     )
 
 
@@ -867,6 +977,7 @@ def collections_promise_performance(db: Session) -> ReportResult:
         rows=rows,
         title="Promise-to-pay performance",
         extra={"counts": counts},
+        sum_fields=["count"],
     )
 
 
@@ -891,6 +1002,7 @@ def collections_late_fees_summary(db: Session) -> ReportResult:
             "waived_count": len(waived),
             "waived_amount": waived_amt,
         },
+        sum_fields=["count", "amount"],
     )
 
 
@@ -984,6 +1096,7 @@ def aging_report(db: Session) -> ReportResult:
             "as_of": as_of.isoformat(),
             "buckets": rows,  # alias kept for readability
         },
+        sum_fields=["installment_count", "outstanding_amount"],
     )
 
 
@@ -1024,6 +1137,7 @@ def aging_bucket_detail(db: Session, bucket_index: int) -> ReportResult:
             "as_of": as_of.isoformat(),
             "items": rows,  # alias kept for readability
         },
+        sum_fields=["outstanding_amount"],
     )
 
 

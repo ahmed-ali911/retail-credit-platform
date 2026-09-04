@@ -32,6 +32,11 @@ _VIEW_STAFF_ROLES = (
     UserRole.sales_employee,
     UserRole.credit_officer,
     UserRole.credit_manager,
+    # Step 15, Part B — the Contract detail "Origination" section fetches the
+    # originating application (channel, created_by); finance_officer is a
+    # routine Contract-page viewer (closure/receivable roles) and was
+    # otherwise 403'd reading the one extra field it needs. Read-only.
+    UserRole.finance_officer,
     UserRole.admin,
 )
 _REVIEW_ROLES = (UserRole.credit_officer, UserRole.credit_manager, UserRole.admin)

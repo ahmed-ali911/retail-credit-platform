@@ -70,6 +70,8 @@ export interface ContractReportRow {
   tenor_months: number;
   installment_sale_price: number;
   created_at: string;
+  outstanding_total: number;
+  next_due_date: string | null;
 }
 
 export interface ContractReportPage {
@@ -77,6 +79,7 @@ export interface ContractReportPage {
   total: number;
   limit: number;
   offset: number;
+  totals?: Record<string, unknown>;
 }
 
 export interface ProfitabilityBucket {
@@ -257,6 +260,15 @@ export interface BankStatementLine {
 
 export interface MatchRunResult {
   lines_processed: number;
+  matched: number;
+  exceptions_created: number;
+}
+
+export interface BankLineUploadResult {
+  rows_processed: number;
+  rows_ingested: number;
+  rows_rejected: number;
+  rejected: { row: number; reason: string }[];
   matched: number;
   exceptions_created: number;
 }

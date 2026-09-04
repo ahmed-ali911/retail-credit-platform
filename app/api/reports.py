@@ -25,8 +25,12 @@ def _maybe_export(
     *,
     title: str,
     base: str,
+    totals: dict | None = None,
 ) -> Response | None:
-    """Return a file Response for csv/xlsx/pdf, or None to fall through to JSON."""
+    """Return a file Response for csv/xlsx/pdf, or None to fall through to JSON.
+
+    ``totals`` (Step 15, Part A), when given, appends one totals row to the
+    exported file — the same figures the on-screen table's footer shows."""
     if not fmt:
         return None
     if fmt not in reports_service.EXPORT_FORMATS:
@@ -35,7 +39,7 @@ def _maybe_export(
             detail=f"format must be one of {reports_service.EXPORT_FORMATS}",
         )
     content, media_type, ext = reports_service.export(
-        fmt, fieldnames, rows, title=title
+        fmt, fieldnames, rows, title=title, totals=totals
     )
     return Response(
         content=content,
@@ -46,7 +50,12 @@ def _maybe_export(
 
 def _result(fmt: str | None, result, base: str):
     exp = _maybe_export(
-        fmt, result.fieldnames, result.rows, title=result.title, base=base
+        fmt,
+        result.fieldnames,
+        result.rows,
+        title=result.title,
+        base=base,
+        totals=result.totals,
     )
     return exp if exp is not None else result.data
 
@@ -60,6 +69,7 @@ def contracts_report(
     status: ContractStatus | None = Query(default=None),
     customer_id: int | None = Query(default=None),
     product_id: int | None = Query(default=None),
+    contract_id: int | None = Query(default=None),
     date_from: date | None = Query(default=None),
     date_to: date | None = Query(default=None),
     limit: int = Query(default=50, ge=1, le=200),
@@ -72,6 +82,7 @@ def contracts_report(
         status=status,
         customer_id=customer_id,
         product_id=product_id,
+        contract_id=contract_id,
         date_from=date_from,
         date_to=date_to,
         limit=limit,
@@ -83,11 +94,16 @@ def contracts_report(
         page.items,
         title="Contracts",
         base="contracts",
+        totals=page.totals,
     )
     if exp is not None:
         return exp
     return ContractReportPage(
-        items=page.items, total=page.total, limit=page.limit, offset=page.offset
+        items=page.items,
+        total=page.total,
+        limit=page.limit,
+        offset=page.offset,
+        totals=page.totals,
     )
 
 

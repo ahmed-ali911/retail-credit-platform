@@ -60,6 +60,42 @@ code {
 .field-row { display: flex; gap: 1rem; }
 .field-row .field { flex: 1; }
 
+/* Search-as-you-type dropdown (Step 15, Part D) */
+.search-select { position: relative; flex: 1; }
+.search-select__dropdown {
+  position: absolute;
+  z-index: 20;
+  top: 100%;
+  left: 0;
+  right: 0;
+  margin: 2px 0 0;
+  padding: 0.25rem;
+  list-style: none;
+  background: var(--surface-1, #fff);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-md, 0 4px 12px rgba(15, 35, 80, 0.1));
+  max-height: 220px;
+  overflow-y: auto;
+}
+.search-select__dropdown li + li { margin-top: 2px; }
+.search-select__dropdown button {
+  display: block;
+  width: 100%;
+  text-align: left;
+  padding: 0.4rem 0.5rem;
+  border: none;
+  background: none;
+  border-radius: 6px;
+  cursor: pointer;
+  font: inherit;
+  color: var(--color-text);
+}
+.search-select__dropdown button:hover,
+.search-select__dropdown button:focus {
+  background: var(--status-neutral-bg, var(--color-bg));
+}
+
 /* --- buttons --- */
 button {
   font: inherit;
@@ -90,8 +126,15 @@ table.data th, table.data td {
 }
 table.data th { color: var(--color-muted); font-weight: 600; background: var(--color-bg); }
 table.data td.num, table.data th.num { text-align: right; font-variant-numeric: tabular-nums; }
-table.data tr.is-paid { background: rgba(47, 184, 198, 0.07); }
+/* was a hardcoded teal rgba() — now follows --color-secondary (Step 15, incl. Appearance overrides) */
+table.data tr.is-paid { background: color-mix(in srgb, var(--color-secondary) 7%, transparent); }
 table.data tr.is-overdue { background: rgba(192, 57, 43, 0.06); }
+table.data tfoot tr.totals-row td {
+  font-weight: 700;
+  border-top: 2px solid var(--color-border);
+  border-bottom: none;
+  background: var(--color-bg);
+}
 
 /* --- badges --- */
 .badge {

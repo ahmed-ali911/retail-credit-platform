@@ -1,7 +1,8 @@
-import { useCallback, useEffect, useState, type FormEvent } from "react";
+import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
 import { Link } from "react-router-dom";
-import { api, errorMessage } from "../api/client";
+import { api, errorMessage, uploadFile } from "../api/client";
 import type {
+  BankLineUploadResult,
   MatchRunResult,
   ReconciliationException,
   ReconciliationStatus,
@@ -15,6 +16,9 @@ export function ReconciliationPage() {
   const [statusFilter, setStatusFilter] = useState<"" | "open" | "resolved">("");
   const [line, setLine] = useState({ bank_reference: "", amount: "", value_date: "" });
   const [runResult, setRunResult] = useState<MatchRunResult | null>(null);
+  const [uploadResult, setUploadResult] = useState<BankLineUploadResult | null>(null);
+  const [uploading, setUploading] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -68,6 +72,29 @@ export function ReconciliationPage() {
       setError(errorMessage(err));
     } finally {
       setBusy(false);
+    }
+  }
+
+  async function uploadStatement(e: FormEvent) {
+    e.preventDefault();
+    const file = fileInputRef.current?.files?.[0];
+    if (!file) return;
+    setError(null);
+    setNotice(null);
+    setUploadResult(null);
+    setUploading(true);
+    try {
+      const res = await uploadFile<BankLineUploadResult>(
+        "/reconciliation/bank-lines/upload",
+        file,
+      );
+      setUploadResult(res);
+      if (fileInputRef.current) fileInputRef.current.value = "";
+      await loadStatus();
+    } catch (err) {
+      setError(errorMessage(err));
+    } finally {
+      setUploading(false);
     }
   }
 
@@ -164,6 +191,49 @@ export function ReconciliationPage() {
             Add bank line
           </button>
         </form>
+      </Card>
+
+      <Card title="Upload bank statement (.xlsx)" soft>
+        <p className="muted">
+          Bulk alternative to the single-line form above — doesn't replace it.
+          Expected columns: <code>bank_reference</code>, <code>amount</code>,{" "}
+          <code>value_date</code> (any order, case-insensitive header, extra
+          columns ignored — see the README for the exact layout).
+        </p>
+        <form className="inline-form" onSubmit={uploadStatement}>
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept=".xlsx"
+            data-testid="statement-upload-input"
+          />
+          <button className="btn-primary" type="submit" disabled={uploading}>
+            {uploading ? "Uploading…" : "Upload"}
+          </button>
+        </form>
+        {uploadResult && (
+          <div
+            className="alert alert--info"
+            style={{ marginTop: "0.75rem" }}
+            data-testid="upload-result"
+          >
+            <p>
+              Processed {uploadResult.rows_processed} · ingested{" "}
+              {uploadResult.rows_ingested} · matched {uploadResult.matched} ·
+              exceptions created {uploadResult.exceptions_created} · rejected{" "}
+              {uploadResult.rows_rejected}
+            </p>
+            {uploadResult.rejected.length > 0 && (
+              <ul>
+                {uploadResult.rejected.map((r) => (
+                  <li key={r.row} data-testid={`upload-rejected-${r.row}`}>
+                    Row {r.row}: {r.reason}
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+        )}
       </Card>
 
       <Card title="Run matching">

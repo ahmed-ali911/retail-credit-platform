@@ -19,7 +19,7 @@ export type Appearance = Record<AppearanceKey, string>;
 // must match the defaults in src/styles/tokens.css
 export const DEFAULT_APPEARANCE: Appearance = {
   primary: "#2c5fd6",
-  secondary: "#2fb8c6",
+  secondary: "#219653",
   warm: "#9c7b4f",
   danger: "#c0392b",
 };

@@ -140,7 +140,11 @@ export function CollectionsPage() {
             No collection cases.
           </p>
         ) : (
-          <table className="data" aria-label="Collection cases">
+          <>
+            <p className="muted" data-testid="cases-count">
+              {rows.length} case{rows.length === 1 ? "" : "s"}
+            </p>
+            <table className="data" aria-label="Collection cases">
             <thead>
               <tr>
                 <th>Case</th>
@@ -176,7 +180,8 @@ export function CollectionsPage() {
                 </tr>
               ))}
             </tbody>
-          </table>
+            </table>
+          </>
         )}
       </Card>
     </div>

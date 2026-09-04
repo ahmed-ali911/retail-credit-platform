@@ -17,6 +17,7 @@ import {
 import { api, downloadFile, errorMessage } from "../api/client";
 import type { ContractReportPage, ProfitabilityReport } from "../api/types";
 import { Card, ErrorNote, Field, RefCode, money } from "../components/ui";
+import { SearchSelect } from "../components/SearchSelect";
 import { coerceId } from "../lib/reference";
 import { StatusBadge } from "../components/StatusBadge";
 
@@ -66,7 +67,39 @@ function ExportGroup({
 interface GenericReport {
   columns: string[];
   rows: Record<string, unknown>[];
+  totals?: Record<string, unknown>;
   [k: string]: unknown;
+}
+
+/** Totals footer row (Step 15, Part A) — shared by every report table that
+ * has a `totals` object: the first column carries the "TOTAL (N rows)"
+ * label, every other column shows its sum when the backend named it in
+ * `totals`, blank otherwise. One render path drives both on-screen and
+ * (server-side, via the export endpoints) the exported file. */
+function TotalsRow({
+  columns,
+  totals,
+}: {
+  columns: string[];
+  totals?: Record<string, unknown>;
+}) {
+  if (!totals) return null;
+  const rowCount = Number(totals.row_count ?? 0);
+  return (
+    <tfoot>
+      <tr className="totals-row" data-testid="totals-row">
+        {columns.map((c, i) => (
+          <td key={c} className={i > 0 ? "num" : undefined}>
+            {i === 0
+              ? `TOTAL (${rowCount} row${rowCount === 1 ? "" : "s"})`
+              : c in totals
+                ? String(totals[c])
+                : ""}
+          </td>
+        ))}
+      </tr>
+    </tfoot>
+  );
 }
 
 function humanCol(c: string): string {
@@ -146,6 +179,7 @@ function GenericTableReport({
                 ))
               )}
             </tbody>
+            <TotalsRow columns={data.columns} totals={data.totals} />
           </table>
         </Card>
       )}
@@ -207,8 +241,18 @@ function ContractsReport() {
                 <option value="closed">closed</option>
               </select>
             </label>
-            <Field label="Customer # (or CU-code)" value={filters.customer_id} onChange={set("customer_id")} />
-            <Field label="Product # (or PR-code)" value={filters.product_id} onChange={set("product_id")} />
+            <SearchSelect
+              label="Customer # (or CU-code)"
+              kind="customer"
+              value={filters.customer_id}
+              onChange={(v) => setFilters((f) => ({ ...f, customer_id: v }))}
+            />
+            <SearchSelect
+              label="Product # (or PR-code)"
+              kind="product"
+              value={filters.product_id}
+              onChange={(v) => setFilters((f) => ({ ...f, product_id: v }))}
+            />
           </div>
           <div className="field-row">
             <Field label="Created from" type="date" value={filters.date_from} onChange={set("date_from")} />
@@ -269,6 +313,22 @@ function ContractsReport() {
                 </tr>
               ))}
             </tbody>
+            <tfoot>
+              <tr className="totals-row" data-testid="totals-row">
+                <td>
+                  TOTAL ({(page.totals?.row_count as number | undefined) ?? page.total} rows)
+                </td>
+                <td />
+                <td />
+                <td />
+                <td />
+                <td />
+                <td className="num">
+                  {money(page.totals?.installment_sale_price as number | undefined)}
+                </td>
+                <td />
+              </tr>
+            </tfoot>
           </table>
         </Card>
       )}
@@ -359,18 +419,20 @@ function ProfitabilityReportView() {
               </label>
             )}
             {filters.level === "product" && (
-              <Field
+              <SearchSelect
                 label="Product # (or PR-code)"
+                kind="product"
                 value={filters.product_id}
-                onChange={set("product_id")}
+                onChange={(v) => setFilters((f) => ({ ...f, product_id: v }))}
                 required
               />
             )}
             {filters.level === "customer" && (
-              <Field
+              <SearchSelect
                 label="Customer # (or CU-code)"
+                kind="customer"
                 value={filters.customer_id}
-                onChange={set("customer_id")}
+                onChange={(v) => setFilters((f) => ({ ...f, customer_id: v }))}
                 required
               />
             )}
@@ -439,6 +501,16 @@ function ProfTable({
 }) {
   const rows = Object.entries(data);
   if (rows.length === 0) return <p className="muted">No data.</p>;
+  // Step 15, Part A — a grand total across the already-grouped breakdown.
+  const totals = rows.reduce(
+    (acc, [, v]) => ({
+      contracts: acc.contracts + v.contracts,
+      contractual_profit: acc.contractual_profit + v.contractual_profit,
+      recognized_profit: acc.recognized_profit + v.recognized_profit,
+      unearned_profit: acc.unearned_profit + v.unearned_profit,
+    }),
+    { contracts: 0, contractual_profit: 0, recognized_profit: 0, unearned_profit: 0 },
+  );
   return (
     <table className="data">
       <thead>
@@ -461,6 +533,15 @@ function ProfTable({
           </tr>
         ))}
       </tbody>
+      <tfoot>
+        <tr className="totals-row" data-testid="totals-row">
+          <td>TOTAL ({rows.length} groups)</td>
+          <td className="num">{totals.contracts}</td>
+          <td className="num">{money(totals.contractual_profit)}</td>
+          <td className="num">{money(totals.recognized_profit)}</td>
+          <td className="num">{money(totals.unearned_profit)}</td>
+        </tr>
+      </tfoot>
     </table>
   );
 }
@@ -564,6 +645,18 @@ function AgingReport() {
                 </tr>
               ))}
             </tbody>
+            <tfoot>
+              <tr className="totals-row" data-testid="totals-row">
+                <td>TOTAL ({rows.length} buckets)</td>
+                <td className="num">
+                  {rows.reduce((sum, b) => sum + b.installment_count, 0)}
+                </td>
+                <td className="num">
+                  {money(rows.reduce((sum, b) => sum + b.outstanding_amount, 0))}
+                </td>
+                <td />
+              </tr>
+            </tfoot>
           </table>
         </Card>
       )}
@@ -713,6 +806,7 @@ const CATEGORIES: CategoryDef[] = [
       ]),
       genericSub("by-exposure", "By Exposure", "/reports/customers/by-exposure", "customers-by-exposure", [
         "total",
+        "total_outstanding_sum",
       ]),
     ],
   },

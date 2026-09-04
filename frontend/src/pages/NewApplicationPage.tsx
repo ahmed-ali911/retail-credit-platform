@@ -3,6 +3,7 @@ import { Link, useSearchParams } from "react-router-dom";
 import { api, errorMessage } from "../api/client";
 import type { ApplicationOut } from "../api/types";
 import { AssessmentPanel } from "../components/AssessmentPanel";
+import { SearchSelect } from "../components/SearchSelect";
 import { Card, ErrorNote, Field, RefCode, SelectField } from "../components/ui";
 import { StatusBadge } from "../components/StatusBadge";
 import { coerceId } from "../lib/reference";
@@ -60,16 +61,20 @@ export function NewApplicationPage() {
         <form onSubmit={onSubmit}>
           <ErrorNote message={error} />
           <div className="field-row">
-            <Field
+            <SearchSelect
               label="Customer # (or CU-code)"
+              kind="customer"
               value={form.customer_id}
-              onChange={set("customer_id")}
+              onChange={(v) => setForm((f) => ({ ...f, customer_id: v }))}
+              placeholder="Search by name, or paste an id / CU-code"
               required
             />
-            <Field
+            <SearchSelect
               label="Product # (or PR-code)"
+              kind="product"
               value={form.product_id}
-              onChange={set("product_id")}
+              onChange={(v) => setForm((f) => ({ ...f, product_id: v }))}
+              placeholder="Search by name, or paste an id / PR-code"
               required
             />
           </div>

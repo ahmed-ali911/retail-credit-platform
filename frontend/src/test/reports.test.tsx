@@ -38,6 +38,7 @@ describe("Reports Center", () => {
           total: 1,
           limit: 50,
           offset: 0,
+          totals: { row_count: 1, installment_sale_price: 1281 },
         },
       },
     ]);

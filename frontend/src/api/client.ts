@@ -110,6 +110,40 @@ export async function downloadFile(path: string, filename: string): Promise<void
   URL.revokeObjectURL(url);
 }
 
+/**
+ * POST a single file as multipart/form-data (Step 15, Part E — bank-statement
+ * .xlsx upload). Kept separate from `api()` because the request body isn't
+ * JSON — the browser sets the multipart Content-Type boundary itself, so it
+ * must NOT be set manually here.
+ */
+export async function uploadFile<T>(path: string, file: File): Promise<T> {
+  const headers: Record<string, string> = {};
+  const token = getToken();
+  if (token) headers["Authorization"] = `Bearer ${token}`;
+
+  const body = new FormData();
+  body.append("file", file);
+
+  const res = await fetch(`${BASE}${path}`, { method: "POST", headers, body });
+
+  const text = await res.text();
+  const data = text ? JSON.parse(text) : null;
+  const detail =
+    data && typeof data === "object" && data !== null && "detail" in data
+      ? (data as { detail: unknown }).detail
+      : data;
+
+  if (res.status === 401) {
+    setToken(null);
+    onUnauthorized();
+    throw new ApiError(401, "Session expired — please sign in again.");
+  }
+  if (!res.ok) {
+    throw new ApiError(res.status, detail);
+  }
+  return data as T;
+}
+
 export function errorMessage(err: unknown): string {
   if (err instanceof ApiError) {
     if (typeof err.detail === "string") return err.detail;

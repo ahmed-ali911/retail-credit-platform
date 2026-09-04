@@ -194,7 +194,10 @@ def test_all_three_export_formats_for_aging(client, db):
     assert reader.fieldnames == [
         "bucket", "label", "installment_count", "outstanding_amount",
     ]
-    assert len(list(reader)) == 4  # one row per bucket
+    rows = list(reader)
+    # Step 15, Part A — one row per bucket (4) + one totals row
+    assert len(rows) == 5
+    assert rows[-1]["bucket"] == "TOTAL (4 rows)"
 
     xlsx_resp = client.get("/reports/aging?format=xlsx")
     assert xlsx_resp.status_code == 200

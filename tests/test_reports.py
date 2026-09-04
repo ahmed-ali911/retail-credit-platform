@@ -74,8 +74,14 @@ def test_contracts_report_csv_is_well_formed(client):
         "contract_id", "status", "customer_id", "customer_name",
         "product_id", "product_name", "category", "tenor_months",
         "installment_sale_price", "created_at",
+        # Step 15, Part C — added so the Contracts Directory can reuse this
+        # same query (outstanding total, next due date)
+        "outstanding_total", "next_due_date",
     ]
-    assert len(list(reader)) == 2
+    rows = list(reader)
+    # Step 15, Part A — exports carry a totals row: 2 contracts + 1 totals row
+    assert len(rows) == 3
+    assert rows[-1]["contract_id"] == "TOTAL (2 rows)"
 
 
 # --------------------------------------------------------------------------- #

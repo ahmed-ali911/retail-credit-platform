@@ -14,6 +14,8 @@ class ContractReportRow(BaseModel):
     tenor_months: int
     installment_sale_price: float
     created_at: str
+    outstanding_total: float
+    next_due_date: str | None = None
 
 
 class ContractReportPage(BaseModel):
@@ -21,3 +23,4 @@ class ContractReportPage(BaseModel):
     total: int
     limit: int
     offset: int
+    totals: dict = {}

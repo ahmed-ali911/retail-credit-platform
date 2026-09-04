@@ -84,7 +84,11 @@ export function ProductDirectoryPage() {
               No products match.
             </p>
           ) : (
-            <table className="data" aria-label="Product results">
+            <>
+              <p className="muted" data-testid="products-count">
+                {rows.length} product{rows.length === 1 ? "" : "s"}
+              </p>
+              <table className="data" aria-label="Product results">
               <thead>
                 <tr>
                   <th>Reference</th>
@@ -112,6 +116,7 @@ export function ProductDirectoryPage() {
                 ))}
               </tbody>
             </table>
+            </>
           )}
         </Card>
       )}

@@ -8,7 +8,9 @@ closure.
 """
 from __future__ import annotations
 
-from dataclasses import dataclass
+import io
+import zipfile
+from dataclasses import dataclass, field
 from datetime import date, datetime, timezone
 from decimal import ROUND_HALF_UP, Decimal
 
@@ -45,6 +47,21 @@ class MatchRunSummary:
     exceptions_created: int = 0
 
 
+@dataclass
+class BankLineUploadSummary:
+    """Step 15, Part E — the .xlsx bulk-upload result. Every accepted row went
+    through the exact same `ingest_bank_line` + `run_matching` the single-line
+    form and the "Run matching" button already use — no second matching
+    implementation."""
+
+    rows_processed: int = 0
+    rows_ingested: int = 0
+    rows_rejected: int = 0
+    rejected: list[dict] = field(default_factory=list)  # [{"row": int, "reason": str}]
+    matched: int = 0
+    exceptions_created: int = 0
+
+
 # --------------------------------------------------------------------------- #
 # Ingestion (mock adapter boundary — no real bank feed)
 # --------------------------------------------------------------------------- #
@@ -72,6 +89,129 @@ def ingest_bank_line(
         after={"bank_reference": line.bank_reference, "amount": float(line.amount)},
     )
     return line
+
+
+# --------------------------------------------------------------------------- #
+# Bulk ingestion from a real bank-statement .xlsx (Step 15, Part E)
+# --------------------------------------------------------------------------- #
+# Real bank export formats vary — this can't guess a specific bank's layout
+# without a sample, so it asks for exactly these three columns (documented in
+# the README), in any order, by header name (case-insensitive). Extra columns
+# are ignored, not rejected.
+REQUIRED_UPLOAD_COLUMNS = ("bank_reference", "amount", "value_date")
+
+
+def _coerce_upload_date(value) -> date | None:
+    if isinstance(value, datetime):
+        return value.date()
+    if isinstance(value, date):
+        return value
+    if isinstance(value, str) and value.strip():
+        try:
+            return date.fromisoformat(value.strip())
+        except ValueError:
+            return None
+    return None
+
+
+def parse_bank_statement_workbook(content: bytes) -> tuple[list[str], list[tuple]]:
+    """Reads the first sheet of an .xlsx file. Returns (header, data_rows) —
+    header cells lower-cased and stripped for a case-insensitive column match.
+    Raises DomainError (422) if the file can't be read as an .xlsx at all, or
+    has no header row."""
+    from openpyxl import load_workbook
+    from openpyxl.utils.exceptions import InvalidFileException
+
+    try:
+        wb = load_workbook(io.BytesIO(content), read_only=True, data_only=True)
+    except (InvalidFileException, zipfile.BadZipFile, KeyError) as exc:
+        raise DomainError(
+            "Could not read the uploaded file as an .xlsx workbook", status_code=422
+        ) from exc
+    ws = wb.active
+    rows = ws.iter_rows(values_only=True)
+    header_row = next(rows, None)
+    if header_row is None:
+        raise DomainError("Uploaded file has no header row", status_code=422)
+    header = [str(c).strip().lower() if c is not None else "" for c in header_row]
+    return header, list(rows)
+
+
+def ingest_bank_statement_upload(
+    db: Session,
+    *,
+    content: bytes,
+    actor_id: int | None,
+) -> BankLineUploadSummary:
+    """Bulk version of `ingest_bank_line` — parses the workbook, then calls
+    that exact same function once per well-formed row (no second ingestion or
+    matching implementation), then runs the exact same `run_matching` the
+    "Run matching" button uses. A missing required column rejects the whole
+    upload up front, with a clear error; a bad individual row is skipped with
+    a reason, never silently dropped."""
+    header, data_rows = parse_bank_statement_workbook(content)
+    missing = [c for c in REQUIRED_UPLOAD_COLUMNS if c not in header]
+    if missing:
+        raise DomainError(
+            "Missing required column(s): "
+            f"{', '.join(missing)}. Expected header (any order, extra columns "
+            f"ignored): {', '.join(REQUIRED_UPLOAD_COLUMNS)}.",
+            status_code=422,
+        )
+    col = {name: header.index(name) for name in REQUIRED_UPLOAD_COLUMNS}
+
+    summary = BankLineUploadSummary()
+    for i, row in enumerate(data_rows, start=2):  # row 1 is the header
+        if row is None or all(v is None or v == "" for v in row):
+            continue  # a trailing blank row isn't a malformed row
+        summary.rows_processed += 1
+
+        def _cell(name: str):
+            idx = col[name]
+            return row[idx] if idx < len(row) else None
+
+        raw_ref = _cell("bank_reference")
+        bank_reference = str(raw_ref).strip() if raw_ref not in (None, "") else ""
+        raw_amount = _cell("amount")
+        raw_date = _cell("value_date")
+        value_date = _coerce_upload_date(raw_date)
+
+        reason = None
+        if not bank_reference:
+            reason = "bank_reference is empty"
+        elif raw_amount is None or isinstance(raw_amount, str) and not raw_amount.strip():
+            reason = "amount is empty"
+        else:
+            try:
+                amount = float(raw_amount)
+                if amount <= 0:
+                    reason = f"amount must be greater than zero (got {raw_amount!r})"
+            except (TypeError, ValueError):
+                reason = f"amount is not a number (got {raw_amount!r})"
+        if reason is None and value_date is None:
+            reason = f"value_date is not a valid date (got {raw_date!r})"
+
+        if reason is not None:
+            summary.rows_rejected += 1
+            summary.rejected.append({"row": i, "reason": reason})
+            continue
+
+        ingest_bank_line(
+            db,
+            bank_reference=bank_reference,
+            amount=amount,
+            value_date=value_date,
+            actor_id=actor_id,
+        )
+        summary.rows_ingested += 1
+
+    if summary.rows_ingested:
+        match_summary = run_matching(db, actor_id=actor_id)
+        summary.matched = match_summary.matched
+        summary.exceptions_created = match_summary.exceptions_created
+
+    db.flush()
+    return summary
 
 
 # --------------------------------------------------------------------------- #

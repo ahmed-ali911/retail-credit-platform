@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { useParams } from "react-router-dom";
 import { api, errorMessage } from "../api/client";
-import type { CustomerExposure, CustomerOut } from "../api/types";
+import type { ContractReportPage, CustomerExposure, CustomerOut } from "../api/types";
 import { Card, ErrorNote, RefCode, money } from "../components/ui";
 import { StatusBadge } from "../components/StatusBadge";
 
@@ -9,8 +9,10 @@ export function CustomerPage() {
   const { customerId } = useParams();
   const [customer, setCustomer] = useState<CustomerOut | null>(null);
   const [exposure, setExposure] = useState<CustomerExposure | null>(null);
+  const [history, setHistory] = useState<ContractReportPage | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [exposureError, setExposureError] = useState<string | null>(null);
+  const [historyError, setHistoryError] = useState<string | null>(null);
 
   useEffect(() => {
     void (async () => {
@@ -26,6 +28,19 @@ export function CustomerPage() {
         );
       } catch (err) {
         setExposureError(errorMessage(err));
+      }
+      try {
+        // Part B — full contract history (every status, not just contracts
+        // with an outstanding balance). Reuses the same GET /reports/contracts
+        // query the Contracts Directory and Reports → Contracts use — no
+        // second contract-listing query.
+        setHistory(
+          await api<ContractReportPage>(
+            `/reports/contracts?customer_id=${customerId}&limit=200`,
+          ),
+        );
+      } catch (err) {
+        setHistoryError(errorMessage(err));
       }
     })();
   }, [customerId]);
@@ -50,7 +65,10 @@ export function CustomerPage() {
       </h1>
       <ErrorNote message={error} />
 
-      <Card title="Details">
+      {/* Part B — every field already in the API response, grouped instead of
+          one flat list. Nothing here is a new field; profile fields simply
+          weren't rendered before. */}
+      <Card title="Personal">
         <dl className="kv">
           <dt>National ID</dt>
           <dd>{customer.national_id}</dd>
@@ -64,6 +82,30 @@ export function CustomerPage() {
           <dd>{customer.phone ?? "—"}</dd>
           <dt>Email</dt>
           <dd>{customer.email ?? "—"}</dd>
+          <dt>Address</dt>
+          <dd>{customer.profile?.address_line ?? "—"}</dd>
+          <dt>City</dt>
+          <dd>{customer.profile?.city ?? "—"}</dd>
+        </dl>
+      </Card>
+
+      <Card title="Employment">
+        <dl className="kv">
+          <dt>Employer</dt>
+          <dd>{customer.profile?.employer_name ?? "—"}</dd>
+          <dt>Employment type</dt>
+          <dd>
+            {customer.profile?.employment_type
+              ? customer.profile.employment_type.replace(/_/g, " ")
+              : "—"}
+          </dd>
+          <dt>Contact phone</dt>
+          <dd>{customer.profile?.contact_phone ?? "—"}</dd>
+        </dl>
+      </Card>
+
+      <Card title="Financial">
+        <dl className="kv">
           <dt>Monthly income</dt>
           <dd>{money(customer.profile?.monthly_income)}</dd>
           <dt>Existing obligations</dt>
@@ -87,7 +129,9 @@ export function CustomerPage() {
               </dd>
             </dl>
             {exposure.contracts.length === 0 ? (
-              <p className="muted">No open contracts.</p>
+              <p className="muted">
+                No open contracts — see full history below.
+              </p>
             ) : (
               <table
                 className="data"
@@ -127,6 +171,52 @@ export function CustomerPage() {
               </table>
             )}
           </>
+        )}
+      </Card>
+
+      {/* Part B — every contract regardless of status, so a customer whose
+          only contract is fully paid and closed shows their real history
+          instead of "no open contracts". */}
+      <Card title="Contract history" soft>
+        {historyError ? (
+          <p className="muted">{historyError}</p>
+        ) : !history ? (
+          <p className="muted">Loading…</p>
+        ) : history.items.length === 0 ? (
+          <p className="muted" data-testid="history-empty">
+            No contracts on record.
+          </p>
+        ) : (
+          <table className="data" aria-label="Full contract history">
+            <thead>
+              <tr>
+                <th>Contract</th>
+                <th>Product</th>
+                <th>Status</th>
+                <th className="num">Sale price</th>
+                <th>Created</th>
+              </tr>
+            </thead>
+            <tbody>
+              {history.items.map((r) => (
+                <tr key={r.contract_id} data-testid={`history-row-${r.contract_id}`}>
+                  <td>
+                    <RefCode
+                      entity="InstallmentContract"
+                      id={r.contract_id}
+                      to={`/contracts/${r.contract_id}`}
+                    />
+                  </td>
+                  <td>{r.product_name}</td>
+                  <td>
+                    <StatusBadge status={r.status} />
+                  </td>
+                  <td className="num">{money(r.installment_sale_price)}</td>
+                  <td>{new Date(r.created_at).toLocaleDateString()}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
         )}
       </Card>
     </div>

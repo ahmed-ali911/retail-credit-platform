@@ -29,6 +29,22 @@ class MatchRunResult(BaseModel):
     exceptions_created: int
 
 
+class RejectedUploadRow(BaseModel):
+    row: int
+    reason: str
+
+
+class BankLineUploadResult(BaseModel):
+    """Step 15, Part E — bulk .xlsx ingestion summary."""
+
+    rows_processed: int
+    rows_ingested: int
+    rows_rejected: int
+    rejected: list[RejectedUploadRow]
+    matched: int
+    exceptions_created: int
+
+
 class ReconciliationExceptionOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
     id: int

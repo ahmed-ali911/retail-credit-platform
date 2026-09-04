@@ -5,7 +5,7 @@ export type TileTone = "neutral" | "good" | "warn" | "bad";
 
 /**
  * One dashboard metric. `tone`:
- *   good  → healthy (teal, --color-secondary)
+ *   good  → healthy (green, --color-secondary)
  *   warn  → needs attention (open exceptions, overdue, high-risk) (--color-warm)
  *   bad   → genuinely broken state only (e.g. failed accounting events)
  *   neutral → plain fact, no judgment

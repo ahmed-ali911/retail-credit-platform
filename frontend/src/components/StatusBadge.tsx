@@ -1,5 +1,5 @@
 // Maps a domain status string onto one of the token colour roles.
-// Blue/teal-led: "good" = teal (--color-secondary), warnings use --color-warm
+// "good" = --color-secondary (green as of Step 15), warnings use --color-warm
 // sparingly, rejections use the separate --color-danger red.
 
 const GOOD = new Set(["approved", "paid", "active", "accepted", "applied", "closed_good"]);

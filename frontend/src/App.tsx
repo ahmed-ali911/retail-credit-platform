@@ -11,6 +11,7 @@ import { ContractPage } from "./pages/ContractPage";
 import { CustomerPage } from "./pages/CustomerPage";
 import { CustomerDirectoryPage } from "./pages/CustomerDirectoryPage";
 import { ProductDirectoryPage } from "./pages/ProductDirectoryPage";
+import { ContractDirectoryPage } from "./pages/ContractDirectoryPage";
 import { ReviewQueuePage, ReviewApplicationPage } from "./pages/ReviewQueuePage";
 import { ReconciliationPage } from "./pages/ReconciliationPage";
 import { ApprovalsPage } from "./pages/ApprovalsPage";
@@ -41,6 +42,7 @@ export default function App() {
         <Route path="applications/new" element={<NewApplicationPage />} />
         <Route path="applications/:applicationId/offer" element={<OfferPage />} />
         <Route path="offers/:offerId" element={<OfferPage />} />
+        <Route path="contracts" element={<ContractDirectoryPage />} />
         <Route path="contracts/:contractId" element={<ContractPage />} />
         <Route path="review" element={<ReviewQueuePage />} />
         <Route path="review/:applicationId" element={<ReviewApplicationPage />} />

@@ -417,6 +417,105 @@ calculations or the meaning of existing config tokens; a backend-persisted /
 org-wide theme; new historical/time-series endpoints for more charts; removing
 the numeric `id` fields; a full font-family replacement.
 
+## What's in Step 15 — totals/counts, richer detail, Contracts Directory, search dropdowns, Excel reconciliation upload, green default
+
+Six UX/feature enhancements from live user feedback — no change to closure,
+payment-allocation or accounting logic (the one exception, Part E, only parses
+an uploaded file and calls the existing single-line ingestion function).
+
+**A — Totals / counts.** Every `ReportResult`-based sub-report
+(`app/services/reports.py`) now carries a `totals` object — `row_count` plus a
+sum for each column the report names in `sum_fields` (an amount or a count,
+never an id). The same `totals` dict drives the on-screen footer row *and* the
+row appended to CSV/Excel/PDF exports (`export()`'s `totals=` parameter) — one
+computation, both places. `GET /reports/contracts` gained its own `totals`
+(row count + sale-price sum, computed with one aggregate query over the full
+filtered set, not just the current page) since it isn't a `ReportResult`.
+Non-amount-heavy directories (Customers, Products, Collections) show a plain
+"N customers" / "N products" / "N cases" count instead of a forced monetary
+total.
+
+**B — Richer Customer and Contract detail.** No new backend fields — this
+surfaces data the API already returns. Customer detail: `employer_name`,
+`employment_type`, `address_line`, `city`, `contact_phone` (all already on
+`CustomerProfileOut`) now render, grouped into **Personal / Employment /
+Financial** cards. A new **Contract history** card lists every contract
+regardless of status (reusing `GET /reports/contracts?customer_id=`) so a
+customer whose only contract is closed shows real history instead of "no open
+contracts" (that message now stays scoped to the Exposure panel, which is
+correctly about *outstanding* balance only). Contract detail gained an
+**Origination** card (channel, created-by, application-created timestamp) by
+fetching the originating `GET /applications/{id}` — `finance_officer` was
+added to that endpoint's `_VIEW_STAFF_ROLES` (`app/api/applications.py`) since
+it's a routine Contract-page viewer that was otherwise 403'd reading one field.
+
+**C — Contracts Directory** (`/contracts`, `ContractDirectoryPage.tsx`) — a
+day-to-day lookup screen (same pattern as the Step 10 Customer/Product
+directories), distinct from Reports → Contracts (a filtered export tool).
+Search by reference code (`CN-xxxxxx`, resolved client-side to a numeric id)
+or by customer (the same search-as-you-type dropdown from Part D). Reuses `GET
+/reports/contracts` — extended minimally with a `contract_id` filter and two
+new response columns (`outstanding_total`, `next_due_date`) rather than a
+second contract-listing query.
+
+**D — Search-as-you-type dropdowns** (`components/SearchSelect.tsx`) replace
+the plain-text Customer#/Product# fields on New Application, the Reports →
+Contracts filters, and the Profitability report's product/customer drill-down
+— reusing the existing `GET /customers?search=` / `GET /products?search=`
+endpoints. Typing shows matching results; picking one fills the field with
+that record's reference code. A pasted raw id or reference code still works
+directly — the dropdown is additive, not a replacement for direct entry.
+*Audited but left as plain text:* the Contract# filter on the Collections
+screen — there's no existing "search contracts by name" endpoint to reuse (and
+building one would duplicate Part C's directory), so this field still accepts
+only a raw id/code.
+
+**E — Excel upload for bank reconciliation**
+(`POST /reconciliation/bank-lines/upload`, `finance_officer`/`admin`,
+multipart `.xlsx`) — bulk alternative to the existing one-line-at-a-time form,
+which stays. Parsed with `openpyxl` (already a dependency since Step 13).
+**Expected columns** (any order, case-insensitive header, extra columns
+ignored):
+
+| Column | Meaning |
+|---|---|
+| `bank_reference` | matched against a payment's `external_reference` / `gateway_reference` |
+| `amount` | must be > 0 |
+| `value_date` | ISO date (`YYYY-MM-DD`), or an Excel date cell |
+
+A missing required column rejects the **whole file** up front with a 422
+naming the missing column(s) — real bank export layouts vary and this can't
+guess one without a sample, so it asks for exactly this shape rather than
+guessing. A malformed individual row (empty reference, non-numeric amount,
+unparseable date) is skipped and reported with its row number and a reason —
+never silently dropped. Every well-formed row goes through the *exact same*
+`ingest_bank_line()` the single-line endpoint uses, once per row, then the
+*exact same* `run_matching()` the "Run matching" button uses — no second
+ingestion or matching implementation. The response summarizes rows processed,
+ingested, matched, exceptions created, and rejected (with reasons); the
+Reconciliation screen shows this summary next to the existing single-line form
+and status panel.
+
+**F — `--color-secondary` default changed teal → green**, per explicit design
+decision, since the Appearance panel (Step 14, Part E) already lets anyone
+change it back or to anything else — this changes only the *shipped default*.
+New value `#219653` in `tokens.css` and in `DEFAULT_APPEARANCE.secondary`
+(`lib/appearance.ts`), so **Reset to defaults** in Appearance restores the new
+green, not the old teal. Nothing else changed — `--color-primary`,
+`--color-warm` and `--color-danger` are untouched, and every screen using
+`--color-secondary` (the "good" `StatusBadge` tone, positive `MetricTile`
+tiles, the Portfolio donut's "active"/"current" slices) picks it up
+automatically since it's a token change, not a per-screen edit; a hardcoded
+teal `rgba()` on the Contract page's paid-installment row tint
+(`table.data tr.is-paid`) was also converted to `color-mix(... var(--color-secondary) ...)`
+so it isn't a second, undiscovered place still carrying the old colour. Anyone
+who preferred the teal gets it back via **Configuration → Appearance**
+(browser-local, per Step 14 Part E — not shared across devices or users).
+
+Out of scope for Step 15: overpayment/credit-balance handling, any
+return/warranty policy design, a general-purpose column picker for tables, any
+token other than `--color-secondary`.
+
 ### Explicitly out of scope (later steps)
 
 **Backend:** maker-checker on contract settlement / cancellation / return,
@@ -1112,7 +1211,7 @@ Tokens are HS256, `access_token_expire_minutes` (default 30), carrying
 | `POST /applications`, `POST /applications/{id}/submit` | `sales_employee`, `customer`, `admin` |
 | `POST /applications/{id}/review` *(P0-2)* | `credit_officer`, `credit_manager`, `admin` |
 | `GET /applications?status=…` *(Step 9)* | `credit_officer`, `credit_manager`, `admin` |
-| `GET /applications/{id}` | `sales_employee`, `credit_officer`, `credit_manager`, `admin`, **or the owning `customer`** |
+| `GET /applications/{id}` | `sales_employee`, `credit_officer`, `credit_manager`, `finance_officer` *(added Step 15 — Contract detail's Origination card)*, `admin`, **or the owning `customer`** |
 | `POST /applications/{id}/offer` | `sales_employee`, `credit_officer`, `admin` |
 | `POST /offers/{id}/accept` | `sales_employee`, `customer`, `admin` |
 | `POST /contracts/{id}/confirm-delivery` | `sales_employee`, `admin` |
@@ -1128,7 +1227,7 @@ Tokens are HS256, `access_token_expire_minutes` (default 30), carrying
 | `GET /collections/cases`, `GET /collections/cases/{id}` *(Step 6)* | `collections_officer`, `credit_manager`, `admin` (detail also the owning `customer`) |
 | `POST /late-fees/{id}/request-waiver` *(Step 6)* | `finance_officer`, `credit_manager`, `admin` |
 | `GET /approvals`, `POST /approvals/{id}/approve` / `/reject` *(Step 6; `finance_officer` added P0-5)* | `finance_officer`, `credit_manager`, `admin` |
-| `POST /reconciliation/bank-lines`, `POST /reconciliation/run`, `GET /reconciliation/status` *(P0-5)* | `finance_officer`, `admin` |
+| `POST /reconciliation/bank-lines`, `POST /reconciliation/bank-lines/upload` *(Step 15)*, `POST /reconciliation/run`, `GET /reconciliation/status` *(P0-5)* | `finance_officer`, `admin` |
 | `GET /reconciliation/exceptions`, `POST /reconciliation/exceptions/{id}/request-match` *(P0-5)* | `finance_officer`, `credit_manager`, `admin` |
 | `GET /accounting/events` *(G-07)* | `finance_officer`, `admin` |
 | `POST /jobs/post-accounting-events` *(G-07)* | `admin` |
@@ -1280,6 +1379,7 @@ seeding and by tests via the `set_config` fixture) is unchanged.
 | `GET` | `/approvals` | **Step 6** — list, filter `status` / `action_type` |
 | `POST` | `/approvals/{id}/approve` · `/approvals/{id}/reject` | **Step 6** — decide (409 if you are the requester); approve executes the action |
 | `POST` | `/reconciliation/bank-lines` | **P0-5** — mock bank-feed import, one line: `{bank_reference, amount, value_date}` (`finance_officer`/`admin`) |
+| `POST` | `/reconciliation/bank-lines/upload` | **Step 15** — bulk `.xlsx` upload (multipart `file`), columns `bank_reference`/`amount`/`value_date` (any order). Calls `ingest_bank_line` once per well-formed row then `run_matching` — same functions the single-line/manual-run paths use. Missing column → 422 for the whole file; a bad row is skipped and reported, not silently dropped. Returns `{rows_processed, rows_ingested, rows_rejected, rejected: [{row, reason}], matched, exceptions_created}` (`finance_officer`/`admin`) |
 | `POST` | `/reconciliation/run` | **P0-5** — match unprocessed bank lines against `unreconciled` payments; idempotent. Returns `{lines_processed, matched, exceptions_created}` |
 | `GET` | `/reconciliation/exceptions` | **P0-5** — list, filter `status` (`open`/`resolved`) (`finance_officer`/`credit_manager`/`admin`) |
 | `POST` | `/reconciliation/exceptions/{id}/request-match` | **P0-5** — body `{payment_id, reason}` → pending `ApprovalRequest` (`reconciliation.manual_match`); a *different* approver performs the match |
