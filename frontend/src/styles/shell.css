@@ -1,0 +1,282 @@
+/* Application shell — Phase 2 redesign.
+   Grouped, collapsible sidebar + header with breadcrumb and user menu.
+   Uses only design tokens (tokens.css). Page bodies are untouched. */
+
+body {
+  font-family: var(--font-family-base);
+}
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+.appshell {
+  display: grid;
+  grid-template-columns: var(--sidebar-width) 1fr;
+  min-height: 100vh;
+  background: var(--surface-page);
+}
+
+/* --------------------------------------------------------------------- */
+/* Sidebar                                                               */
+/* --------------------------------------------------------------------- */
+.appshell__sidebar {
+  grid-column: 1;
+  background: var(--color-primary-dark);
+  color: color-mix(in srgb, #ffffff 82%, var(--color-primary));
+  display: flex;
+  flex-direction: column;
+  position: sticky;
+  top: 0;
+  align-self: start;
+  height: 100vh;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+.appshell__brand {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-4) var(--space-4) var(--space-3);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  flex-shrink: 0;
+}
+.appshell__brand-mark {
+  width: 30px;
+  height: 30px;
+  border-radius: var(--radius-md);
+  background: var(--color-primary);
+  color: #fff;
+  display: grid;
+  place-items: center;
+  font-weight: var(--font-weight-bold);
+  font-size: var(--text-md);
+  flex-shrink: 0;
+}
+.appshell__brand-text { line-height: var(--leading-tight); min-width: 0; }
+.appshell__brand-name {
+  font-weight: var(--font-weight-bold);
+  color: #fff;
+  font-size: var(--text-sm);
+  letter-spacing: 0.01em;
+}
+.appshell__brand-sub {
+  font-size: var(--text-2xs);
+  color: color-mix(in srgb, #ffffff 55%, var(--color-primary));
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.appshell__nav {
+  flex: 1;
+  padding: var(--space-3) var(--space-2) var(--space-6);
+}
+
+.navgroup { margin-bottom: var(--space-1); }
+.navgroup__header {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  background: transparent;
+  border: 0;
+  padding: var(--space-2) var(--space-3) var(--space-1);
+  color: color-mix(in srgb, #ffffff 48%, var(--color-primary));
+  font-size: var(--text-2xs);
+  font-weight: var(--font-weight-bold);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  cursor: pointer;
+}
+.navgroup__header:hover { color: color-mix(in srgb, #ffffff 72%, var(--color-primary)); }
+.navgroup__chevron { transition: transform 0.15s ease; opacity: 0.7; }
+.navgroup--collapsed .navgroup__chevron { transform: rotate(-90deg); }
+.navgroup--collapsed .navgroup__items { display: none; }
+
+.navgroup__items { display: flex; flex-direction: column; gap: 1px; }
+
+.navlink {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-md);
+  color: color-mix(in srgb, #ffffff 78%, var(--color-primary));
+  font-size: var(--text-sm);
+  font-weight: var(--font-weight-medium);
+  text-decoration: none;
+  line-height: var(--leading-tight);
+}
+.navlink:hover {
+  background: rgba(255, 255, 255, 0.07);
+  color: #fff;
+  text-decoration: none;
+}
+.navlink.active {
+  background: var(--color-primary);
+  color: #fff;
+  font-weight: var(--font-weight-semibold);
+}
+.navlink__icon { flex-shrink: 0; opacity: 0.9; }
+.navlink.active .navlink__icon { opacity: 1; }
+.navlink__label { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* --------------------------------------------------------------------- */
+/* Main column                                                           */
+/* --------------------------------------------------------------------- */
+.appshell__main {
+  grid-column: 2;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.appshell__topbar {
+  position: sticky;
+  top: 0;
+  z-index: 20;
+  height: var(--header-height);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-4);
+  padding: 0 var(--space-6);
+  background: var(--surface-1);
+  border-bottom: 1px solid var(--color-border);
+}
+
+.appshell__menu-toggle {
+  display: none;
+  background: transparent;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  padding: var(--space-1) var(--space-2);
+  color: var(--text-strong);
+  cursor: pointer;
+}
+
+.breadcrumb {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: var(--text-sm);
+  min-width: 0;
+}
+.breadcrumb__root { color: var(--text-subtle); font-weight: var(--font-weight-medium); }
+.breadcrumb__sep { color: var(--border-strong); }
+.breadcrumb__current {
+  color: var(--text-strong);
+  font-weight: var(--font-weight-semibold);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.usermenu { position: relative; flex-shrink: 0; }
+.usermenu__button {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  background: transparent;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-pill);
+  padding: var(--space-1) var(--space-2) var(--space-1) var(--space-1);
+  cursor: pointer;
+  color: var(--text-strong);
+}
+.usermenu__button:hover { background: var(--status-neutral-bg); }
+.usermenu__avatar {
+  width: 26px;
+  height: 26px;
+  border-radius: var(--radius-pill);
+  background: var(--color-primary);
+  color: #fff;
+  display: grid;
+  place-items: center;
+  font-size: var(--text-2xs);
+  font-weight: var(--font-weight-bold);
+  flex-shrink: 0;
+}
+.usermenu__name { font-size: var(--text-sm); font-weight: var(--font-weight-semibold); }
+.usermenu__role {
+  font-size: var(--text-2xs);
+  color: var(--text-subtle);
+  text-transform: capitalize;
+}
+
+.usermenu__panel {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 6px);
+  min-width: 220px;
+  background: var(--surface-1);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-md);
+  padding: var(--space-3);
+  z-index: 30;
+}
+.usermenu__identity { font-size: var(--text-xs); color: var(--text-muted); margin-bottom: var(--space-2); }
+.usermenu__identity strong { color: var(--text-strong); }
+.usermenu__panel button {
+  width: 100%;
+  text-align: left;
+  background: transparent;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  padding: var(--space-2) var(--space-3);
+  font-size: var(--text-sm);
+  font-weight: var(--font-weight-semibold);
+  color: var(--color-danger);
+  cursor: pointer;
+}
+.usermenu__panel button:hover { background: var(--status-bad-bg); }
+
+.appshell__content {
+  flex: 1;
+  padding: var(--space-6);
+  width: 100%;
+  max-width: var(--content-max);
+  margin: 0 auto;
+}
+
+/* --------------------------------------------------------------------- */
+/* Responsive — sidebar becomes an off-canvas drawer on narrow screens.  */
+/* Full responsive polish is Phase 7; this is just enough to not break.  */
+/* --------------------------------------------------------------------- */
+.appshell__scrim { display: none; }
+
+@media (max-width: 900px) {
+  .appshell { grid-template-columns: 1fr; }
+  .appshell__sidebar {
+    position: fixed;
+    left: 0;
+    top: 0;
+    bottom: 0;
+    width: min(84vw, var(--sidebar-width));
+    transform: translateX(-100%);
+    transition: transform 0.2s ease;
+    z-index: 50;
+  }
+  .appshell--nav-open .appshell__sidebar { transform: translateX(0); }
+  .appshell--nav-open .appshell__scrim {
+    display: block;
+    position: fixed;
+    inset: 0;
+    background: rgba(15, 35, 80, 0.4);
+    z-index: 40;
+  }
+  .appshell__menu-toggle { display: inline-flex; align-items: center; }
+  .appshell__main { grid-column: 1; }
+  .appshell__content { padding: var(--space-4); }
+}

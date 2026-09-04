@@ -19,41 +19,9 @@ h1 { font-size: 1.4rem; margin: 0 0 0.75rem; }
 h2 { font-size: 1.1rem; margin: 0 0 0.5rem; }
 h3 { font-size: 0.95rem; margin: 0 0 0.4rem; color: var(--color-muted); }
 
-/* --- shell --- */
-.shell { display: flex; min-height: 100%; }
-
-.shell__nav {
-  width: 220px;
-  background: var(--color-primary-dark);
-  color: #fff;
-  padding: 1rem 0.75rem;
-  display: flex;
-  flex-direction: column;
-  gap: 0.25rem;
-  flex-shrink: 0;
-}
-.shell__brand { font-weight: 700; padding: 0.5rem 0.6rem 1rem; letter-spacing: 0.02em; }
-.shell__nav a {
-  color: #cfe0ff;
-  padding: 0.5rem 0.6rem;
-  border-radius: var(--radius);
-  font-weight: 500;
-}
-.shell__nav a:hover { background: rgba(255, 255, 255, 0.08); text-decoration: none; }
-.shell__nav a.active { background: var(--color-primary); color: #fff; }
-
-.shell__main { flex: 1; display: flex; flex-direction: column; min-width: 0; }
-.shell__header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding: 0.75rem 1.5rem;
-  background: var(--color-surface);
-  border-bottom: 1px solid var(--color-border);
-}
-.shell__user { font-size: 0.85rem; color: var(--color-muted); }
-.shell__user strong { color: var(--color-text); }
-.shell__content { padding: 1.5rem; max-width: 960px; width: 100%; }
+/* The application shell (.appshell*) lives in styles/shell.css since the
+   Phase 2 redesign. The old .shell* rules were removed here — nothing rendered
+   them any more. */
 
 /* --- cards --- */
 .card {
