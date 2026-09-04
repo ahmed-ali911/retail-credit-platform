@@ -82,6 +82,16 @@ def record_payment(
                 "status": outcome.payment.status.value,
             },
         )
+        if outcome.closure is not None:
+            record_event(
+                db,
+                user_id=actor.id,
+                action="contract.closed",
+                entity_type="installment_contract",
+                entity_id=contract.id,
+                before={"status": "active"},
+                after={"status": "closed", "reason": outcome.closure.reason.value},
+            )
         db.commit()
     db.refresh(outcome.payment)
     return PaymentResult(

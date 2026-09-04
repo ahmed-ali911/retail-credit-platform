@@ -44,6 +44,7 @@ class AccountingEventType(str, enum.Enum):
     early_settlement = "early_settlement"
     cancellation = "cancellation"
     return_ = "return"          # value "return"; matches ClosureReason.return_
+    contract_closed = "contract_closed"  # normal full-repayment closure (bug fix)
 
 
 class AccountingStatus(str, enum.Enum):

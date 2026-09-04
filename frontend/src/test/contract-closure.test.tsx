@@ -76,4 +76,31 @@ describe("Contract closure actions", () => {
     expect(screen.queryByTestId("return-product")).not.toBeInTheDocument();
     expect(screen.queryByTestId("get-quote")).not.toBeInTheDocument();
   });
+
+  // P0 bug fix — a contract auto-closed by reaching zero outstanding through
+  // normal repayment (reason "normal") must hide Return/Settle exactly like
+  // every other closure reason. This is the same ternary as the case above
+  // (`contract.closure ? ... : ...`), reached for the first time now that the
+  // backend actually creates the closure on that path.
+  it("hides Return/Settle for an auto-closed (reason: normal) contract too", async () => {
+    renderContract(
+      contract({
+        status: "closed",
+        activated_at: "2026-02-01T00:00:00Z",
+        closure: {
+          id: 2,
+          contract_id: 5,
+          reason: "normal",
+          financial_adjustment: 0,
+          closed_at: "2027-01-01T00:00:00Z",
+          notes: "Reached zero outstanding balance through normal installment repayment.",
+        },
+      }),
+    );
+    expect(await screen.findByTestId("closure-info")).toBeInTheDocument();
+    expect(screen.getByTestId("closure-adjustment")).toHaveTextContent("0.00");
+    expect(screen.queryByTestId("return-product")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("get-quote")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("cancel-contract")).not.toBeInTheDocument();
+  });
 });

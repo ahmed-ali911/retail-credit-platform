@@ -20,12 +20,15 @@ from app.models.payment import (
     PaymentStatus,
 )
 from app.models.accounting import AccountingEventType
+from app.models.closure import ContractClosure
 from app.models.ledger import LedgerEntryType, LedgerRelatedAction
 from app.services import accounting
 from app.services import allocation as alloc
+from app.services import closure as closure_service
 from app.services import collections as collections_service
 from app.services import ledger as ledger_service
 from app.services.errors import DomainError
+from app.services.receivable import build_receivable
 
 _CENTS = Decimal("0.01")
 _ZERO = Decimal("0.00")
@@ -39,6 +42,7 @@ def _money(value) -> Decimal:
 class PaymentOutcome:
     payment: Payment
     replayed: bool
+    closure: ContractClosure | None = None
 
 
 def _outstanding_installments(contract: InstallmentContract) -> list[Installment]:
@@ -83,6 +87,21 @@ def record_payment(
     amount_dec = _money(amount)
     if amount_dec <= _ZERO:
         raise DomainError("amount must be greater than zero")
+
+    # Bug fix: reject a payment larger than what's actually owed, rather than
+    # accepting the excess as unallocated (which then distorts every
+    # downstream figure). Overpayment/credit-balance handling — crediting the
+    # excess toward future installments — is a separate feature, not this
+    # fix; the correct amount is surfaced so the caller can resubmit it.
+    receivable = build_receivable(contract)
+    total_outstanding = _money(
+        receivable.outstanding_receivable + receivable.outstanding_late_fees
+    )
+    if amount_dec > total_outstanding:
+        raise DomainError(
+            f"amount {amount_dec} exceeds the contract's current total "
+            f"outstanding of {total_outstanding}",
+        )
 
     live = _outstanding_installments(contract)
     outstanding = [
@@ -186,8 +205,14 @@ def record_payment(
     # Collections hook: close the open case once no overdue installments remain.
     collections_service.close_case_if_cleared(db, contract, actor_id=actor_id)
 
+    # Bug fix (root cause): this is the one place a contract can reach zero
+    # outstanding through normal repayment. Runs once, only on the payment
+    # that actually completes the schedule — see close_if_fully_repaid's
+    # idempotency guards.
+    closure = closure_service.close_if_fully_repaid(db, contract, actor_id=actor_id)
+
     db.flush()
-    return PaymentOutcome(payment=payment, replayed=False)
+    return PaymentOutcome(payment=payment, replayed=False, closure=closure)
 
 
 def _apply_late_fee(installment: Installment, amount: Decimal) -> None:

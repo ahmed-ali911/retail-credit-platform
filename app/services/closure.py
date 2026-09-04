@@ -30,6 +30,7 @@ from app.services import config_service as cfg
 from app.services import ledger as ledger_service
 from app.services.config_service import ConfigService
 from app.services.errors import DomainError
+from app.services.receivable import build_receivable
 
 _CENTS = Decimal("0.01")
 _ZERO = Decimal("0.00")
@@ -47,6 +48,7 @@ _CLOSURE_EVENT_REF_PREFIX = {
     AccountingEventType.early_settlement: "early-settlement",
     AccountingEventType.cancellation: "cancellation",
     AccountingEventType.return_: "return",
+    AccountingEventType.contract_closed: "normal-closure",
 }
 
 
@@ -90,6 +92,64 @@ def _guard_not_closed(contract: InstallmentContract) -> None:
             f"Contract {contract.id} is already closed (reason: {reason})",
             status_code=409,
         )
+
+
+# --------------------------------------------------------------------------- #
+# Normal maturity — reaching zero outstanding through ordinary repayment
+# --------------------------------------------------------------------------- #
+def close_if_fully_repaid(
+    db: Session,
+    contract: InstallmentContract,
+    *,
+    actor_id: int | None = None,
+) -> ContractClosure | None:
+    """Bug fix: a contract that reaches zero outstanding purely through normal
+    installment repayment (no settlement/cancellation/return) never got a
+    ``ContractClosure`` — nothing called into this module for that path, so
+    ``contract.closure`` stayed ``None`` forever and the Step 9 "hide
+    Return/Settle once a closure exists" rule was never reached.
+
+    Call this once after every payment allocation (`app.services.payments`).
+    It is the exact same closure entity/creation path as settlement,
+    cancellation and return: one ``ContractClosure`` (``reason="normal"``,
+    ``financial_adjustment=0`` — nothing is owed either way), the contract set
+    to ``closed``, and the same accounting-event hook.
+
+    Idempotent and never retroactive:
+      * a no-op if the contract is already closed (``contract.closure`` set)
+        or isn't ``active`` in the first place
+      * a no-op unless every installment is ``paid`` AND the Receivable
+        (principal + profit) AND outstanding late fees are all zero *right
+        now* — this only fires on the one payment that actually completes the
+        contract, never re-evaluated for a contract that was already fully
+        paid before this call (there is nothing "retroactive" to rewrite: a
+        contract can only pick up its one allowed closure once).
+    """
+    if contract.status != ContractStatus.active or contract.closure is not None:
+        return None
+    if any(i.status != InstallmentStatus.paid for i in contract.installments):
+        return None
+    receivable = build_receivable(contract)
+    if receivable.outstanding_receivable > _ZERO or receivable.outstanding_late_fees > _ZERO:
+        return None
+
+    closure = ContractClosure(
+        contract_id=contract.id,
+        reason=ClosureReason.normal,
+        financial_adjustment=_ZERO,
+        notes="Reached zero outstanding balance through normal installment repayment.",
+    )
+    db.add(closure)
+    contract.status = ContractStatus.closed
+    db.flush()
+
+    # --- accounting-event boundary (additive) — same hook every other
+    # closure path fires; the ledger already carries every payment's
+    # principal/profit/late-fee entries, so there is nothing further to
+    # dual-write here (financial_adjustment is 0 by definition).
+    _emit_closure_event(db, contract, closure, AccountingEventType.contract_closed)
+    db.flush()
+    return closure
 
 
 # --------------------------------------------------------------------------- #

@@ -36,6 +36,7 @@ from app.models.contract import (
 from app.models.credit_application import ApplicationStatus, CreditApplication
 from app.models.customer import Customer
 from app.models.closure import ClosureReason
+from app.models.ledger import LedgerEntry, LedgerEntryType
 from app.models.payment import LateFeeCharge, LateFeeStatus, Payment
 from app.models.product import Product
 from app.models.reconciliation import ReconExceptionStatus, ReconciliationException
@@ -182,6 +183,35 @@ def _recognized_profit_for(contract: InstallmentContract) -> Decimal:
     return sum((i.profit_paid or _ZERO for i in contract.installments), _ZERO)
 
 
+def _recognized_profit_at_return(db: Session, contract_id: int) -> Decimal:
+    """Bug fix: genuine recognized profit for a **returned** contract.
+
+    ``Installment.profit_paid`` is not usable here — ``return_contract()``
+    (Step 4) writes every remaining installment's ``profit_paid`` up to its
+    full component so the schedule reads as settled and ``GET
+    /contracts/{id}/receivable`` correctly shows zero outstanding after a
+    closure. That is a display/receivable convenience, not a record of money
+    actually collected, so summing it (as the normal path does) makes a
+    returned contract look like it earned 100% of its contractual profit —
+    the exact bug reported live.
+
+    The immutable ledger (Phase 1, `app/services/ledger.py`) does not have
+    this problem: a ``profit_recognized`` entry is only ever written by a real
+    payment allocation or by the profit actually charged at settlement/return
+    net of any rebate (`closure.py`'s ``_emit_closure_event`` records the
+    *net financial_adjustment*, a separate accounting event — it never writes
+    a `profit_recognized` ledger line). So for a contract closed by return,
+    the sum of its `profit_recognized` ledger entries is exactly the profit
+    that was genuinely earned before the return — nothing more."""
+    total = db.execute(
+        select(func.coalesce(func.sum(LedgerEntry.amount), _ZERO)).where(
+            LedgerEntry.contract_id == contract_id,
+            LedgerEntry.entry_type == LedgerEntryType.profit_recognized,
+        )
+    ).scalar_one()
+    return Decimal(str(total))
+
+
 PROFITABILITY_LEVELS = ("portfolio", "category", "product", "customer")
 
 
@@ -203,8 +233,14 @@ def profitability(
     query below — only the WHERE clause changes.
 
     Contracts closed by **cancellation** are excluded — the sale never
-    completed. For every other contract ``recognized + unearned == contractual``
-    holds by construction (unearned is ``total_profit - recognized``)."""
+    completed. Contracts closed by **return** are *not* excluded (bug fix —
+    a return can happen after real installments were paid, and that profit
+    was genuinely earned): they count with ``contractual == recognized``
+    (only what was genuinely collected before the return, from the ledger)
+    and ``unearned == 0`` (written back to zero, not still shown as pending).
+    For every other contract ``recognized + unearned == contractual`` holds
+    by construction (unearned is ``total_profit - recognized``); it also
+    holds for a returned contract, trivially."""
     if level not in PROFITABILITY_LEVELS:
         raise ValueError(f"level must be one of {PROFITABILITY_LEVELS}")
 
@@ -241,15 +277,26 @@ def profitability(
     counted = 0
 
     for contract, _sales_order, product in db.execute(stmt).all():
-        if (
-            contract.closure is not None
-            and contract.closure.reason == ClosureReason.cancellation
-        ):
-            continue
+        closure = contract.closure
+        if closure is not None and closure.reason == ClosureReason.cancellation:
+            continue  # the sale never completed
         counted += 1
-        c_total = Decimal(str(contract.total_profit or 0))
-        c_recognized = _recognized_profit_for(contract)
-        c_unearned = c_total - c_recognized
+
+        if closure is not None and closure.reason == ClosureReason.return_:
+            # Bug fix: a return isn't a blanket exclusion like cancellation —
+            # a return can happen after some installments were genuinely
+            # paid, and that profit was genuinely earned. Recognized profit
+            # up to the return date stays real (from the ledger, see
+            # _recognized_profit_at_return); the unearned portion is written
+            # back to zero rather than still counted as contractual profit
+            # that will never actually be recognised now the contract is closed.
+            c_recognized = _recognized_profit_at_return(db, contract.id)
+            c_total = c_recognized
+            c_unearned = _ZERO
+        else:
+            c_total = Decimal(str(contract.total_profit or 0))
+            c_recognized = _recognized_profit_for(contract)
+            c_unearned = c_total - c_recognized
 
         contractual += c_total
         recognized += c_recognized

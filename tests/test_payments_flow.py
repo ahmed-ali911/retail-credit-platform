@@ -104,16 +104,23 @@ def test_payment_spanning_two_installments_settles_oldest_in_full_first(client):
     assert insts[3]["status"] == "partially_paid"
 
 
-def test_overpayment_marks_payment_overpaid(client):
+def test_overpayment_is_rejected_with_the_correct_outstanding_amount(client):
+    """Bug fix (P0): a payment larger than the contract's current total
+    outstanding is rejected, not accepted as an unallocated credit balance."""
     ctx = active_contract(client, national_id="PF-5")
     cid = ctx["contract_id"]
-    res = client.post(f"/contracts/{cid}/payments",
-                      json={"amount": 100000, "external_reference": "BIG"}).json()
-    assert res["payment"]["status"] == "overpaid"
-    assert res["payment"]["unallocated_amount"] == pytest.approx(100000 - 981.0, **APPROX)
-    rec = _receivable(client, cid)
-    assert rec["outstanding_receivable"] == pytest.approx(0.0, **APPROX)
-    assert rec["total_installments_remaining"] == 0
+    rec_before = _receivable(client, cid)
+    total_outstanding = rec_before["outstanding_receivable"] + rec_before["outstanding_late_fees"]
+
+    r = client.post(f"/contracts/{cid}/payments",
+                    json={"amount": 100000, "external_reference": "BIG"})
+    assert r.status_code == 422, r.text
+    assert f"{total_outstanding:.2f}" in r.json()["detail"]
+
+    # contract untouched — nothing allocated, nothing closed
+    rec_after = _receivable(client, cid)
+    assert rec_after == rec_before
+    assert client.get(f"/contracts/{cid}").json()["status"] == "active"
 
 
 def test_payment_requires_active_contract(client):
