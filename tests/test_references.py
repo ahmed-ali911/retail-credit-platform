@@ -85,6 +85,32 @@ def test_application_and_offer_and_contract_reference_codes(client):
     )
 
 
+def test_reference_code_present_in_actual_http_json_responses(client):
+    """Step 14 bug fix — regression guard.
+
+    Live testing found `reference_code` missing from real API responses even
+    though `format_reference()` and the Pydantic `computed_field` were both
+    correct in isolation. The gap was never in the schema code: it was that
+    the running server had been built/started before the Step 14 change and
+    never restarted, so it kept serving a stale process. No unit test can
+    catch a stale deployment — what a test *can* do is assert against the
+    actual HTTP JSON body (via the real TestClient request/response cycle,
+    not a Pydantic model constructed in-process) so a future regression of
+    this shape — code correct, but not actually reaching the response body
+    for any reason — fails loudly here first.
+    """
+    customer = make_customer(client, national_id="E2E-REF")
+    body = client.get(f"/customers/{customer['id']}").json()
+    assert body["reference_code"] == f"CU-{customer['id']:06d}"
+
+    ctx = active_contract(client, national_id="E2E-REF-2")
+    contract_body = client.get(f"/contracts/{ctx['contract_id']}").json()
+    assert contract_body["reference_code"] == f"CN-{ctx['contract_id']:06d}"
+
+    app_body = client.get(f"/applications/{ctx['application']['id']}").json()
+    assert app_body["reference_code"] == f"AP-{ctx['application']['id']:06d}"
+
+
 def test_payment_and_collection_case_reference_codes(client):
     ctx = active_contract(client, national_id="REF-PAY")
     cid = ctx["contract_id"]
