@@ -1,4 +1,6 @@
 """Step 14 — computed reference codes (no migration, no stored column)."""
+from datetime import date, timedelta
+
 import pytest
 
 from app.core.references import format_reference, parse_reference
@@ -124,7 +126,11 @@ def test_payment_and_collection_case_reference_codes(client):
     assert pay["reference_code"] == format_reference("Payment", pay["id"])
     assert pay["contract_reference"] == format_reference("InstallmentContract", cid)
 
-    client.post("/jobs/assess-overdue", json={"as_of": "2027-06-01"})
+    # installment 1 was just paid in full, so target installment 2's due date
+    # (20 days past it -> overdue -> a collections case opens). Clock-independent.
+    insts = client.get(f"/contracts/{cid}").json()["installments"]
+    as_of = date.fromisoformat(insts[1]["due_date"]) + timedelta(days=20)
+    client.post("/jobs/assess-overdue", json={"as_of": as_of.isoformat()})
     case = client.get("/collections/cases").json()[0]
     assert case["reference_code"] == format_reference("CollectionCase", case["id"])
     assert case["contract_reference"] == format_reference(

@@ -1,5 +1,24 @@
-"""Small builders so each test states only what it cares about."""
+"""Small builders so each test states only what it cares about.
+
+DATE RULE — read before adding a test that simulates elapsed time
+----------------------------------------------------------------
+Never hardcode an absolute date (e.g. ``"2026-10-15"``) as an ``as_of`` for
+``/jobs/assess-overdue``, as a simulated "later" run, or anywhere that stands
+in for "some time after this test's contract was created". Contracts and their
+installments are created relative to ``date.today()`` at test-run time, so a
+fixed future literal drifts closer to the real schedule every day until it no
+longer clears the grace period the test depends on — the test then fails for a
+reason unrelated to any bug.
+
+Instead compute the date from the record the test itself created:
+``first_due_date(client, contract_id) + timedelta(days=N)`` (or backdate an
+installment's ``due_date`` via the shared ``db`` session, as the reports tests
+do). Pick ``N`` to preserve the test's intent — comfortably past / within the
+10-day grace, past a reconciliation window, etc.
+"""
 from __future__ import annotations
+
+from datetime import date, timedelta  # noqa: F401  (timedelta re-exported for tests)
 
 
 def make_customer(client, *, national_id="ID-1", monthly_income=5000,
@@ -102,3 +121,15 @@ def active_contract(client, **kw):
 
 def created_contract(client, **kw):
     return make_contract(client, deliver=False, **kw)
+
+
+def first_due_date(client, contract_id) -> date:
+    """Due date of installment 1 for a contract — the anchor for any
+    "simulated elapsed time" in overdue / collections / reconciliation tests.
+
+    See the DATE RULE at the top of this module: compute ``as_of`` values as
+    ``first_due_date(client, cid) + timedelta(days=N)`` rather than hardcoding
+    an absolute date literal.
+    """
+    contract = client.get(f"/contracts/{contract_id}").json()
+    return date.fromisoformat(contract["installments"][0]["due_date"])

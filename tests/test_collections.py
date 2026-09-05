@@ -1,7 +1,16 @@
+from datetime import date, timedelta
+
 import pytest
 
 from app.models.customer import Customer
-from tests.helpers import active_contract
+from tests.helpers import active_contract, first_due_date
+
+# Days past installment 1's real due date. `_make_overdue` only needs the
+# installment marked overdue (a case opens at DPD >= 1), so it uses a within-
+# grace offset to avoid the side effect of a late fee. All offsets are relative
+# to the real due date so nothing drifts with the wall-clock — see the DATE
+# RULE at the top of tests/helpers.py.
+OVERDUE_NO_FEE_DAYS = 6   # DPD 6  -> overdue, within the 10-day grace, no fee
 
 
 def _cases(client, contract_id, status=None):
@@ -13,11 +22,18 @@ def _cases(client, contract_id, status=None):
     return r.json()
 
 
-def _make_overdue(client, national_id, as_of="2026-10-05"):
-    ctx = active_contract(client, national_id=national_id)
+def _assess(client, as_of):
+    if isinstance(as_of, date):
+        as_of = as_of.isoformat()
     r = client.post("/jobs/assess-overdue", json={"as_of": as_of})
     assert r.status_code == 200, r.text
-    return ctx, r.json()
+    return r.json()
+
+
+def _make_overdue(client, national_id, days_past_due=OVERDUE_NO_FEE_DAYS):
+    ctx = active_contract(client, national_id=national_id)
+    as_of = first_due_date(client, ctx["contract_id"]) + timedelta(days=days_past_due)
+    return ctx, _assess(client, as_of)
 
 
 def test_overdue_opens_exactly_one_case_even_when_run_repeatedly(client):
@@ -25,8 +41,9 @@ def test_overdue_opens_exactly_one_case_even_when_run_repeatedly(client):
     cid = ctx["contract_id"]
     assert first["collection_cases_opened"] == 1
 
-    second = client.post("/jobs/assess-overdue", json={"as_of": "2026-10-06"}).json()
-    third = client.post("/jobs/assess-overdue", json={"as_of": "2026-10-07"}).json()
+    due = first_due_date(client, cid)
+    second = _assess(client, due + timedelta(days=OVERDUE_NO_FEE_DAYS + 1))
+    third = _assess(client, due + timedelta(days=OVERDUE_NO_FEE_DAYS + 2))
     assert second["collection_cases_opened"] == 0
     assert third["collection_cases_opened"] == 0
 
@@ -61,13 +78,14 @@ def test_promise_to_pay_stores_fields_other_types_leave_them_null(client):
     assert call.json()["promised_date"] is None
     assert call.json()["promise_status"] is None
 
+    promised_on = (date.today() + timedelta(days=15)).isoformat()
     ptp = client.post(f"/collections/cases/{case_id}/activities", json={
-        "activity_type": "promise_to_pay", "notes": "will pay Friday",
-        "promised_amount": 90.0, "promised_date": "2026-10-20"})
+        "activity_type": "promise_to_pay", "notes": "will pay soon",
+        "promised_amount": 90.0, "promised_date": promised_on})
     assert ptp.status_code == 201
     body = ptp.json()
     assert body["promised_amount"] == pytest.approx(90.0)
-    assert body["promised_date"] == "2026-10-20"
+    assert body["promised_date"] == promised_on
     assert body["promise_status"] == "pending"
 
     detail = client.get(f"/collections/cases/{case_id}").json()

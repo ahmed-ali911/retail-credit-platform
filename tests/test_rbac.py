@@ -82,7 +82,8 @@ def test_correct_roles_succeed(client_as):
     }
 
     # admin-only job
-    assert admin.post("/jobs/assess-overdue", json={"as_of": "2026-12-31"}).status_code == 200
+    # as_of omitted -> defaults to today; this test only checks the role gate
+    assert admin.post("/jobs/assess-overdue", json={}).status_code == 200
 
     # admin config read
     assert admin.get("/config/parameters").status_code == 200

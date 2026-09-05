@@ -1,5 +1,13 @@
+from datetime import timedelta
+
 from app.models.audit import AuditEvent
-from tests.helpers import active_contract, make_application, make_customer, make_product
+from tests.helpers import (
+    active_contract,
+    first_due_date,
+    make_application,
+    make_customer,
+    make_product,
+)
 
 
 def _events(db, **filters):
@@ -52,7 +60,8 @@ def test_config_update_writes_audit_event_on_approval(client, client_as, db):
 
 def test_overdue_job_writes_audit_events(client, db):
     ctx = active_contract(client, national_id="AUD-3")
-    client.post("/jobs/assess-overdue", json={"as_of": "2026-12-20"})
+    as_of = first_due_date(client, ctx["contract_id"]) + timedelta(days=16)
+    client.post("/jobs/assess-overdue", json={"as_of": as_of.isoformat()})
 
     assert len(_events(db, action="overdue.assessed")) == 1
     assert len(_events(db, action="late_fee.assessed")) >= 1

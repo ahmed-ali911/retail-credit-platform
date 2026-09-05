@@ -1,5 +1,7 @@
+from datetime import timedelta
+
 from app.services import config_service as cfg
-from tests.helpers import active_contract
+from tests.helpers import active_contract, first_due_date
 
 
 def _late_fee_id(client, contract_id):
@@ -15,7 +17,12 @@ def _charge_status(client, contract_id, charge_id):
 
 def _assessed_contract(client, national_id):
     ctx = active_contract(client, national_id=national_id)
-    client.post("/jobs/assess-overdue", json={"as_of": "2026-10-15"})  # past grace -> fee
+    # 16 days past installment 1's real due date -> comfortably past the
+    # 10-day grace -> a late fee is assessed (clock-independent; see the
+    # DATE RULE at the top of tests/helpers.py).
+    as_of = first_due_date(client, ctx["contract_id"]) + timedelta(days=16)
+    r = client.post("/jobs/assess-overdue", json={"as_of": as_of.isoformat()})
+    assert r.status_code == 200, r.text
     return ctx
 
 

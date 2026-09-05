@@ -11,6 +11,7 @@ from tests.helpers import (
     active_contract,
     approved_application,
     created_contract,
+    first_due_date,
     make_customer,
     make_product,
 )
@@ -103,17 +104,19 @@ def test_contracts_by_status_and_channel(client):
 # --------------------------------------------------------------------------- #
 def test_collections_sub_reports(client, client_as):
     ctx = active_contract(client, national_id="COL-13")
-    client.post("/jobs/assess-overdue", json={"as_of": "2027-06-01"})
+    as_of = first_due_date(client, ctx["contract_id"]) + timedelta(days=20)
+    client.post("/jobs/assess-overdue", json={"as_of": as_of.isoformat()})
     case_id = client.get("/collections/cases").json()[0]["id"]
 
-    # a promise-to-pay activity
+    # a promise-to-pay activity, still pending (its date is in the future and
+    # no further overdue run happens after it is logged)
     client_as("collections_officer").post(
         f"/collections/cases/{case_id}/activities",
         json={
             "activity_type": "promise_to_pay",
-            "notes": "will pay Friday",
+            "notes": "will pay soon",
             "promised_amount": 50,
-            "promised_date": "2027-07-01",
+            "promised_date": (date.today() + timedelta(days=30)).isoformat(),
         },
     )
 

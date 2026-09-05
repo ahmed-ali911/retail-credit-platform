@@ -6,12 +6,13 @@ settlement scenarios already covered elsewhere, summing the relevant
 balance calculations report. If an assertion here fails, the ledger write has a
 bug — fix the write, not the test.
 """
+from datetime import timedelta
 from decimal import Decimal
 
 from app.models.contract import InstallmentContract
 from app.models.ledger import LedgerEntry, LedgerEntryType, LedgerRelatedAction
 from app.services import config_service as cfg
-from tests.helpers import active_contract
+from tests.helpers import active_contract, first_due_date
 
 D = Decimal
 
@@ -83,7 +84,8 @@ def test_ledger_reconciles_delinquency_then_repayment(client, db):
     ctx = active_contract(client, national_id="LG-DELINQ")
     cid = ctx["contract_id"]
 
-    client.post("/jobs/assess-overdue", json={"as_of": "2026-10-15"})  # late fee on inst 1
+    as_of = first_due_date(client, cid) + timedelta(days=16)  # past the 10-day grace
+    client.post("/jobs/assess-overdue", json={"as_of": as_of.isoformat()})  # late fee on inst 1
     charge = client.get(f"/contracts/{cid}").json()["late_fee_charges"][0]
 
     pay = round(ctx["schedule"][0]["total"] + charge["amount"], 2)

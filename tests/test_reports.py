@@ -1,12 +1,14 @@
 """Step 11 — reporting layer (report endpoints + 5 dashboard summaries + CSV)."""
 import csv
 import io
+from datetime import timedelta
 
 import pytest
 
 from tests.helpers import (
     active_contract,
     approved_application,
+    first_due_date,
     make_application,
     make_customer,
     make_product,
@@ -179,7 +181,8 @@ def test_summary_portfolio_status_and_dpd(client, db):
 
 def test_summary_collections(client):
     ctx = active_contract(client, national_id="COL-1")
-    client.post("/jobs/assess-overdue", json={"as_of": "2027-06-01"})
+    as_of = first_due_date(client, ctx["contract_id"]) + timedelta(days=20)
+    client.post("/jobs/assess-overdue", json={"as_of": as_of.isoformat()})
     cases = client.get("/collections/cases").json()
     assert cases, "expected a collection case to have been opened"
 
@@ -252,8 +255,9 @@ def test_product_directory_csv_export(client):
 
 
 def test_collections_case_csv_export_and_date_filter(client):
-    active_contract(client, national_id="CC-CSV")
-    client.post("/jobs/assess-overdue", json={"as_of": "2027-06-01"})
+    ctx = active_contract(client, national_id="CC-CSV")
+    as_of = first_due_date(client, ctx["contract_id"]) + timedelta(days=20)
+    client.post("/jobs/assess-overdue", json={"as_of": as_of.isoformat()})
 
     resp = client.get("/collections/cases?format=csv")
     assert resp.status_code == 200

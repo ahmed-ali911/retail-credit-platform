@@ -4,9 +4,11 @@ Events are generated automatically and additively from things that already
 happen; posting to the mock ERP adapter is a separate on-demand job. These tests
 lock in the amounts, the idempotency, and the job behaviour.
 """
+from datetime import timedelta
+
 import pytest
 
-from tests.helpers import active_contract, created_contract
+from tests.helpers import active_contract, created_contract, first_due_date
 
 APPROX = dict(abs=0.005)
 
@@ -68,7 +70,8 @@ def test_payment_emits_payment_received_and_profit_recognized(client):
 def test_late_fee_charge_and_waiver_each_emit_one_event(client, client_as):
     ctx = active_contract(client, national_id="AE-3")
     cid = ctx["contract_id"]
-    client.post("/jobs/assess-overdue", json={"as_of": "2026-10-15"})
+    as_of = first_due_date(client, cid) + timedelta(days=16)  # past the 10-day grace
+    client.post("/jobs/assess-overdue", json={"as_of": as_of.isoformat()})
 
     charged = _events(client, cid, event_type="late_fee_charged")
     assert len(charged) == 1
@@ -145,8 +148,11 @@ def test_replaying_a_payment_never_duplicates_an_accounting_event(client):
 def test_running_assess_overdue_twice_never_duplicates_the_charge_event(client):
     ctx = active_contract(client, national_id="AE-8")
     cid = ctx["contract_id"]
-    client.post("/jobs/assess-overdue", json={"as_of": "2026-10-15"})
-    client.post("/jobs/assess-overdue", json={"as_of": "2026-10-20"})
+    due = first_due_date(client, cid)
+    # both runs are past the 10-day grace, so both *could* charge — proving the
+    # idempotency, not just that only one run happened to trigger
+    client.post("/jobs/assess-overdue", json={"as_of": (due + timedelta(days=16)).isoformat()})
+    client.post("/jobs/assess-overdue", json={"as_of": (due + timedelta(days=21)).isoformat()})
 
     assert len(_events(client, cid, event_type="late_fee_charged")) == 1
 
