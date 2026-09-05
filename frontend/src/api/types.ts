@@ -455,3 +455,90 @@ export interface PaymentResult {
     contract_reference: string;
   };
 }
+
+// --- ECL & provision (first slice) ---------------------------------------- //
+export interface EclLastRun {
+  run_id: number;
+  as_of_date: string;
+  methodology: string;
+  contracts_assessed: number;
+  total_ead: number | null;
+  total_ecl: number | null;
+  total_provision_movement: number | null;
+  accounting_event_id: number | null;
+  created_at: string;
+}
+
+export interface EclDashboard {
+  active_methodology: string;
+  methodology_note: string;
+  total_ead: number;
+  ecl_balance: number;
+  provision_balance: number;
+  ecl_coverage_pct: number | null;
+  ecl_not_computable_count: number;
+  pd_lgd_note: string | null;
+  contracts_assessed: number;
+  stage_exposure: Record<string, number> | "n/a";
+  last_run: EclLastRun | null;
+}
+
+export interface EclAssessmentRow {
+  contract_id: number;
+  customer_id: number | null;
+  customer_name: string | null;
+  product_id: number | null;
+  contract_status: string | null;
+  risk_band: string;
+  assessment_date: string;
+  methodology: string;
+  ead: number | null;
+  dpd: number;
+  dpd_bucket: string | null;
+  stage: number | null;
+  stage_reason: string | null;
+  pd: number | null;
+  lgd: number | null;
+  pd_lgd_note: string | null;
+  loss_rate: number | null;
+  ecl_amount: number | null;
+  ecl_note: string | null;
+  provision_before: number | null;
+  provision_movement: number | null;
+}
+
+export interface EclPortfolio {
+  columns: string[];
+  rows: EclAssessmentRow[];
+  totals: Record<string, number>;
+  total_ead: number;
+  total_ecl: number | null;
+  ecl_not_computable_count: number;
+}
+
+export interface EclContractDetail extends EclAssessmentRow {
+  config_snapshot: Record<string, unknown>;
+  history: Array<{
+    assessment_date: string;
+    methodology: string;
+    ead: number | null;
+    dpd: number;
+    dpd_bucket: string | null;
+    stage: number | null;
+    ecl_amount: number | null;
+    provision_movement: number | null;
+    run_id: number | null;
+  }>;
+}
+
+export interface EclRunResult {
+  run_id: number;
+  as_of_date: string;
+  methodology: string;
+  contracts_assessed: number;
+  total_ead: number;
+  total_ecl: number | null;
+  total_provision_movement: number | null;
+  accounting_event_id: number | null;
+  pd_lgd_note: string | null;
+}

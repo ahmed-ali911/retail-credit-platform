@@ -43,6 +43,12 @@ KEY_RECON_DATE_TOLERANCE_DAYS = "reconciliation_date_tolerance_days"
 KEY_DEFAULT_INITIAL_STOCK = "default_initial_stock_quantity"
 # --- reporting (Step 11) ---
 KEY_DPD_REPORT_BUCKETS = "dpd_report_buckets"
+# --- ECL & provision (first slice) ---
+KEY_ECL_METHODOLOGY = "ecl_methodology"  # simplified_lifetime | three_stage | dpd_banded
+KEY_ECL_PROVISION_PCT_BY_BUCKET = "ecl_provision_pct_by_bucket"  # Path C
+KEY_ECL_LIFETIME_LOSS_RATE = "ecl_lifetime_loss_rate"  # Path A single rate
+KEY_ECL_SICR_DPD_THRESHOLD = "ecl_sicr_dpd_threshold"  # Path B Stage-2 presumption
+KEY_ECL_DEFAULT_DPD_THRESHOLD = "ecl_default_dpd_threshold"  # Path B Stage-3 presumption
 # --- pricing / offers (Step 2) ---
 KEY_TENOR_PROFIT_RATE_TABLE = "tenor_profit_rate_table"
 KEY_MIN_DOWN_PAYMENT_PCT = "minimum_down_payment_pct"

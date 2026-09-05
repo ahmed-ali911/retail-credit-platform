@@ -110,6 +110,73 @@ parameters:
       collections-policy decision.
 
   # ---------------------------------------------------------------------------
+  # ECL & provision (first implementation slice)
+  #
+  # ECL is assessed for EVERY active contract from activation onward, not just
+  # delinquent ones. `ecl_methodology` picks which calculation path produces
+  # the figure. Which path is the approved accounting policy is a BUSINESS
+  # DECISION still open — all three are structurally present.
+  # ---------------------------------------------------------------------------
+  ecl_methodology:
+    value: dpd_banded
+    type: str
+    description: >
+      BUSINESS DECISION REQUIRED — placeholder default. Which ECL calculation
+      path is in force:
+        simplified_lifetime  (Path A) = lifetime ECL from day one, no staging;
+                                        EAD x ecl_lifetime_loss_rate.
+        three_stage          (Path B) = IFRS 9 general 3-stage model. Structure
+                                        is present but PD/LGD/ECL are left
+                                        "n/a" — no real PD/LGD source exists.
+        dpd_banded            (Path C) = provision % per DPD band
+                                        (ecl_provision_pct_by_bucket). The only
+                                        path fully computable today, hence the
+                                        default. Not a formal IFRS 9 model.
+      Any other value raises rather than silently mis-provisioning.
+
+  ecl_provision_pct_by_bucket:
+    type: json
+    value:
+      current: 0.005
+      "1-30": 0.03
+      "31-60": 0.15
+      "61-90": 0.40
+      "91+": 0.75
+    description: >
+      FICTIONAL PLACEHOLDER percentages — NOT a real loss-rate curve. Path C
+      (dpd_banded) provision rate per DPD band. Band labels are derived from
+      `dpd_report_buckets` (the same buckets, no second bucket config), plus
+      "current" for a contract with 0 DPD. A current contract still carries a
+      small non-zero provision — this is intentional ("ECL from day one").
+
+  ecl_lifetime_loss_rate:
+    value: 0.10
+    type: float
+    description: >
+      FICTIONAL PLACEHOLDER. Path A (simplified_lifetime) single lifetime loss
+      rate applied to EAD for every contract regardless of DPD. Stands in for a
+      real lifetime-loss-rate model that does not exist yet.
+
+  ecl_sicr_dpd_threshold:
+    value: 30
+    type: int
+    description: >
+      Path B (three_stage) only. IFRS 9 rebuttable presumption: DPD at/above
+      this is an INDICATOR that prompts a Stage-2 (Significant Increase in
+      Credit Risk) review — combined with at least one other risk signal (an
+      open collections case, a broken promise-to-pay). DPD alone does not force
+      a stage change. FICTIONAL PLACEHOLDER value.
+
+  ecl_default_dpd_threshold:
+    value: 90
+    type: int
+    description: >
+      Path B (three_stage) only. IFRS 9 rebuttable presumption of default: DPD
+      at/above this is an INDICATOR that prompts a Stage-3 (credit-impaired)
+      review — again corroborated by another risk signal, not automatic.
+      FICTIONAL PLACEHOLDER value.
+
+  # ---------------------------------------------------------------------------
   # Step 2 — Installment pricing / profit engine
   # ---------------------------------------------------------------------------
   tenor_profit_rate_table:

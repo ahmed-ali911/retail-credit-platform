@@ -335,4 +335,13 @@ def confirm_delivery(db: Session, contract: InstallmentContract) -> InstallmentC
         event_date=contract.activated_at,
     )
     db.flush()
+
+    # --- ECL & provision boundary (additive; never blocks delivery) ---
+    # ECL assessment applies to every contract from the moment its receivable is
+    # first recognised — not just delinquent ones. This is the "day one"
+    # assessment; the portfolio recalculation job re-assesses thereafter.
+    from app.services import ecl as ecl_service
+
+    ecl_service.initial_assessment(db, contract)
+    db.flush()
     return contract

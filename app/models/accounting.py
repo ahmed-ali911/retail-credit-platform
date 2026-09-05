@@ -45,6 +45,7 @@ class AccountingEventType(str, enum.Enum):
     cancellation = "cancellation"
     return_ = "return"          # value "return"; matches ClosureReason.return_
     contract_closed = "contract_closed"  # normal full-repayment closure (bug fix)
+    ecl_provision_movement = "ecl_provision_movement"  # ECL slice — one per portfolio run
 
 
 class AccountingStatus(str, enum.Enum):
@@ -78,9 +79,12 @@ class AccountingEvent(Base):
     event_reference: Mapped[str] = mapped_column(
         String(120), nullable=False, unique=True, index=True
     )
-    contract_id: Mapped[int] = mapped_column(
+    # Nullable: most events belong to one contract, but a portfolio-level event
+    # (the ECL slice's ``ecl_provision_movement``, one per recalculation run)
+    # summarises a movement across the whole book and has no single contract.
+    contract_id: Mapped[int | None] = mapped_column(
         ForeignKey("installment_contracts.id", ondelete="CASCADE"),
-        nullable=False,
+        nullable=True,
         index=True,
     )
     customer_id: Mapped[int | None] = mapped_column(
@@ -111,4 +115,4 @@ class AccountingEvent(Base):
         DateTime(timezone=True), default=utcnow, nullable=False
     )
 
-    contract: Mapped["InstallmentContract"] = relationship()  # noqa: F821
+    contract: Mapped["InstallmentContract | None"] = relationship()  # noqa: F821

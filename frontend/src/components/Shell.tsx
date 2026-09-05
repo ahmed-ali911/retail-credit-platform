@@ -17,6 +17,7 @@ import {
   PackagePlus,
   ScrollText,
   Settings,
+  ShieldAlert,
   UserPlus,
   Users,
   type LucideIcon,
@@ -114,6 +115,20 @@ const NAV: NavGroup[] = [
     ],
   },
   {
+    id: "ecl",
+    title: "Finance / Risk",
+    items: [
+      {
+        to: "/ecl",
+        label: "ECL & Provision",
+        icon: ShieldAlert,
+        end: true,
+        // matches app/api/ecl.py's _VIEW_ROLES exactly
+        roles: ["finance_officer", "credit_manager", "admin"],
+      },
+    ],
+  },
+  {
     id: "portfolio",
     title: "Portfolio",
     items: [
@@ -198,6 +213,7 @@ const CRUMB_LABELS: Record<string, string> = {
   snapshot: "Snapshot",
   inventory: "Inventory",
   reports: "Reports",
+  ecl: "ECL & Provision",
   config: "Configuration",
   audit: "Audit Logs",
   new: "New",

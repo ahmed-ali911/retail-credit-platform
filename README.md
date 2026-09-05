@@ -951,6 +951,11 @@ Default (placeholder) parameters:
 | `reconciliation_date_tolerance_days` | 0 | **P0-5, placeholder / BUSINESS DECISION REQUIRED** — fallback bank-line matching: `|payment date − value date|` allowed for an amount-only match. `0` = same calendar day |
 | `default_initial_stock_quantity` | 10 | **Step 10, placeholder** — opening `stock_quantity` for a brand-new product and the value migration `0011` backfilled every existing product to. No real inventory feed yet |
 | `dpd_report_buckets` | `[[1,30],[31,60],[61,90],[91,null]]` | **Step 11, DISPLAY GROUPING ONLY** — inclusive `[low, high]` days-past-due ranges for the Portfolio dashboard's aging distribution (`null` high = "and beyond"). **Not** a collections-action policy; the real DPD action thresholds are a separate unconfirmed decision |
+| `ecl_methodology` | `dpd_banded` | **ECL slice, BUSINESS DECISION REQUIRED** — `simplified_lifetime` (Path A) / `three_stage` (Path B) / `dpd_banded` (Path C, default). Any other value raises. See "ECL & Provision" |
+| `ecl_provision_pct_by_bucket` | `{current:0.005, 1-30:0.03, 31-60:0.15, 61-90:0.40, 91+:0.75}` | **ECL slice, FICTIONAL PLACEHOLDER** — Path C provision % per DPD band (bands from `dpd_report_buckets` + `current`) |
+| `ecl_lifetime_loss_rate` | 0.10 | **ECL slice, FICTIONAL PLACEHOLDER** — Path A single lifetime loss rate applied to EAD |
+| `ecl_sicr_dpd_threshold` | 30 | **ECL slice, Path B only** — IFRS 9 rebuttable **presumption**: DPD ≥ this is an *indicator* that prompts a Stage-2 (SICR) review, corroborated by another risk signal — not an automatic stage change |
+| `ecl_default_dpd_threshold` | 90 | **ECL slice, Path B only** — IFRS 9 rebuttable **presumption** of default: DPD ≥ this is an *indicator* that prompts a Stage-3 review, again corroborated — not automatic |
 
 The rate table is stored as a single JSON parameter, so the tenor→rate mapping
 is edited as one unit (via `PUT /config/parameters/tenor_profit_rate_table` with
@@ -1382,6 +1387,70 @@ seeding and by tests via the `set_config` fixture) is unchanged.
 
 ---
 
+## ECL & Provision (first implementation slice)
+
+**The framing rule this module is built around** (external accounting review):
+ECL assessment applies to **every** contract from the moment its receivable is
+first recognised (contract activation), **continuously** — not only to
+delinquent ones. What changes over a contract's life is not *whether* an ECL
+exists but *which calculation path* produces it. All three paths are
+structurally present and chosen by the `ecl_methodology` config switch.
+
+| Path | `ecl_methodology` | Status in this slice |
+|---|---|---|
+| **A — Simplified** | `simplified_lifetime` | **Fully computed.** Lifetime ECL = EAD × `ecl_lifetime_loss_rate` (a placeholder rate), from day one, no staging. |
+| **B — General 3-stage** | `three_stage` | **Structure only.** Stage 1/2/3 classification is live; **PD, LGD and the ECL amount are `n/a — no PD/LGD source configured`** and are never fabricated or shown as `0`. The 30+/90+ DPD thresholds (`ecl_sicr_dpd_threshold` / `ecl_default_dpd_threshold`) are **IFRS 9 rebuttable presumptions** — an *indicator* that prompts a staging review, corroborated by ≥1 other risk signal (an open collections case, a broken promise-to-pay). DPD alone does **not** force a stage change. |
+| **C — DPD-banded** | `dpd_banded` | **Fully computed. The shipped default** — the only path that needs no PD/LGD data this platform doesn't have. ECL = EAD × `ecl_provision_pct_by_bucket[band]`. Bands reuse `dpd_report_buckets` (no second bucket config) plus `current` for 0 DPD. A `current` contract still carries a small non-zero provision — intentional ("ECL from day one"). Not a formal IFRS 9 model, so no rebuttable-presumption framing. |
+
+**Which path is the approved accounting policy is a BUSINESS DECISION still
+open.** The default is `dpd_banded` purely because it is the only fully
+computable one today. Paths A and B are present pending Finance/Risk sign-off —
+Path B additionally pending a real PD/LGD source.
+
+**How it runs.** Two triggers, both existing patterns — *no scheduler*:
+
+* **Contract activation** (`confirm_delivery`, the same hook as the
+  accounting-event boundary) creates the initial "day one" `ECLAssessment` for
+  the new active contract, whatever its payment status. Additive — never blocks
+  activation.
+* **`POST /ecl/run`** (`finance_officer` / `credit_manager` / `admin`) — the
+  on-demand portfolio recalculation, same shape as `POST /jobs/assess-overdue`.
+  Body `{ "as_of": "YYYY-MM-DD" }` optional (defaults to today). Re-assesses
+  every active contract, records an `ECLRun`, and emits **exactly one**
+  `ecl_provision_movement` `AccountingEvent` for the portfolio's net provision
+  movement — through the **existing** accounting boundary, not a second posting
+  mechanism. (Under Path B there is no computable movement, so no event is
+  emitted rather than posting a fabricated zero.)
+
+Every assessment snapshots the methodology, DPD, band/stage and the exact config
+values in force (`config_snapshot`) — the same "config snapshot per decision"
+principle as Credit Assessment. `ECLAssessment` is `UNIQUE(contract_id,
+as_of_date)`, so re-running a job for the same date is an upsert. Provision
+movement is measured against the contract's most recent assessment **in an
+earlier period**.
+
+**Data model** — migration `0012` (additive): `ecl_runs`, `ecl_assessments`,
+and `accounting_events.contract_id` made **nullable** (a portfolio-level event
+has no single contract).
+
+| Endpoint | Roles | Purpose |
+|---|---|---|
+| `GET /ecl/dashboard` | `finance_officer` / `credit_manager` / `admin` | Total EAD, ECL balance, provision balance, ECL coverage %, contracts assessed, Stage 1/2/3 exposure (`"n/a"` unless `three_stage`), last-run summary |
+| `GET /ecl/assessments` (filters: `assessment_date`, `product_id`, `risk_band`, `dpd_bucket`, `contract_status`; `?format=csv\|xlsx\|pdf`) | same | Latest assessment per contract — the portfolio table |
+| `GET /ecl/contracts/{id}` | same | Drill-down: the exact inputs of the last calculation + config snapshot + history |
+| `GET /ecl/runs` | same | Recalculation-run history |
+| `POST /ecl/run` | `finance_officer` / `credit_manager` / `admin` | Run the on-demand portfolio recalculation |
+
+**Screen:** nav group **Finance / Risk → ECL & Provision** (separate from Credit
+Assessment / Pricing / Collections), same three roles — **invisible to
+`sales_employee` and `collections_officer`**.
+
+**Explicitly out of scope for this slice:** any real PD/LGD data source or
+model, macroeconomic overlay, write-off/recovery integration, a real scheduled
+(non-on-demand) run, Branch/Customer-Segment filters.
+
+---
+
 ## API endpoints
 
 | Method | Path | Purpose |
@@ -1730,6 +1799,23 @@ correctly summed figures from a seeded multi-customer / multi-product scenario
 non-portfolio level without its required param → 422, and a scoped export
 carries the scope.
 
+**ECL & provision** ([tests/test_ecl.py](tests/test_ecl.py)): a newly-activated
+contract with **0 DPD gets a real, non-zero ECL** under the `dpd_banded` default
+(`ead × 0.5%`), proving assessment starts at activation not delinquency;
+switching `ecl_methodology` to `simplified_lifetime` via the existing config
+mechanism **changes the calculation basis with no code change**; under
+`three_stage` a contract past the Stage-2 DPD threshold **with an open
+collections case is staged up while an otherwise-identical contract with no
+corroborating signal is not** (DPD is a rebuttable presumption, not the sole
+determinant); PD / LGD / ECL are an explicit **`n/a — no PD/LGD source
+configured`**, never `0` or fabricated; the module 403s for `sales_employee` /
+`collections_officer` / `credit_officer` and 200s for the three finance/risk
+roles; **one `POST /ecl/run` emits exactly one `ecl_provision_movement`
+accounting event** (portfolio-level, `contract_id` null) whose amount equals the
+net provision movement, and re-running for a later date adds exactly one more;
+provision movement is measured against the prior period; an unknown methodology
+→ 422.
+
 ### Frontend (Steps 7, 9, 10, 11, 12 & 13) — `cd frontend && npm test`
 
 Vitest + React Testing Library, API mocked at `fetch`:
@@ -1784,6 +1870,14 @@ Vitest + React Testing Library, API mocked at `fetch`:
   the Reports Center Profitability screen switches `level` to Customer, reveals
   the picker, re-runs scoped (`customer_id` in the URL), and a Category-level
   export carries `level` + `category`
+- **`src/test/ecl.test.tsx`** *(ECL slice)* — the ECL & Provision screen renders
+  the day-one tiles, the run panel (active methodology read-only, last-run
+  summary) and the portfolio table with a real non-zero ECL for a `current`
+  contract; under `three_stage` the PD / LGD / ECL cells show the `n/a — no
+  PD/LGD source configured` note and **never `0.00`**, while the Stage 1/2/3
+  exposure table is shown (and is "n/a" under the other paths); the
+  "ECL & Provision" nav item is visible to `finance_officer` / `credit_manager`
+  and hidden from `sales_employee` / `collections_officer`
 
 ---
 
@@ -1802,7 +1896,8 @@ app/
                CollectionCase, CollectionActivity, ApprovalRequest,
                LedgerEntry (P0-1, write-only),
                BankStatementLine, ReconciliationException (P0-5),
-               AccountingEvent (G-07)
+               AccountingEvent (G-07),
+               ECLRun, ECLAssessment (ECL slice)
   schemas/     Pydantic request/response models
   services/    config_service (externalised rules), assessment (Step 1 engine),
                pricing (Step 2 declining-balance engine), offers (offer→contract),
@@ -1813,6 +1908,8 @@ app/
                reconciliation (P0-5 matching engine),
                accounting (G-07 event generation + posting job),
                erp_adapter (G-07 mock GL boundary),
+               ecl_engine (ECL slice — 3-path provider structure),
+               ecl (ECL slice — orchestration: assess / run / read models),
                reports (Step 11 aggregates + Step 13 sub-reports/aging
                         + csv/xlsx/pdf export), errors
   api/         auth, customers (+ exposure P0-4, + search/export Step 10-13), products
@@ -1821,9 +1918,10 @@ app/
                payments (+ receivable + jobs), closure, config, audit,
                collections (+ export/date filters Step 11-13), approvals,
                reconciliation (P0-5), accounting (G-07),
+               ecl (ECL slice — dashboard / assessments / runs / run job),
                reports (Step 11 + Step 13) routers
   main.py      FastAPI app + startup seeding (config params + bootstrap admin)
-alembic/       migrations (0001_initial … 0011_product_stock)
+alembic/       migrations (0001_initial … 0012_ecl_provision)
 config/        business_rules.yaml  (fictitious placeholder defaults, Steps 1–4)
 scripts/       seed_config.py, create_admin.py
 tests/         backend pytest suite
@@ -1842,7 +1940,9 @@ frontend/      React + Vite staff web app (Steps 7, 9, 10, 11 & 13)
                CustomerDirectory, ProductDirectory, Snapshot,
                Collections (+ case detail), Inventory  (Step 10),
                Reports (Reports Center — 6 categories, per-category
-                        sub-reports, csv/xlsx/pdf export; Steps 11 & 13)
+                        sub-reports, csv/xlsx/pdf export; Steps 11 & 13),
+               EclProvision (ECL slice — Finance/Risk module: tiles,
+                        run panel, portfolio table + per-contract drill-down)
   src/styles/  tokens.css (the colour system) + app.css
   src/test/    Vitest + RTL
 ```

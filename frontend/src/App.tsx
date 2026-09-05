@@ -21,6 +21,7 @@ import { CollectionsPage, CollectionCasePage } from "./pages/CollectionsPage";
 import { SnapshotPage } from "./pages/SnapshotPage";
 import { InventoryPage } from "./pages/InventoryPage";
 import { ReportsPage } from "./pages/ReportsPage";
+import { EclProvisionPage } from "./pages/EclProvisionPage";
 
 export default function App() {
   return (
@@ -53,6 +54,7 @@ export default function App() {
         <Route path="snapshot" element={<SnapshotPage />} />
         <Route path="inventory" element={<InventoryPage />} />
         <Route path="reports" element={<ReportsPage />} />
+        <Route path="ecl" element={<EclProvisionPage />} />
         <Route path="config" element={<ConfigPage />} />
         <Route path="audit" element={<AuditLogPage />} />
       </Route>

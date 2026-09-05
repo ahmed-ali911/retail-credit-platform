@@ -12,7 +12,7 @@ class AccountingEventOut(BaseModel):
     id: int
     event_type: AccountingEventType
     event_reference: str
-    contract_id: int
+    contract_id: int | None
     customer_id: int | None
     amount: float
     currency: str

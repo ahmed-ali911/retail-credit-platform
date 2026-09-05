@@ -87,6 +87,43 @@ def emit(
     return event
 
 
+def emit_unscoped(
+    db: Session,
+    *,
+    event_type: AccountingEventType,
+    event_reference: str,
+    amount,
+    event_date: datetime | None = None,
+    currency: str = "KWD",
+) -> AccountingEvent:
+    """Like :func:`emit` but for a **portfolio-level** event that has no single
+    contract (the ECL slice's ``ecl_provision_movement``, one per recalculation
+    run). Same idempotency on ``event_reference``; ``contract_id`` /
+    ``customer_id`` stay NULL.
+    """
+    existing = db.execute(
+        select(AccountingEvent).where(
+            AccountingEvent.event_reference == event_reference
+        )
+    ).scalar_one_or_none()
+    if existing is not None:
+        return existing
+
+    event = AccountingEvent(
+        event_type=event_type,
+        event_reference=event_reference,
+        contract_id=None,
+        customer_id=None,
+        amount=_money(amount),
+        currency=currency,
+        event_date=event_date or _utcnow(),
+        accounting_status=AccountingStatus.pending,
+    )
+    db.add(event)
+    db.flush()
+    return event
+
+
 @dataclass
 class PostingSummary:
     events_considered: int = 0

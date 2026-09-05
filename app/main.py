@@ -14,6 +14,7 @@ from app.api import (
     collections,
     config as config_api,
     customers,
+    ecl,
     offers,
     payments,
     products,
@@ -73,6 +74,7 @@ app.include_router(collections.router, dependencies=_authed)
 app.include_router(approvals.router, dependencies=_authed)
 app.include_router(reconciliation.router, dependencies=_authed)
 app.include_router(accounting.router, dependencies=_authed)
+app.include_router(ecl.router, dependencies=_authed)
 app.include_router(reports.router, dependencies=_authed)
 app.include_router(config_api.router, dependencies=_authed)
 app.include_router(audit.router, dependencies=_authed)

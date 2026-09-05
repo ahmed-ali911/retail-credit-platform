@@ -53,6 +53,7 @@ from app.models.accounting import (
     AccountingEventType,
     AccountingStatus,
 )
+from app.models.ecl import ECLAssessment, ECLMethodology, ECLRun
 
 __all__ = [
     "Base",
@@ -102,4 +103,7 @@ __all__ = [
     "AccountingEvent",
     "AccountingEventType",
     "AccountingStatus",
+    "ECLAssessment",
+    "ECLMethodology",
+    "ECLRun",
 ]
