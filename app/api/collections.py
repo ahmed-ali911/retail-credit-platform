@@ -13,7 +13,11 @@ from app.core.auth import (
     require_roles,
 )
 from app.core.database import get_db
-from app.models.collections import CollectionCase, CollectionCaseStatus
+from app.models.collections import (
+    CollectionActivity,
+    CollectionCase,
+    CollectionCaseStatus,
+)
 from app.models.contract import InstallmentContract
 from app.models.user import User, UserRole
 from app.schemas.collections import (
@@ -21,6 +25,7 @@ from app.schemas.collections import (
     CollectionActivityOut,
     CollectionCaseDetailOut,
     CollectionCaseOut,
+    PromiseStatusOverride,
 )
 from app.services import collections as collections_service
 from app.services.errors import DomainError
@@ -145,6 +150,37 @@ def log_activity(
             notes=payload.notes,
             promised_amount=payload.promised_amount,
             promised_date=payload.promised_date,
+        )
+    except DomainError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=exc.message)
+    db.commit()
+    db.refresh(activity)
+    return activity
+
+
+@router.post(
+    "/activities/{activity_id}/promise-status",
+    response_model=CollectionActivityOut,
+)
+def override_promise_status(
+    activity_id: int,
+    payload: PromiseStatusOverride,
+    db: Session = Depends(get_db),
+    actor: User = Depends(require_roles(*_ACT_ROLES)),
+):
+    """Gap 3 — staff manual override of a promise-to-pay's auto-detected
+    `kept` / `broken` status, with a required reason. Logs a `CollectionActivity`
+    for the correction."""
+    activity = db.get(CollectionActivity, activity_id)
+    if activity is None:
+        raise HTTPException(status_code=404, detail="Collection activity not found")
+    try:
+        collections_service.set_promise_status(
+            db,
+            activity,
+            new_status=payload.status,
+            reason=payload.reason,
+            actor_id=actor.id,
         )
     except DomainError as exc:
         raise HTTPException(status_code=exc.status_code, detail=exc.message)

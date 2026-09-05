@@ -171,9 +171,12 @@ parameters:
     value: 0
     type: float
     description: >
-      PLACEHOLDER — NOT WIRED UP. Intended future cap on total late fees per
-      contract. A value of 0 means "no cap". Step 3 does not read or enforce
-      this; it exists so the parameter name is reserved.
+      Cap on the total of a contract's NON-WAIVED late fees. `0` (the shipped
+      default) means "no cap". When set > 0, the overdue-assessment job will
+      not charge a new late fee that would push the contract's running
+      non-waived total over this value (it is skipped, not partially charged).
+      The number itself is still a business decision — the mechanism is wired,
+      the default stays 0.
 
   # ---------------------------------------------------------------------------
   # Step 4 — contract closure: early settlement, cancellation, return

@@ -202,6 +202,13 @@ def record_payment(
             event_date=payment.received_at,
         )
 
+    # Collections hook (Gap 3): a payment that covers a pending promise-to-pay's
+    # amount marks that promise `kept`. Runs before the case-close hook so the
+    # transition lands on the still-open case.
+    collections_service.evaluate_promises_after_payment(
+        db, contract, actor_id=actor_id
+    )
+
     # Collections hook: close the open case once no overdue installments remain.
     collections_service.close_case_if_cleared(db, contract, actor_id=actor_id)
 

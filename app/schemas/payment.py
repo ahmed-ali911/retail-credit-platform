@@ -88,6 +88,10 @@ class AssessOverdueResult(BaseModel):
     grace_period_days: int
     installments_marked_overdue: int
     late_fees_assessed: int
+    # Gap 4 — fees not charged because the per-contract cap would be exceeded.
+    late_fees_skipped_contract_cap: int = 0
     total_late_fee_amount: float
     collection_cases_opened: int = 0
+    # Gap 3 — pending promises-to-pay marked broken by this run.
+    promises_broken: int = 0
     charges: list[OverdueChargeOut]

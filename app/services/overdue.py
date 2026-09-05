@@ -19,7 +19,7 @@ from dataclasses import dataclass, field
 from datetime import date, datetime, timezone
 from decimal import ROUND_HALF_UP, Decimal
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.models.contract import (
@@ -44,9 +44,18 @@ class OverdueSummary:
     grace_period_days: int
     installments_marked_overdue: int = 0
     late_fees_assessed: int = 0
+    late_fees_skipped_contract_cap: int = 0
     total_late_fee_amount: Decimal = Decimal("0.00")
     collection_cases_opened: int = 0
+    promises_broken: int = 0
     charges: list[dict] = field(default_factory=list)
+
+
+def _fee_amount(inst: Installment, rate: Decimal) -> Decimal:
+    """A late fee is `late_fee_rate` × the installment's own scheduled total
+    (principal + profit)."""
+    base = Decimal(str(inst.principal_component)) + Decimal(str(inst.profit_component))
+    return (base * rate).quantize(_CENTS, rounding=ROUND_HALF_UP)
 
 
 def assess_overdue(
@@ -55,9 +64,16 @@ def assess_overdue(
     config = ConfigService(db)
     grace_days = config.get_int(cfg.KEY_LATE_FEE_GRACE_DAYS)
     rate = Decimal(str(config.get_float(cfg.KEY_LATE_FEE_RATE)))
+    # Gap 4 — a real per-contract cap on total late fees. `0` (the shipped
+    # placeholder) means "no cap"; a positive value is enforced against the
+    # sum of the contract's non-waived fees (existing + charged in this run).
+    max_per_contract = Decimal(
+        str(config.get_float(cfg.KEY_LATE_FEE_MAX_PER_CONTRACT))
+    )
     # `late_fee_once_per_installment` is read only to assert the supported mode.
-    # Recurring re-charging is intentionally not built this step, so a fee is
-    # assessed at most once per installment regardless of the flag's value.
+    # Recurring re-charging is intentionally not built; a fee is assessed at
+    # most once per installment regardless of the flag's value (a *waived* fee
+    # no longer counts — see Gap 5).
     _ = bool(config.get(cfg.KEY_LATE_FEE_ONCE_PER_INSTALLMENT))
 
     as_of = as_of or datetime.now(timezone.utc).date()
@@ -82,6 +98,21 @@ def assess_overdue(
     newly_overdue_contracts: dict[int, str] = {}
     new_charges: list[LateFeeCharge] = []
 
+    # Gap 4 — running total of NON-WAIVED late fees per contract we might touch,
+    # seeded from what's already on the ledger and updated as we add fees below.
+    contract_ids = {inst.contract_id for inst in rows}
+    fee_totals: dict[int, Decimal] = dict.fromkeys(contract_ids, Decimal("0.00"))
+    if contract_ids:
+        for cid, total in db.execute(
+            select(LateFeeCharge.contract_id, func.sum(LateFeeCharge.amount))
+            .where(
+                LateFeeCharge.contract_id.in_(contract_ids),
+                LateFeeCharge.status != LateFeeStatus.waived,
+            )
+            .group_by(LateFeeCharge.contract_id)
+        ).all():
+            fee_totals[cid] = Decimal(str(total or 0))
+
     for inst in rows:
         if not inst.is_fully_paid and inst.status != InstallmentStatus.overdue:
             inst.status = InstallmentStatus.overdue
@@ -93,31 +124,43 @@ def assess_overdue(
             )
 
         dpd = (as_of - inst.due_date).days
-        already_charged = len(inst.late_fee_charges) > 0
+        # Gap 5 — the "once per installment" allowance is consumed only by an
+        # *active* (assessed / paid) fee. A previously **waived** fee does not
+        # block a fresh charge if the installment is still (or newly) overdue.
+        already_charged = any(
+            c.status != LateFeeStatus.waived for c in inst.late_fee_charges
+        )
+        if dpd <= grace_days or already_charged:
+            continue
 
-        if dpd > grace_days and not already_charged:
-            base = Decimal(str(inst.principal_component)) + Decimal(
-                str(inst.profit_component)
-            )
-            fee = (base * rate).quantize(_CENTS, rounding=ROUND_HALF_UP)
-            charge = LateFeeCharge(
-                installment_id=inst.id,
-                contract_id=inst.contract_id,
-                amount=fee,
-                status=LateFeeStatus.assessed,
-            )
-            db.add(charge)
-            new_charges.append(charge)
-            summary.late_fees_assessed += 1
-            summary.total_late_fee_amount += fee
-            summary.charges.append(
-                {
-                    "installment_id": inst.id,
-                    "sequence_number": inst.sequence_number,
-                    "dpd": dpd,
-                    "amount": float(fee),
-                }
-            )
+        fee = _fee_amount(inst, rate)
+
+        # Gap 4 — enforce the per-contract cap (only when configured > 0).
+        if max_per_contract > 0 and (
+            fee_totals[inst.contract_id] + fee > max_per_contract
+        ):
+            summary.late_fees_skipped_contract_cap += 1
+            continue
+
+        charge = LateFeeCharge(
+            installment_id=inst.id,
+            contract_id=inst.contract_id,
+            amount=fee,
+            status=LateFeeStatus.assessed,
+        )
+        db.add(charge)
+        new_charges.append(charge)
+        fee_totals[inst.contract_id] += fee
+        summary.late_fees_assessed += 1
+        summary.total_late_fee_amount += fee
+        summary.charges.append(
+            {
+                "installment_id": inst.id,
+                "sequence_number": inst.sequence_number,
+                "dpd": dpd,
+                "amount": float(fee),
+            }
+        )
 
     db.flush()
 
@@ -143,6 +186,15 @@ def assess_overdue(
         )
         if opened is not None:
             summary.collection_cases_opened += 1
+
+    # Gap 3 — "Broken Promise-to-Pay" auto-detection (BDR item #22, greenlit).
+    # This is the on-demand check the register asked for: run it as part of the
+    # existing overdue job, not a second scheduler. A pending promise whose
+    # date has passed with the promised amount not received is marked broken
+    # and the transition is logged as a CollectionActivity.
+    summary.promises_broken = collections_service.evaluate_overdue_promises(
+        db, as_of=as_of, actor_id=actor_id
+    )
 
     db.flush()
     return summary

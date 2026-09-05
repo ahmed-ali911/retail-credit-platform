@@ -33,6 +33,15 @@ _RECEIVABLE_STAFF_ROLES = (
     UserRole.credit_manager,
     UserRole.admin,
 )
+# Security Gap 2 — recording a payment now uses the same ownership check as
+# GET /contracts/{id}/receivable: these staff roles OR the customer who owns
+# the contract. A customer can no longer pay against a contract that isn't
+# theirs.
+_PAYMENT_STAFF_ROLES = (
+    UserRole.sales_employee,
+    UserRole.finance_officer,
+    UserRole.admin,
+)
 
 
 def _get_contract(db: Session, contract_id: int) -> InstallmentContract:
@@ -47,16 +56,14 @@ def record_payment(
     contract_id: int,
     payload: PaymentCreate,
     db: Session = Depends(get_db),
-    actor: User = Depends(
-        require_roles(
-            UserRole.sales_employee,
-            UserRole.finance_officer,
-            UserRole.customer,
-            UserRole.admin,
-        )
-    ),
+    actor: User = Depends(get_current_user),
 ):
     contract = _get_contract(db, contract_id)
+    authorize_owner_or_roles(
+        db, actor,
+        staff_roles=_PAYMENT_STAFF_ROLES,
+        owner_customer_id=contract_owner_customer_id(db, contract),
+    )
     try:
         outcome = payment_service.record_payment(
             db,
@@ -134,8 +141,10 @@ def assess_overdue(
             "as_of": summary.as_of.isoformat(),
             "installments_marked_overdue": summary.installments_marked_overdue,
             "late_fees_assessed": summary.late_fees_assessed,
+            "late_fees_skipped_contract_cap": summary.late_fees_skipped_contract_cap,
             "total_late_fee_amount": float(summary.total_late_fee_amount),
             "collection_cases_opened": summary.collection_cases_opened,
+            "promises_broken": summary.promises_broken,
         },
     )
     for charge in summary.charges:
@@ -154,6 +163,8 @@ def assess_overdue(
         grace_period_days=summary.grace_period_days,
         installments_marked_overdue=summary.installments_marked_overdue,
         late_fees_assessed=summary.late_fees_assessed,
+        late_fees_skipped_contract_cap=summary.late_fees_skipped_contract_cap,
         total_late_fee_amount=float(summary.total_late_fee_amount),
+        promises_broken=summary.promises_broken,
         charges=summary.charges,
     )

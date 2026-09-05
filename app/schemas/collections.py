@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from datetime import date, datetime
 
-from pydantic import BaseModel, ConfigDict, computed_field
+from pydantic import BaseModel, ConfigDict, Field, computed_field
 
 from app.core.references import format_reference
 from app.models.collections import (
@@ -18,6 +18,13 @@ class ActivityCreate(BaseModel):
     # Only used when activity_type == promise_to_pay.
     promised_amount: float | None = None
     promised_date: date | None = None
+
+
+class PromiseStatusOverride(BaseModel):
+    """Staff manual correction of an auto-detected promise-to-pay status."""
+
+    status: PromiseStatus
+    reason: str = Field(min_length=1, max_length=500)
 
 
 class CollectionActivityOut(BaseModel):

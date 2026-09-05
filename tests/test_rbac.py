@@ -75,7 +75,7 @@ def test_correct_roles_succeed(client_as):
     admin = client_as("admin")
 
     customer = make_customer(sales, national_id="RBAC-OK-1")
-    product = make_product(sales)
+    product = make_product(admin)  # product creation is credit-desk/admin only (Gap 1)
     app = make_application(sales, customer["id"], product["id"])
     assert sales.post(f"/applications/{app['id']}/submit").json()["status"] in {
         "approved", "rejected", "referred"

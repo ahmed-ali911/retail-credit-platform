@@ -28,10 +28,18 @@ _DIRECTORY_ROLES = (
     UserRole.admin,
 )
 _STOCK_ADJUST_ROLES = (UserRole.finance_officer, UserRole.admin)
+# Security Gap 1 — product creation was ungated (any authenticated user).
+# Same "create a core record" shape as POST /customers; restricted to the
+# credit desk + admin.
+_CREATE_ROLES = (UserRole.credit_officer, UserRole.credit_manager, UserRole.admin)
 
 
 @router.post("", response_model=ProductOut, status_code=status.HTTP_201_CREATED)
-def create_product(payload: ProductCreate, db: Session = Depends(get_db)):
+def create_product(
+    payload: ProductCreate,
+    db: Session = Depends(get_db),
+    _: User = Depends(require_roles(*_CREATE_ROLES)),
+):
     data = payload.model_dump()
     opening_stock = data.pop("stock_quantity", None)
     if opening_stock is None:
