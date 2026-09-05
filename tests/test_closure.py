@@ -83,15 +83,16 @@ def test_rebate_pct_config_change_changes_quoted_payoff(client, set_config):
     ctx = active_contract(client, national_id="CL-4")
     cid = ctx["contract_id"]
 
-    base = _quote(client, cid)["final_payoff_amount"]
-
-    set_config(cfg.KEY_EARLY_SETTLEMENT_REBATE_PCT, 0.0)  # nothing waived
+    # BDR item #7: default is now 0% — the full unearned profit is still charged
     no_rebate = _quote(client, cid)["final_payoff_amount"]
+
+    set_config(cfg.KEY_EARLY_SETTLEMENT_REBATE_PCT, 0.5)  # half waived
+    half_rebate = _quote(client, cid)["final_payoff_amount"]
 
     set_config(cfg.KEY_EARLY_SETTLEMENT_REBATE_PCT, 1.0)  # all profit waived
     full_rebate = _quote(client, cid)["final_payoff_amount"]
 
-    assert no_rebate > base > full_rebate
+    assert no_rebate > half_rebate > full_rebate
     # with the whole profit waived, payoff == outstanding principal (+ late fees)
     assert full_rebate == pytest.approx(_quote(client, cid)["outstanding_principal"],
                                         **APPROX)

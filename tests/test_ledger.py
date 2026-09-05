@@ -10,6 +10,7 @@ from decimal import Decimal
 
 from app.models.contract import InstallmentContract
 from app.models.ledger import LedgerEntry, LedgerEntryType, LedgerRelatedAction
+from app.services import config_service as cfg
 from tests.helpers import active_contract
 
 D = Decimal
@@ -97,7 +98,13 @@ def test_ledger_reconciles_delinquency_then_repayment(client, db):
 # --------------------------------------------------------------------------- #
 # Scenario 3 — early settlement (the profit-rebate case from the assessment)
 # --------------------------------------------------------------------------- #
-def test_ledger_reconciles_early_settlement_with_rebate(client, db):
+def test_ledger_reconciles_early_settlement_with_rebate(client, db, set_config):
+    # BDR item #7: the shipped default is now 0%. Configure a non-zero default
+    # so this stays a regression test of the ledger dual-write for a
+    # config-default rebate (a non-deviation → settles immediately, no
+    # approval needed).
+    set_config(cfg.KEY_EARLY_SETTLEMENT_REBATE_PCT, 0.5)
+
     ctx = active_contract(client, national_id="LG-SETTLE")
     cid = ctx["contract_id"]
 
@@ -107,6 +114,7 @@ def test_ledger_reconciles_early_settlement_with_rebate(client, db):
 
     quote = client.get(f"/contracts/{cid}/settlement-quote").json()
     assert quote["profit_rebate_amount"] > 0
+    assert quote["is_deviation"] is False  # equals the configured default
 
     s = client.post(f"/contracts/{cid}/settle",
                     json={"amount": quote["final_payoff_amount"],

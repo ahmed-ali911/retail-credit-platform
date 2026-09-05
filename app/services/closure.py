@@ -166,9 +166,20 @@ class SettlementQuote:
     profit_still_charged: Decimal
     final_payoff_amount: Decimal
     quote_expiry: datetime
+    # BDR item #7 — True when the effective rebate differs from the config
+    # default (`early_settlement_profit_rebate_pct`, default 0.0). A deviation
+    # means the settlement must go through maker-checker approval before it
+    # finalises; a non-deviation settles immediately, exactly as before.
+    is_deviation: bool = False
 
 
-def build_settlement_quote(db: Session, contract: InstallmentContract) -> SettlementQuote:
+def build_settlement_quote(
+    db: Session,
+    contract: InstallmentContract,
+    *,
+    requested_rebate_pct: float | Decimal | None = None,
+    requested_rebate_amount: float | Decimal | None = None,
+) -> SettlementQuote:
     _guard_not_closed(contract)
     if contract.status != ContractStatus.active:
         raise DomainError(
@@ -176,9 +187,14 @@ def build_settlement_quote(db: Session, contract: InstallmentContract) -> Settle
             f"contract (current status: {contract.status.value})",
             status_code=409,
         )
+    if requested_rebate_pct is not None and requested_rebate_amount is not None:
+        raise DomainError(
+            "Supply requested_rebate_pct OR requested_rebate_amount, not both.",
+            status_code=422,
+        )
 
     config = ConfigService(db)
-    rebate_pct = Decimal(str(config.get_float(cfg.KEY_EARLY_SETTLEMENT_REBATE_PCT)))
+    default_pct = Decimal(str(config.get_float(cfg.KEY_EARLY_SETTLEMENT_REBATE_PCT)))
     validity_days = config.get_int(cfg.KEY_SETTLEMENT_QUOTE_VALIDITY_DAYS)
 
     outstanding_principal = sum(
@@ -189,7 +205,35 @@ def build_settlement_quote(db: Session, contract: InstallmentContract) -> Settle
     )
     unearned_profit_total = _money(contract.unearned_profit_balance)
 
-    profit_rebate_amount = _money(unearned_profit_total * rebate_pct)
+    # Resolve the effective rebate: an explicit staff request wins over the
+    # config default; nothing requested → the config default (0.0 by BDR #7).
+    if requested_rebate_pct is not None:
+        rebate_pct = Decimal(str(requested_rebate_pct))
+        if rebate_pct < 0 or rebate_pct > 1:
+            raise DomainError(
+                "requested_rebate_pct must be between 0 and 1.", status_code=422
+            )
+        profit_rebate_amount = _money(unearned_profit_total * rebate_pct)
+    elif requested_rebate_amount is not None:
+        profit_rebate_amount = _money(requested_rebate_amount)
+        if profit_rebate_amount < _ZERO or profit_rebate_amount > unearned_profit_total:
+            raise DomainError(
+                f"requested_rebate_amount must be between 0 and the unearned "
+                f"profit ({unearned_profit_total}).",
+                status_code=422,
+            )
+        rebate_pct = (
+            (profit_rebate_amount / unearned_profit_total)
+            if unearned_profit_total > _ZERO
+            else _ZERO
+        )
+    else:
+        rebate_pct = default_pct
+        profit_rebate_amount = _money(unearned_profit_total * default_pct)
+
+    default_rebate_amount = _money(unearned_profit_total * default_pct)
+    is_deviation = profit_rebate_amount != default_rebate_amount
+
     profit_still_charged = unearned_profit_total - profit_rebate_amount
     final_payoff_amount = (
         _money(outstanding_principal)
@@ -207,6 +251,7 @@ def build_settlement_quote(db: Session, contract: InstallmentContract) -> Settle
         profit_still_charged=profit_still_charged,
         final_payoff_amount=final_payoff_amount,
         quote_expiry=_utcnow() + timedelta(days=validity_days),
+        is_deviation=is_deviation,
     )
 
 
@@ -231,8 +276,17 @@ def settle_contract(
     amount: float,
     external_reference: str,
     actor_id: int | None = None,
+    requested_rebate_pct: float | Decimal | None = None,
+    requested_rebate_amount: float | Decimal | None = None,
 ) -> ContractClosure:
-    quote = build_settlement_quote(db, contract)  # also runs the guards
+    # Always recompute the quote server-side (never trust a stale client value),
+    # applying the same staff-requested rebate the quote was built with.
+    quote = build_settlement_quote(
+        db,
+        contract,
+        requested_rebate_pct=requested_rebate_pct,
+        requested_rebate_amount=requested_rebate_amount,
+    )  # also runs the guards
 
     if _money(amount) != quote.final_payoff_amount:
         raise DomainError(

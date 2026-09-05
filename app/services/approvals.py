@@ -4,11 +4,17 @@ One rule matters above role checks: **the decider must not be the requester**
 (`decided_by != requested_by`), enforced here in the service layer, not just by
 convention. Violating it is a 409 whatever the caller's role.
 
-Applied this step to two action types:
-  * ``late_fee.waive``  — on approval, LateFeeCharge.status -> waived
-  * ``config.update``   — on approval, ConfigService applies the new value and
-                          the usual ``config.updated`` audit event fires,
-                          now referencing the approval
+Action types that run through it:
+  * ``late_fee.waive``               — on approval, LateFeeCharge.status -> waived
+  * ``config.update``                — on approval, ConfigService applies the new
+                                       value and the ``config.updated`` audit
+                                       event fires, referencing the approval
+  * ``reconciliation.manual_match``  — P0-5
+  * ``contract.settlement_rebate``   — BDR item #7: a staff-granted
+                                       early-settlement profit rebate that
+                                       deviates from the config default. On
+                                       approval the settlement quote is
+                                       recomputed and the contract settled.
 """
 from __future__ import annotations
 
@@ -22,6 +28,7 @@ from app.models.approval import (
     ACTION_CONFIG_UPDATE,
     ACTION_LATE_FEE_WAIVE,
     ACTION_RECON_MANUAL_MATCH,
+    ACTION_SETTLEMENT_REBATE,
     ApprovalRequest,
     ApprovalStatus,
 )
@@ -31,6 +38,7 @@ from app.models.ledger import LedgerEntryType, LedgerRelatedAction
 from app.models.payment import LateFeeCharge, LateFeeStatus, Payment
 from app.models.reconciliation import ReconciliationException
 from app.services import accounting
+from app.services import closure as closure_service
 from app.services import ledger as ledger_service
 from app.services import reconciliation as recon_service
 from app.services.audit import record_event
@@ -201,6 +209,48 @@ def _execute(db: Session, approval: ApprovalRequest, *, actor_id: int) -> None:
             raise DomainError("Target payment no longer exists", status_code=409)
         recon_service.apply_manual_match(
             db, exception, payment, actor_id=actor_id
+        )
+        return
+
+    if approval.action_type == ACTION_SETTLEMENT_REBATE:
+        # BDR item #7 — a staff-granted early-settlement profit rebate that
+        # deviates from the config default. On approval the quote is
+        # recomputed server-side (never trusting a stale amount) with the
+        # exact rebate that was requested, then settled — so every existing
+        # settlement hook (ledger, accounting event, audit) fires exactly as
+        # it does for a normal settlement.
+        contract = db.get(InstallmentContract, int(approval.entity_id))
+        if contract is None:
+            raise DomainError("Contract no longer exists", status_code=409)
+        p = approval.payload or {}
+        quote = closure_service.build_settlement_quote(
+            db,
+            contract,
+            requested_rebate_pct=p.get("requested_rebate_pct"),
+            requested_rebate_amount=p.get("requested_rebate_amount"),
+        )
+        closure = closure_service.settle_contract(
+            db,
+            contract,
+            amount=float(quote.final_payoff_amount),
+            external_reference=p["external_reference"],
+            actor_id=actor_id,
+            requested_rebate_pct=p.get("requested_rebate_pct"),
+            requested_rebate_amount=p.get("requested_rebate_amount"),
+        )
+        record_event(
+            db,
+            user_id=actor_id,
+            action="contract.settled",
+            entity_type="installment_contract",
+            entity_id=contract.id,
+            before={"status": "active"},
+            after={
+                "status": contract.status.value,
+                "final_payoff_amount": float(quote.final_payoff_amount),
+                "profit_rebate_amount": float(quote.profit_rebate_amount),
+                "approval_request_id": approval.id,
+            },
         )
         return
 

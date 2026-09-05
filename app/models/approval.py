@@ -12,6 +12,7 @@ from app.models.base import Base, utcnow
 ACTION_LATE_FEE_WAIVE = "late_fee.waive"
 ACTION_CONFIG_UPDATE = "config.update"
 ACTION_RECON_MANUAL_MATCH = "reconciliation.manual_match"  # P0-5
+ACTION_SETTLEMENT_REBATE = "contract.settlement_rebate"  # BDR item #7
 
 
 class ApprovalStatus(str, enum.Enum):

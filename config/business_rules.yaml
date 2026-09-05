@@ -182,12 +182,18 @@ parameters:
   # config-driven and swappable.
   # ---------------------------------------------------------------------------
   early_settlement_profit_rebate_pct:
-    value: 0.5
+    value: 0.0
     type: float
     description: >
-      PLACEHOLDER — NOT CONFIRMED POLICY. Fraction of the remaining unearned
-      profit that is WAIVED when a customer settles early. 0.5 = half waived,
-      half still charged. profit_rebate_amount = unearned_profit_balance * this.
+      BDR item #7 (CONFIRMED). Default fraction of the remaining unearned profit
+      automatically WAIVED when a customer settles early. Default 0.0 = no
+      automatic rebate; the full unearned profit is still charged unless staff
+      explicitly grant a rebate at settlement time via
+      `requested_rebate_pct` / `requested_rebate_amount` on the quote — and any
+      such grant is a deviation from this default and goes through maker-checker
+      approval (`action_type=contract.settlement_rebate`) before the settlement
+      finalises. profit_rebate_amount = unearned_profit_balance * this (or the
+      staff-requested value).
 
   down_payment_refund_pct_cancellation:
     value: 1.0

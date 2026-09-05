@@ -940,7 +940,7 @@ Default (placeholder) parameters:
 | `late_fee_grace_period_days` | 10 | **Step 3, placeholder** — a fee is assessed only when `DPD > this` |
 | `late_fee_once_per_installment` | `true` | **Step 3, placeholder** — Step 3 always assesses at most once per installment; recurring re-charge is **not built**, so this flag currently has no behavioural effect |
 | `late_fee_max_per_contract` | 0 | **Step 3, placeholder — NOT WIRED UP.** Reserved for a future cap; `0` = no cap; nothing reads it |
-| `early_settlement_profit_rebate_pct` | 0.5 | **Step 4, placeholder — not confirmed policy.** Fraction of remaining unearned profit **waived** on early settlement |
+| `early_settlement_profit_rebate_pct` | 0.0 | **BDR item #7 (CONFIRMED).** Default fraction of remaining unearned profit auto-**waived** on early settlement. Default `0.0` = none; any staff-granted rebate is a deviation and goes through maker-checker approval (`contract.settlement_rebate`) — see "Flexible profit waiver" under Early settlement |
 | `down_payment_refund_pct_cancellation` | 1.0 | **Step 4, placeholder — not confirmed policy.** Fraction of the down payment refunded on **pre-delivery cancellation** |
 | `down_payment_refund_pct_return` | 0.0 | **Step 4, placeholder — not confirmed policy.** Fraction of the down payment refunded on **post-delivery return** |
 | `ownership_transfers_on_delivery` | `true` | **Step 4, placeholder — not a legal position.** No logic branches on it; only echoed back in the return response |
@@ -1126,10 +1126,11 @@ contract to `closed`; a `closed` contract returns **409** on any of these again.
 outstanding_principal   Σ unpaid principal_component
 outstanding_late_fees   Σ unpaid LateFeeCharge            ← its own line, never merged into principal/profit
 unearned_profit_total   contract.unearned_profit_balance
-profit_rebate_amount    unearned_profit_total × early_settlement_profit_rebate_pct   (placeholder 0.5)
+profit_rebate_amount    unearned_profit_total × early_settlement_profit_rebate_pct   (default 0.0 — BDR #7)
 profit_still_charged    unearned_profit_total − profit_rebate_amount
 final_payoff_amount     outstanding_principal + outstanding_late_fees + profit_still_charged
 quote_expiry            now + settlement_quote_validity_days   (informational)
+is_deviation            profit_rebate_amount ≠ the config-default rebate  (BDR #7)
 ```
 
 `POST /contracts/{id}/settle` `{amount, external_reference}` — **regenerates the
@@ -1137,6 +1138,42 @@ quote server-side** and rejects (422) if `amount` ≠ the fresh `final_payoff_am
 (stale client quotes don't pass). On match: every remaining installment → `paid`,
 unpaid late fees → `paid`, `unearned_profit_balance` → 0, Receivable → 0,
 `ContractClosure(reason=early_settlement)`, contract → `closed`.
+
+#### Flexible profit waiver (BDR item #7 — **implemented, default = 0%**)
+
+The register's confirmed decision: **no automatic early-settlement profit
+rebate.** `early_settlement_profit_rebate_pct` now defaults to **`0.0`** (was
+`0.5`) — the full unearned profit is charged on a plain settlement. (An
+already-seeded database keeps its stored value; change it the usual way, via
+`PUT /config/parameters/early_settlement_profit_rebate_pct`, which itself goes
+through the Step 6 maker-checker config-approval flow.)
+
+Staff may still grant a rebate at settlement time:
+
+- `GET /contracts/{id}/settlement-quote?requested_rebate_pct=<0–1>` **or**
+  `?requested_rebate_amount=<0–unearned>` — one or the other, both at once →
+  **422**. Omitted → 0% (config default), i.e. exactly as before. The quote
+  recomputes `profit_rebate_amount` from the requested value and sets
+  `is_deviation: true` when it differs from the config default.
+- `POST /contracts/{id}/settle` accepts the same optional
+  `requested_rebate_pct` / `requested_rebate_amount`. If the resulting quote is
+  **not** a deviation (no rebate, or a rebate equal to the config default) the
+  settlement executes immediately, exactly as today.
+- If it **is** a deviation, the settlement does **not** execute. Instead a
+  pending `ApprovalRequest` is created
+  (`action_type = "contract.settlement_rebate"`, `entity = installment_contract`,
+  payload = the requested rebate + the requester + the settlement reference) —
+  the same generic maker-checker flow as the late-fee waiver and config-change
+  approvals. `POST /contracts/{id}/settle` returns
+  `{status: "pending_approval", closure: null, pending_approval: {...}}`.
+  A **different** `credit_manager` / `finance_officer` / `admin` approves it via
+  `POST /approvals/{id}/approve` — the requester cannot (409, `decided_by !=
+  requested_by`, same rule as every maker-checker action). On approval the quote
+  is **recomputed server-side** with the exact rebate that was requested (never
+  a stale client-held amount) and the settlement runs, so every existing hook —
+  the `profit_rebated` ledger line, the `early_settlement` accounting event, the
+  `contract.settled` audit event (now carrying `approval_request_id`) — fires
+  exactly as it does for a normal settlement.
 
 ### Cancellation — contract must be `created` (pre-delivery)
 
@@ -1312,6 +1349,13 @@ Actions that run through it:
   (`action_type=reconciliation.manual_match`). On approval → the bank line is
   linked to the payment, the payment is `reconciled`, and the exception is
   `resolved`.
+- **Early-settlement profit rebate** *(BDR item #7)* — `POST
+  /contracts/{id}/settle` with a `requested_rebate_pct` / `requested_rebate_amount`
+  that deviates from the config default (`action_type=contract.settlement_rebate`).
+  Creates a pending request and settles **nothing**. On approval → the quote is
+  recomputed server-side with that rebate and the settlement runs (contract
+  `closed`, all the normal settlement hooks fire). See "Flexible profit waiver"
+  under Early settlement.
 
 | Endpoint | Roles |
 |---|---|
@@ -1363,8 +1407,8 @@ seeding and by tests via the `set_config` fixture) is unchanged.
 | `POST` | `/contracts/{id}/payments` | **Step 3** — record a payment. Body `{amount, external_reference}`. Idempotent per `external_reference`; runs the allocation waterfall |
 | `GET` | `/contracts/{id}/receivable` | **Step 3** — outstanding principal / profit / late fees (kept separate) + installment counts |
 | `POST` | `/jobs/assess-overdue` | **Step 3** — manual trigger. Body `{as_of?}`. Marks overdue installments, assesses late fees |
-| `GET` | `/contracts/{id}/settlement-quote` | **Step 4** — early-payoff quote (computes only). 409 if not `active` / already `closed` |
-| `POST` | `/contracts/{id}/settle` | **Step 4** — body `{amount, external_reference}`. Re-checks amount vs fresh quote, then closes (`reason=early_settlement`) |
+| `GET` | `/contracts/{id}/settlement-quote` | **Step 4** — early-payoff quote (computes only). 409 if not `active` / already `closed`. **BDR #7:** optional `?requested_rebate_pct=<0–1>` or `?requested_rebate_amount=<0–unearned>` (not both → 422); response carries `is_deviation` |
+| `POST` | `/contracts/{id}/settle` | **Step 4** — body `{amount, external_reference}`. Re-checks amount vs fresh quote, then closes (`reason=early_settlement`). **BDR #7:** optional `requested_rebate_pct` / `requested_rebate_amount`; a deviation from the default rebate returns `{status: "pending_approval", pending_approval}` and creates a `contract.settlement_rebate` maker-checker request instead of settling |
 | `POST` | `/contracts/{id}/cancel` | **Step 4** — pre-delivery only. Body `{notes?}`. 409 if `active` (→ `/return`) or `closed`. **Step 10:** releases the deducted unit back to `stock_quantity` |
 | `POST` | `/contracts/{id}/return` | **Step 4** — post-delivery only. Body `{notes?}`. 409 if `created` (→ `/cancel`) or `closed`. **Step 10:** releases the deducted unit back to `stock_quantity` |
 | `GET` | `/config/parameters` | List business-rule parameters |

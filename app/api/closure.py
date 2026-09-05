@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import dataclasses
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 
 from app.core.auth import (
@@ -12,8 +12,10 @@ from app.core.auth import (
     require_roles,
 )
 from app.core.database import get_db
+from app.models.approval import ACTION_SETTLEMENT_REBATE
 from app.models.contract import InstallmentContract
 from app.models.user import User, UserRole
+from app.schemas.approval import ApprovalRequestOut
 from app.schemas.closure import (
     CancellationResultOut,
     CloseRequest,
@@ -23,6 +25,7 @@ from app.schemas.closure import (
     SettleResult,
     SettlementQuoteOut,
 )
+from app.services import approvals as approval_service
 from app.services import closure as closure_service
 from app.services.audit import record_event
 from app.services.errors import DomainError
@@ -54,6 +57,8 @@ def _quote_out(quote) -> SettlementQuoteOut:
 def settlement_quote(
     contract_id: int,
     db: Session = Depends(get_db),
+    requested_rebate_pct: float | None = Query(default=None, ge=0, le=1),
+    requested_rebate_amount: float | None = Query(default=None, ge=0),
     user: User = Depends(get_current_user),
 ):
     contract = _get_contract(db, contract_id)
@@ -63,7 +68,12 @@ def settlement_quote(
         owner_customer_id=contract_owner_customer_id(db, contract),
     )
     try:
-        quote = closure_service.build_settlement_quote(db, contract)
+        quote = closure_service.build_settlement_quote(
+            db,
+            contract,
+            requested_rebate_pct=requested_rebate_pct,
+            requested_rebate_amount=requested_rebate_amount,
+        )
     except DomainError as exc:
         raise _domain(exc)
     return _quote_out(quote)
@@ -79,13 +89,61 @@ def settle(
     contract = _get_contract(db, contract_id)
     status_before = contract.status.value
     try:
-        quote = closure_service.build_settlement_quote(db, contract)
+        quote = closure_service.build_settlement_quote(
+            db,
+            contract,
+            requested_rebate_pct=payload.requested_rebate_pct,
+            requested_rebate_amount=payload.requested_rebate_amount,
+        )
+    except DomainError as exc:
+        raise _domain(exc)
+
+    # BDR item #7 — a rebate that deviates from the config default is a
+    # financial decision that always needs a second approver. Don't execute:
+    # create a pending ApprovalRequest (same generic flow as the config-change
+    # and late-fee-waiver approvals) and let a different approver run it.
+    if quote.is_deviation:
+        if approval_service.pending_request_for(
+            db, ACTION_SETTLEMENT_REBATE, contract.id
+        ):
+            raise HTTPException(
+                status_code=409,
+                detail="A settlement-rebate request is already pending for this contract",
+            )
+        req = approval_service.create_request(
+            db,
+            action_type=ACTION_SETTLEMENT_REBATE,
+            entity_type="installment_contract",
+            entity_id=contract.id,
+            requested_by=actor.id,
+            payload={
+                "requested_rebate_pct": payload.requested_rebate_pct,
+                "requested_rebate_amount": payload.requested_rebate_amount,
+                "external_reference": payload.external_reference,
+                # informational only — recomputed server-side at approval time
+                "quoted_payoff_amount": float(quote.final_payoff_amount),
+                "quoted_rebate_amount": float(quote.profit_rebate_amount),
+            },
+        )
+        db.commit()
+        db.refresh(req)
+        return SettleResult(
+            contract_id=contract.id,
+            status="pending_approval",
+            quote=_quote_out(quote),
+            closure=None,
+            pending_approval=ApprovalRequestOut.model_validate(req),
+        )
+
+    try:
         closure = closure_service.settle_contract(
             db,
             contract,
             amount=payload.amount,
             external_reference=payload.external_reference,
             actor_id=actor.id,
+            requested_rebate_pct=payload.requested_rebate_pct,
+            requested_rebate_amount=payload.requested_rebate_amount,
         )
     except DomainError as exc:
         raise _domain(exc)

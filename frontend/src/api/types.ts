@@ -329,6 +329,17 @@ export interface SettlementQuoteOut {
   profit_still_charged: number;
   final_payoff_amount: number;
   quote_expiry: string;
+  // BDR item #7 — a staff-granted rebate that deviates from the 0% default;
+  // settling this quote needs a different approver first.
+  is_deviation: boolean;
+}
+
+export interface SettleResult {
+  contract_id: number;
+  status: string; // "closed" | "pending_approval"
+  quote: SettlementQuoteOut;
+  closure: ContractClosureOut | null;
+  pending_approval: ApprovalRequestOut | null;
 }
 
 export interface ContractClosureOut {

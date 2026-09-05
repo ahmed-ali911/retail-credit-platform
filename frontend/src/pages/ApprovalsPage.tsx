@@ -17,6 +17,16 @@ function payloadSummary(req: ApprovalRequestOut): string {
         "Payment",
         p.payment_id as number,
       )}${p.reason ? ` — ${p.reason}` : ""}`;
+    case "contract.settlement_rebate": {
+      const pct = p.requested_rebate_pct as number | null;
+      const amt = p.requested_rebate_amount as number | null;
+      const grant =
+        pct != null ? `${(pct * 100).toFixed(0)}%` : amt != null ? String(amt) : "?";
+      return `early-settle ${formatReference(
+        "InstallmentContract",
+        Number(req.entity_id),
+      )} with a ${grant} profit rebate`;
+    }
     default: {
       const parts = Object.entries(p).map(([k, v]) => `${k}=${JSON.stringify(v)}`);
       return parts.length ? parts.join(", ") : `${req.entity_type} #${req.entity_id}`;

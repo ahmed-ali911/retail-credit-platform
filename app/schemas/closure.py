@@ -5,6 +5,7 @@ from datetime import datetime
 from pydantic import BaseModel, ConfigDict, Field
 
 from app.models.closure import ClosureReason
+from app.schemas.approval import ApprovalRequestOut
 
 
 class ContractClosureOut(BaseModel):
@@ -27,11 +28,18 @@ class SettlementQuoteOut(BaseModel):
     profit_still_charged: float
     final_payoff_amount: float
     quote_expiry: datetime
+    # BDR item #7 — the effective rebate differs from the config default, so
+    # settling against this quote needs maker-checker approval first.
+    is_deviation: bool = False
 
 
 class SettleRequest(BaseModel):
     amount: float = Field(gt=0)
     external_reference: str = Field(min_length=1, max_length=100)
+    # BDR item #7 — optional staff-granted early-settlement profit rebate.
+    # Supply one or the other, never both (422). Omitted → 0% (config default).
+    requested_rebate_pct: float | None = Field(default=None, ge=0, le=1)
+    requested_rebate_amount: float | None = Field(default=None, ge=0)
 
 
 class CloseRequest(BaseModel):
@@ -40,9 +48,12 @@ class CloseRequest(BaseModel):
 
 class SettleResult(BaseModel):
     contract_id: int
-    status: str
+    status: str  # "closed" when settled now, "pending_approval" on a deviation
     quote: SettlementQuoteOut
-    closure: ContractClosureOut
+    closure: ContractClosureOut | None = None
+    # BDR item #7 — set instead of `closure` when the rebate deviates from the
+    # default: the settlement waits for a different approver.
+    pending_approval: ApprovalRequestOut | None = None
 
 
 class CancellationResultOut(BaseModel):

@@ -1,11 +1,12 @@
 import { useCallback, useEffect, useState, type FormEvent } from "react";
-import { useParams } from "react-router-dom";
+import { Link, useParams } from "react-router-dom";
 import { api, errorMessage } from "../api/client";
 import type {
   ApplicationOut,
   ContractOut,
   PaymentResult,
   ReceivableOut,
+  SettleResult,
   SettlementQuoteOut,
 } from "../api/types";
 import { StatusBadge } from "../components/StatusBadge";
@@ -24,6 +25,7 @@ export function ContractPage() {
   const [busy, setBusy] = useState(false);
   const [quote, setQuote] = useState<SettlementQuoteOut | null>(null);
   const [settleRef, setSettleRef] = useState("");
+  const [rebatePct, setRebatePct] = useState("");
 
   const load = useCallback(async () => {
     setError(null);
@@ -97,13 +99,24 @@ export function ContractPage() {
     }
   }
 
+  /** The rebate the staff member typed, as a 0–1 fraction, or null if blank/0. */
+  function rebateFraction(): number | null {
+    const n = Number(rebatePct);
+    if (!rebatePct.trim() || Number.isNaN(n) || n <= 0) return null;
+    return n / 100;
+  }
+
   async function getQuote() {
     setError(null);
     setNotice(null);
     setBusy(true);
     try {
+      const frac = rebateFraction();
+      const qs = frac != null ? `?requested_rebate_pct=${frac}` : "";
       setQuote(
-        await api<SettlementQuoteOut>(`/contracts/${contractId}/settlement-quote`),
+        await api<SettlementQuoteOut>(
+          `/contracts/${contractId}/settlement-quote${qs}`,
+        ),
       );
     } catch (err) {
       setError(errorMessage(err));
@@ -118,16 +131,27 @@ export function ContractPage() {
     setNotice(null);
     setBusy(true);
     try {
-      await api(`/contracts/${contractId}/settle`, {
+      const frac = rebateFraction();
+      const res = await api<SettleResult>(`/contracts/${contractId}/settle`, {
         method: "POST",
         body: {
           amount: quote.final_payoff_amount,
           external_reference: settleRef,
+          ...(frac != null ? { requested_rebate_pct: frac } : {}),
         },
       });
-      setNotice("Contract settled and closed.");
+      if (res.status === "pending_approval") {
+        setNotice(
+          "Settlement with a profit rebate requested — a different approver " +
+            "must approve it in Approvals before it takes effect. Nothing has " +
+            "changed on the contract yet.",
+        );
+      } else {
+        setNotice("Contract settled and closed.");
+      }
       setQuote(null);
       setSettleRef("");
+      setRebatePct("");
       await load();
     } catch (err) {
       setError(errorMessage(err));
@@ -296,16 +320,30 @@ export function ContractPage() {
         ) : (
           <div className="stack">
             {contract.status === "active" && (
-              <div>
+              <form
+                className="inline-form"
+                onSubmit={(e) => {
+                  e.preventDefault();
+                  void getQuote();
+                }}
+              >
+                <Field
+                  label="Profit rebate % (optional)"
+                  inputMode="decimal"
+                  value={rebatePct}
+                  onChange={(e) => setRebatePct(e.target.value)}
+                  placeholder="0"
+                  data-testid="rebate-pct"
+                />
                 <button
                   className="btn-secondary"
-                  onClick={getQuote}
+                  type="submit"
                   disabled={busy}
                   data-testid="get-quote"
                 >
                   Get settlement quote
                 </button>
-              </div>
+              </form>
             )}
 
             {quote && (
@@ -329,6 +367,21 @@ export function ContractPage() {
                     <strong>{money(quote.final_payoff_amount)}</strong>
                   </dd>
                 </dl>
+
+                {quote.is_deviation && (
+                  <div className="alert alert--info" data-testid="rebate-deviation-note">
+                    This rebate deviates from the 0% default and{" "}
+                    <strong>
+                      requires approval from a different user before it takes
+                      effect
+                    </strong>
+                    . Confirming will create a pending request in{" "}
+                    <Link to="/approvals">Approvals</Link> — the contract is not
+                    settled until a different {`credit_manager`}/finance_officer/admin
+                    approves it.
+                  </div>
+                )}
+
                 <form
                   className="inline-form"
                   onSubmit={(e) => {
@@ -348,7 +401,9 @@ export function ContractPage() {
                     disabled={busy}
                     data-testid="confirm-settlement"
                   >
-                    Confirm settlement
+                    {quote.is_deviation
+                      ? "Request settlement (needs approval)"
+                      : "Confirm settlement"}
                   </button>
                 </form>
               </div>
