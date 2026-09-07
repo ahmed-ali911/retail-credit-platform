@@ -6,7 +6,8 @@ import type {
   CollectionCaseDetailOut,
   CollectionCaseOut,
 } from "../api/types";
-import { Card, ErrorNote, Field, RefCode, money } from "../components/ui";
+import { Card, EmptyState, ErrorNote, Field, RefCode, ResultSummary, money } from "../components/ui";
+import { SkeletonTable, SkeletonText } from "../components/Skeleton";
 import { StatusBadge } from "../components/StatusBadge";
 import { coerceId } from "../lib/reference";
 
@@ -134,16 +135,17 @@ export function CollectionsPage() {
         </div>
 
         {rows == null ? (
-          <p className="muted">Loading…</p>
+          <SkeletonTable rows={5} cols={6} />
         ) : rows.length === 0 ? (
-          <p className="muted" data-testid="cases-empty">
-            No collection cases.
-          </p>
+          <EmptyState testId="cases-empty" message="No collection cases." />
         ) : (
           <>
-            <p className="muted" data-testid="cases-count">
-              {rows.length} case{rows.length === 1 ? "" : "s"}
-            </p>
+            <ResultSummary
+              testId="cases-count"
+              total={rows.length}
+              shown={rows.length}
+              noun="case"
+            />
             <table className="data" aria-label="Collection cases">
             <thead>
               <tr>
@@ -251,7 +253,11 @@ export function CollectionCasePage() {
       <div className="stack">
         <h1>Collection case</h1>
         <ErrorNote message={error} />
-        {!error && <p className="muted">Loading…</p>}
+        {!error && (
+          <Card>
+            <SkeletonText lines={4} />
+          </Card>
+        )}
       </div>
     );
   }
@@ -352,7 +358,7 @@ export function CollectionCasePage() {
 
       <Card title="Activity history">
         {detail.activities.length === 0 ? (
-          <p className="muted">No activity yet.</p>
+          <EmptyState message="No activity yet." />
         ) : (
           <table className="data" aria-label="Activity history">
             <thead>

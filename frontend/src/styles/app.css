@@ -34,6 +34,33 @@ h3 { font-size: 0.95rem; margin: 0 0 0.4rem; color: var(--color-muted); }
 }
 .card--soft { background: var(--color-bg); border-color: var(--color-accent-soft); }
 
+/* --- Step 16, Part A — shared card / tile hover micro-interaction ---------- */
+/* One utility, applied by the Card + MetricTile components and the Reports
+   Center category cards. Subtle: the surface deepens its shadow a touch and
+   (for cards) its border shifts toward --color-primary. No movement, no scale.
+   Metric tiles keep their tone-coloured left border untouched — only the
+   elevation changes. */
+.hover-raise {
+  transition:
+    box-shadow 160ms ease,
+    border-color 160ms ease;
+}
+.hover-raise:hover {
+  box-shadow: var(--shadow-md);
+}
+/* tiles have no base shadow — a full --shadow-md would read as a jump, so they
+   lift only to the small shadow. */
+.metric-tile.hover-raise:hover {
+  box-shadow: var(--shadow-sm);
+}
+.card.hover-raise:hover,
+.report-cat.hover-raise:not(.active):hover {
+  border-color: var(--border-strong);
+}
+@media (prefers-reduced-motion: reduce) {
+  .hover-raise { transition: none; }
+}
+
 /* --- forms --- */
 .field { display: block; margin-bottom: 0.9rem; }
 .field > span { display: block; font-weight: 600; margin-bottom: 0.25rem; font-size: 0.85rem; }
@@ -129,6 +156,18 @@ table.data td.num, table.data th.num { text-align: right; font-variant-numeric: 
 /* was a hardcoded teal rgba() — now follows --color-secondary (Step 15, incl. Appearance overrides) */
 table.data tr.is-paid { background: color-mix(in srgb, var(--color-secondary) 7%, transparent); }
 table.data tr.is-overdue { background: rgba(192, 57, 43, 0.06); }
+/* Step 16, Part D — row hover tint (same light-primary tint as the active nav
+   item). Placed after the status-row rules so it also tints a paid/overdue row
+   on hover. */
+table.data tbody tr:hover {
+  background: color-mix(in srgb, var(--color-primary) 6%, var(--color-surface));
+}
+
+/* Step 16, Part G — a wide data table scrolls inside its own card instead of
+   pushing the page wider on a narrow screen. Scoped with :has() to cards that
+   actually contain a data table, so cards holding a search form keep
+   overflow:visible and never clip a SearchSelect dropdown. */
+.card:has(table.data) { overflow-x: auto; }
 table.data tfoot tr.totals-row td {
   font-weight: 700;
   border-top: 2px solid var(--color-border);
@@ -381,3 +420,182 @@ a > .ref-code, .ref-code a { color: inherit; }
   width: 340px;
 }
 .login-card h1 { text-align: center; }
+
+/* ========================================================================= */
+/* Step 16 — polish layer                                                     */
+/* ========================================================================= */
+
+/* --- Part C — loading skeletons ----------------------------------------- */
+.skeleton {
+  --sk-base: color-mix(in srgb, var(--color-border) 55%, var(--color-surface));
+  --sk-shine: color-mix(in srgb, var(--color-border) 20%, var(--color-surface));
+  background: linear-gradient(90deg, var(--sk-base) 25%, var(--sk-shine) 37%, var(--sk-base) 63%);
+  background-size: 400% 100%;
+  border-radius: var(--radius-sm);
+  animation: skeleton-pulse 1.4s ease-in-out infinite;
+}
+@keyframes skeleton-pulse {
+  0% { background-position: 100% 50%; }
+  100% { background-position: 0 50%; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .skeleton { animation: none; }
+}
+.skeleton-block { height: 1rem; margin-bottom: 0.5rem; }
+.skeleton-tiles {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(190px, 1fr));
+  gap: 0.85rem;
+}
+.skeleton-tile { height: 92px; border-radius: 14px; }
+.skeleton-table__row {
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: 1fr;
+  gap: 0.75rem;
+  padding: 0.55rem 0;
+}
+.skeleton-table__cell { height: 0.9rem; }
+
+/* --- Part D — standardized empty state -------------------------------- */
+.empty-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 2rem 1rem;
+  text-align: center;
+  color: var(--color-muted);
+}
+.empty-state__icon {
+  display: grid;
+  place-items: center;
+  width: 40px;
+  height: 40px;
+  border-radius: var(--radius-pill);
+  background: var(--status-neutral-bg);
+  color: var(--color-muted);
+}
+.empty-state__message { margin: 0; font-size: 0.9rem; }
+
+/* --- Part D — consistent result summary / pagination ------------------ */
+.result-summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+  font-size: 0.8rem;
+  color: var(--color-muted);
+  margin-bottom: 0.6rem;
+}
+.result-summary__pager { display: inline-flex; gap: 0.4rem; align-items: center; }
+.result-summary__pager button {
+  padding: 0.25rem 0.6rem;
+  font-size: 0.78rem;
+  background: transparent;
+  border: 1px solid var(--color-border);
+  color: var(--color-text);
+  border-radius: var(--radius-sm);
+}
+.result-summary__pager button:disabled { opacity: 0.4; }
+
+/* --- Part E — form consistency --------------------------------------- */
+/* one required-field indicator, one field rhythm, one error style */
+.field--required > span::after {
+  content: " *";
+  color: var(--color-danger);
+  font-weight: 700;
+}
+.form-section {
+  border: 0;
+  padding: 0;
+  margin: 0 0 1.1rem;
+  min-width: 0;
+}
+.form-section > legend {
+  padding: 0;
+  margin-bottom: 0.55rem;
+  font-size: 0.72rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--color-muted);
+}
+.field__error {
+  margin-top: 0.3rem;
+  font-size: 0.78rem;
+  color: var(--color-danger);
+  font-weight: 600;
+}
+.field input[aria-invalid="true"],
+.field select[aria-invalid="true"],
+.field textarea[aria-invalid="true"] {
+  border-color: var(--color-danger);
+}
+
+/* --- Part B — toast notifications ----------------------------------- */
+.toast-viewport {
+  position: fixed;
+  right: var(--space-4);
+  bottom: var(--space-4);
+  z-index: 1000;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  max-width: min(360px, calc(100vw - 2 * var(--space-4)));
+}
+.toast {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.6rem;
+  padding: 0.7rem 0.8rem;
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-left: 3px solid var(--color-primary);
+  box-shadow: var(--shadow-lg);
+  font-size: 0.85rem;
+  color: var(--color-text);
+  animation: toast-in 160ms ease;
+}
+@keyframes toast-in {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .toast { animation: none; }
+}
+.toast--success { border-left-color: var(--color-secondary); }
+.toast--error { border-left-color: var(--color-danger); }
+.toast--info { border-left-color: var(--color-primary); }
+.toast__body { flex: 1; min-width: 0; }
+.toast__close {
+  background: none;
+  border: 0;
+  padding: 0 0.15rem;
+  font-size: 1rem;
+  line-height: 1;
+  color: var(--color-muted);
+  cursor: pointer;
+}
+.toast__close:hover { color: var(--color-text); }
+
+/* --- Part F — print helpers (screen side) --------------------------- */
+.print-only { display: none; }
+
+/* --- Part G — responsive grid audit -------------------------------- */
+/* KPI tiles: 1–2 on narrow, 2–3 on medium, capped at 4 on desktop-wide. */
+@media (min-width: 1000px) {
+  .metric-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+}
+/* Reports Center two-pane collapses to one column on narrow. */
+@media (max-width: 760px) {
+  .split { flex-direction: column; }
+  .report-cats { width: 100%; }
+  .split__nav { width: 100%; }
+}
+/* charts already sit in an auto-fit grid + overflow-x container; make sure a
+   single chart never forces page-level horizontal scroll on a laptop. */
+.chart { max-width: 100%; }
+.chart-row { grid-template-columns: repeat(auto-fit, minmax(min(100%, 300px), 1fr)); }

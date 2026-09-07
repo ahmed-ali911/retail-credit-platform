@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useState, type FormEvent } from "react";
 import { api, downloadFile, errorMessage } from "../api/client";
 import type { ProductOut } from "../api/types";
-import { Card, ErrorNote, Field, RefCode, money } from "../components/ui";
+import { Card, EmptyState, ErrorNote, Field, RefCode, ResultSummary, money } from "../components/ui";
+import { SkeletonTable } from "../components/Skeleton";
 
 function StockBadge({ available }: { available: number }) {
   const soldOut = available <= 0;
@@ -77,17 +78,19 @@ export function ProductDirectoryPage() {
         </form>
       </Card>
 
-      {rows != null && (
-        <Card>
-          {rows.length === 0 ? (
-            <p className="muted" data-testid="products-empty">
-              No products match.
-            </p>
-          ) : (
+      <Card>
+        {rows == null ? (
+          <SkeletonTable rows={5} cols={7} />
+        ) : rows.length === 0 ? (
+          <EmptyState testId="products-empty" message="No products match." />
+        ) : (
             <>
-              <p className="muted" data-testid="products-count">
-                {rows.length} product{rows.length === 1 ? "" : "s"}
-              </p>
+              <ResultSummary
+                testId="products-count"
+                total={rows.length}
+                shown={rows.length}
+                noun="product"
+              />
               <table className="data" aria-label="Product results">
               <thead>
                 <tr>
@@ -119,7 +122,6 @@ export function ProductDirectoryPage() {
             </>
           )}
         </Card>
-      )}
     </div>
   );
 }

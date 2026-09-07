@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useState, type FormEvent } from "react";
 import { api, errorMessage } from "../api/client";
 import type { ContractReportPage } from "../api/types";
-import { Card, ErrorNote, RefCode, money } from "../components/ui";
+import { Card, EmptyState, ErrorNote, RefCode, ResultSummary, money } from "../components/ui";
+import { SkeletonTable } from "../components/Skeleton";
 import { SearchSelect } from "../components/SearchSelect";
 import { StatusBadge } from "../components/StatusBadge";
 import { coerceId } from "../lib/reference";
@@ -81,20 +82,22 @@ export function ContractDirectoryPage() {
         </form>
       </Card>
 
-      {page && (
-        <Card>
-          {page.items.length === 0 ? (
-            <p className="muted" data-testid="contracts-directory-empty">
-              No contracts match.
-            </p>
-          ) : (
+      <Card>
+        {page == null ? (
+          <SkeletonTable rows={5} cols={6} />
+        ) : page.items.length === 0 ? (
+          <EmptyState
+            testId="contracts-directory-empty"
+            message="No contracts match."
+          />
+        ) : (
             <>
-              <p className="muted" data-testid="contracts-directory-count">
-                {page.total} contract{page.total === 1 ? "" : "s"}
-                {page.items.length < page.total
-                  ? ` — showing ${page.items.length}`
-                  : ""}
-              </p>
+              <ResultSummary
+                testId="contracts-directory-count"
+                total={page.total}
+                shown={page.items.length}
+                noun="contract"
+              />
               <table className="data" aria-label="Contract results">
                 <thead>
                   <tr>
@@ -130,7 +133,6 @@ export function ContractDirectoryPage() {
             </>
           )}
         </Card>
-      )}
     </div>
   );
 }

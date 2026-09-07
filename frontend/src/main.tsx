@@ -4,9 +4,11 @@ import { BrowserRouter } from "react-router-dom";
 import App from "./App";
 import { AuthProvider } from "./auth/AuthContext";
 import { initAppearance } from "./lib/appearance";
+import { ToastProvider } from "./components/Toast";
 import "./styles/tokens.css";
 import "./styles/app.css";
 import "./styles/shell.css";
+import "./styles/print.css";
 
 // apply any browser-local colour-token override before the first paint
 initAppearance();
@@ -17,7 +19,9 @@ createRoot(document.getElementById("root")!).render(
       future={{ v7_startTransition: true, v7_relativeSplatPath: true }}
     >
       <AuthProvider>
-        <App />
+        <ToastProvider>
+          <App />
+        </ToastProvider>
       </AuthProvider>
     </BrowserRouter>
   </StrictMode>,

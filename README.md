@@ -516,13 +516,95 @@ Out of scope for Step 15: overpayment/credit-balance handling, any
 return/warranty policy design, a general-purpose column picker for tables, any
 token other than `--color-secondary`.
 
+## What's in Step 16 — micro-interactions, table/form polish, printable reports, responsive audit
+
+**Frontend only — no backend, API, calculation or business-rule change anywhere.**
+This is the next polish layer on top of the Step 11/13/14 design system (tokens,
+shell, light theme all unchanged).
+
+- **Part A — card / KPI hover.** One shared `.hover-raise` utility
+  ([styles/app.css](frontend/src/styles/app.css)), applied by the `Card` and
+  `MetricTile` components and the Reports Center category cards. On hover the
+  surface deepens its shadow a touch (`--shadow-sm`/`--shadow-md`) and cards
+  shift their border toward `--color-primary`. 160ms, no transform/scale, no
+  movement. Metric tiles keep their tone-coloured left accent untouched.
+- **Part B — toast notifications.** New self-contained
+  [`components/Toast.tsx`](frontend/src/components/Toast.tsx) (`ToastProvider` +
+  `useToast()`, no dependency). Bottom-right, auto-dismiss ~4s, manual close.
+  `useToast()` is a no-op with no provider mounted, so components can depend on
+  it freely. Used for **brief** confirmations: payment recorded (Contract),
+  configuration change requested (Config — the actionable inline pending banner
+  with the Approvals link **stays** as an inline message), approve/reject
+  (Approvals), review decision (Review), bank line recorded (Reconciliation),
+  stock adjusted (Inventory). Genuine validation errors and the deviation
+  settlement pending-approval notice remain inline `alert`s.
+- **Part C — loading skeletons.** One generic
+  [`components/Skeleton.tsx`](frontend/src/components/Skeleton.tsx) primitive
+  (`Skeleton` / `SkeletonText` / `SkeletonTiles` / `SkeletonTable`), reused for
+  every first-fetch state: Dashboard tabs, Customer / Product / Contract
+  directories, Reports Center results, ECL & Provision dashboard + portfolio,
+  Audit Log, Approvals, Review Queue, Reconciliation, Collections, Config,
+  Customer / Contract / Collection-case detail.
+- **Part D — table polish.** Row-hover tint on every `table.data` (the same
+  light `--color-primary` tint as the active nav item). One standardized
+  `EmptyState` (icon + friendly message) replaces every bare "no rows" `<p>`
+  across directories, reports, collections, audit, approvals, review queue,
+  reconciliation, inventory, contract history. Numeric/ID columns audited for
+  right-align + `tabular-nums` (added the few that were missed: Audit Log,
+  Approvals, Reconciliation id columns). One `ResultSummary` component
+  standardizes the "N results" / "showing X of Y" line + Prev/Next (the pager
+  only renders where the API actually paginates — most tables return a full
+  list).
+- **Part E — form pass.** `Field`/`SelectField` render a `*` required
+  indicator when `required`; one `.field__error` / `aria-invalid` style;
+  new `FormSection` (`<fieldset><legend>`) groups **New Customer** into
+  Personal / Employment / Financial and **New Application** into Parties /
+  Requested terms, matching the grouped Customer detail view. (New Customer
+  also now surfaces the always-present-but-never-rendered `contact_phone`
+  field.)
+- **Part F — printable Customer & Contract reports.** A **"Print / PDF view"**
+  button on the Customer detail and Contract detail screens triggers
+  `window.print()`; [styles/print.css](frontend/src/styles/print.css)
+  (`@media print`) hides the sidebar / top bar / buttons / forms, flattens
+  cards into linear report sections, and reveals a `.print-only` `PrintHeader`
+  (name / reference / status + a 4-KPI strip). **Same data the screen already
+  fetched — a CSS/layout treatment, no new endpoint, no invented field.**
+
+  | Detail screen | Print / PDF view |
+  |---|---|
+  | **Customer** (`/customers/:id`) | ✅ yes — header + Total outstanding / Monthly income / Existing obligations / Risk score KPIs, then Personal · Employment · Financial · Exposure · Contract history sections |
+  | **Contract** (`/contracts/:id`) | ✅ yes — header + Sale price / Down payment / Total profit / Outstanding KPIs, then Sales order · Origination · Receivable · Closure · Installments sections |
+  | Application / Offer / Collection case / Reconciliation / Reports / Dashboard / directories | ❌ not yet — the two customer-facing "record" documents were the priority; the reports screens already have CSV/Excel/PDF export, and the transactional screens weren't asked for |
+
+- **Part G — responsive audit.** KPI tile grids cap at 4 columns ≥1000px
+  (2–3 medium, 1–2 narrow); Reports Center two-pane collapses to one column
+  ≤760px; a wide `table.data` scrolls inside its own card (`:has()`-scoped so a
+  card holding a search form never clips a SearchSelect dropdown); charts stay
+  fluid (`max-width:100%` + auto-fit grid). No horizontal-scroll-inducing
+  layout remains at laptop width.
+
+Tests: `src/test/step16.test.tsx` (15) — the `.hover-raise` class is applied by
+`Card`/`MetricTile` and the CSS rule exists; a toast fires on a recorded
+payment **and** a config-change request and auto-dismisses / closes manually; a
+directory shows a skeleton before its rows and the standardized empty state on
+zero results; the print stylesheet hides the shell and the Customer/Contract
+print headers render populated with the existing data; the responsive CSS
+rules are present. **All 79 prior frontend tests + 267 backend tests pass
+unmodified** (frontend now 94).
+
+Out of scope for Step 16 (unchanged from the prompt): any redesign of colour
+tokens / sidebar / nav grouping, new charts, new backend data or endpoints,
+dark mode, global cross-entity search, bulk-action / inline-editing table
+features.
+
 ### Explicitly out of scope (later steps)
 
 **Backend:** maker-checker on contract settlement / cancellation / return,
 collections escalation rules, SMS/email actually being sent, promise-to-pay
 follow-up reminders, external IdP / OAuth, refresh tokens, actual refund payment
-execution, ECL / provisioning, an **actual scheduled job** (assess-overdue is
-still manually triggered).
+execution, a real PD/LGD source for the ECL 3-stage path (the ECL slice shipped
+Paths A/C fully computed and Path B structurally), an **actual scheduled job**
+(assess-overdue and the ECL recalculation are both still manually triggered).
 
 **Frontend (Step 7):** Collections UI (Step 8), a customer-facing self-service
 portal, visual polish, mobile responsiveness, i18n / Arabic UI (backend and this
@@ -1878,6 +1960,17 @@ Vitest + React Testing Library, API mocked at `fetch`:
   exposure table is shown (and is "n/a" under the other paths); the
   "ECL & Provision" nav item is visible to `finance_officer` / `credit_manager`
   and hidden from `sales_employee` / `collections_officer`
+- **`src/test/step16.test.tsx`** *(Step 16)* — `Card` and `MetricTile` carry the
+  shared `.hover-raise` class and the CSS hover rule (shadow + card border
+  shift, no transform) exists; a toast fires on a recorded payment **and** a
+  config-change request, auto-dismisses after ~4s and closes manually, while
+  the Config pending banner stays inline; a directory shows a skeleton before
+  its rows and the standardized `EmptyState` (icon + message, no bare table) on
+  zero results; the print stylesheet's `@media print` hides the sidebar / top
+  bar / buttons and reveals `.print-only`, and the Customer + Contract screens
+  render a "Print / PDF view" button and a populated `PrintHeader`; the
+  responsive rules (4-col cap ≥1000px, two-pane collapse ≤760px, `:has()`-scoped
+  card overflow, fluid charts) are present
 
 ---
 
@@ -1930,7 +2023,10 @@ frontend/      React + Vite staff web app (Steps 7, 9, 10, 11 & 13)
   src/api/     fetch wrapper (token + 401 handling, + downloadFile for CSV/xlsx/pdf), types
   src/auth/    AuthContext, RequireAuth route guard
   src/components/  Shell, ScheduleTable, AssessmentPanel, StatusBadge,
-                   MetricTile (Step 11, + icon Step 13), ui
+                   MetricTile (Step 11, + icon Step 13),
+                   Toast / Skeleton / PrintHeader (Step 16),
+                   ui (Card, Field, FormSection, EmptyState, ResultSummary,
+                       PrintButton — Step 16 additions)
   src/pages/   Login, Dashboard (5-tab Executive Dashboard, Step 11
                         + icon/density polish Step 13),
                CreateCustomer, CreateProduct,
@@ -1943,6 +2039,9 @@ frontend/      React + Vite staff web app (Steps 7, 9, 10, 11 & 13)
                         sub-reports, csv/xlsx/pdf export; Steps 11 & 13),
                EclProvision (ECL slice — Finance/Risk module: tiles,
                         run panel, portfolio table + per-contract drill-down)
+               (Step 16: Customer + Contract gain a Print / PDF view; every
+                        list gains skeletons + a standardized empty state)
   src/styles/  tokens.css (the colour system) + app.css
+               + print.css (Step 16 — @media print report layout)
   src/test/    Vitest + RTL
 ```

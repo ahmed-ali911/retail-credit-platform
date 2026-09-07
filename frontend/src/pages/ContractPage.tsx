@@ -10,10 +10,21 @@ import type {
   SettlementQuoteOut,
 } from "../api/types";
 import { StatusBadge } from "../components/StatusBadge";
-import { Card, ErrorNote, Field, RefCode, money } from "../components/ui";
+import {
+  Card,
+  ErrorNote,
+  Field,
+  PrintButton,
+  RefCode,
+  money,
+} from "../components/ui";
+import { PrintHeader } from "../components/PrintHeader";
+import { SkeletonText } from "../components/Skeleton";
+import { useToast } from "../components/Toast";
 
 export function ContractPage() {
   const { contractId } = useParams();
+  const toast = useToast();
   const [contract, setContract] = useState<ContractOut | null>(null);
   const [receivable, setReceivable] = useState<ReceivableOut | null>(null);
   const [origination, setOrigination] = useState<ApplicationOut | null>(null);
@@ -84,10 +95,10 @@ export function ContractPage() {
         method: "POST",
         body: { amount: Number(amount), external_reference: reference },
       });
-      setNotice(
+      toast.success(
         res.replayed
           ? `Reference already recorded — no double allocation (payment ${res.payment.reference_code}).`
-          : `Payment ${res.payment.reference_code} recorded; ${money(res.payment.allocated_amount)} allocated.`,
+          : `Payment ${res.payment.reference_code} recorded — ${money(res.payment.allocated_amount)} allocated.`,
       );
       setAmount("");
       setReference("");
@@ -180,7 +191,11 @@ export function ContractPage() {
       <div className="stack">
         <h1>Contract</h1>
         <ErrorNote message={error} />
-        {!error && <p className="muted">Loading…</p>}
+        {!error && (
+          <Card>
+            <SkeletonText lines={5} />
+          </Card>
+        )}
       </div>
     );
   }
@@ -189,10 +204,30 @@ export function ContractPage() {
 
   return (
     <div className="stack">
-      <h1>
-        Contract <RefCode code={contract.reference_code} />{" "}
-        <StatusBadge status={contract.status} />
-      </h1>
+      <PrintHeader
+        testId="contract-print-header"
+        title={`Contract ${contract.reference_code ?? contractId}`}
+        reference={contract.reference_code}
+        status={contract.status}
+        kpis={[
+          { label: "Sale price", value: money(so.sale_price) },
+          { label: "Down payment", value: money(so.down_payment_amount) },
+          { label: "Total profit", value: money(contract.total_profit) },
+          {
+            label: "Outstanding",
+            value: receivable
+              ? money(receivable.outstanding_principal + receivable.outstanding_profit)
+              : "—",
+          },
+        ]}
+      />
+      <div className="inline-form" style={{ justifyContent: "space-between" }}>
+        <h1 style={{ margin: 0 }}>
+          Contract <RefCode code={contract.reference_code} />{" "}
+          <StatusBadge status={contract.status} />
+        </h1>
+        <PrintButton />
+      </div>
       <ErrorNote message={error} />
       {notice && <div className="alert alert--info">{notice}</div>}
 

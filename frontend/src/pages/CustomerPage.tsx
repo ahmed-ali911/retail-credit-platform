@@ -2,7 +2,9 @@ import { useEffect, useState } from "react";
 import { useParams } from "react-router-dom";
 import { api, errorMessage } from "../api/client";
 import type { ContractReportPage, CustomerExposure, CustomerOut } from "../api/types";
-import { Card, ErrorNote, RefCode, money } from "../components/ui";
+import { Card, EmptyState, ErrorNote, PrintButton, RefCode, money } from "../components/ui";
+import { PrintHeader } from "../components/PrintHeader";
+import { SkeletonTable, SkeletonText } from "../components/Skeleton";
 import { StatusBadge } from "../components/StatusBadge";
 
 export function CustomerPage() {
@@ -50,19 +52,44 @@ export function CustomerPage() {
       <div className="stack">
         <h1>Customer</h1>
         <ErrorNote message={error} />
-        {!error && <p className="muted">Loading…</p>}
+        {!error && (
+          <Card>
+            <SkeletonText lines={6} />
+          </Card>
+        )}
       </div>
     );
   }
 
   return (
     <div className="stack">
-      <h1>
-        {customer.name}{" "}
-        <span className="muted">
-          <RefCode code={customer.reference_code} />
-        </span>
-      </h1>
+      <PrintHeader
+        testId="customer-print-header"
+        title={`Customer ${customer.name}`}
+        reference={customer.reference_code}
+        status={customer.status}
+        kpis={[
+          {
+            label: "Total outstanding",
+            value: exposure ? money(exposure.total_outstanding) : "—",
+          },
+          { label: "Monthly income", value: money(customer.profile?.monthly_income) },
+          {
+            label: "Existing obligations",
+            value: money(customer.profile?.existing_monthly_obligations),
+          },
+          { label: "Risk score", value: customer.risk_score ?? "—" },
+        ]}
+      />
+      <div className="inline-form" style={{ justifyContent: "space-between" }}>
+        <h1 style={{ margin: 0 }}>
+          {customer.name}{" "}
+          <span className="muted">
+            <RefCode code={customer.reference_code} />
+          </span>
+        </h1>
+        <PrintButton />
+      </div>
       <ErrorNote message={error} />
 
       {/* Part B — every field already in the API response, grouped instead of
@@ -117,7 +144,7 @@ export function CustomerPage() {
         {exposureError ? (
           <p className="muted">{exposureError}</p>
         ) : !exposure ? (
-          <p className="muted">Loading…</p>
+          <SkeletonText lines={2} />
         ) : (
           <>
             <dl className="kv">
@@ -181,11 +208,12 @@ export function CustomerPage() {
         {historyError ? (
           <p className="muted">{historyError}</p>
         ) : !history ? (
-          <p className="muted">Loading…</p>
+          <SkeletonTable rows={3} cols={5} />
         ) : history.items.length === 0 ? (
-          <p className="muted" data-testid="history-empty">
-            No contracts on record.
-          </p>
+          <EmptyState
+            testId="history-empty"
+            message="No contracts on record."
+          />
         ) : (
           <table className="data" aria-label="Full contract history">
             <thead>

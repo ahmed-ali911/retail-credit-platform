@@ -1,7 +1,9 @@
 import { useCallback, useEffect, useState, type FormEvent } from "react";
 import { api, errorMessage } from "../api/client";
 import type { AuditEventOut, ProductOut } from "../api/types";
-import { Card, ErrorNote, Field, RefCode, money } from "../components/ui";
+import { Card, EmptyState, ErrorNote, Field, RefCode, money } from "../components/ui";
+import { SkeletonTable } from "../components/Skeleton";
+import { useToast } from "../components/Toast";
 import { formatReference } from "../lib/reference";
 
 export function InventoryPage() {
@@ -10,8 +12,8 @@ export function InventoryPage() {
   const [adjustFor, setAdjustFor] = useState<number | null>(null);
   const [form, setForm] = useState({ delta: "", reason: "" });
   const [error, setError] = useState<string | null>(null);
-  const [notice, setNotice] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const toast = useToast();
 
   const loadProducts = useCallback(async () => {
     try {
@@ -42,7 +44,6 @@ export function InventoryPage() {
   async function submit(e: FormEvent, productId: number) {
     e.preventDefault();
     setError(null);
-    setNotice(null);
     setBusy(true);
     try {
       const updated = await api<ProductOut>(
@@ -55,7 +56,7 @@ export function InventoryPage() {
       setProducts((ps) =>
         (ps ?? []).map((p) => (p.id === productId ? updated : p)),
       );
-      setNotice(
+      toast.success(
         `${formatReference("Product", productId)} stock is now ${updated.stock_quantity}.`,
       );
       setAdjustFor(null);
@@ -77,11 +78,10 @@ export function InventoryPage() {
         quantity.
       </p>
       <ErrorNote message={error} />
-      {notice && <div className="alert alert--info">{notice}</div>}
 
       <Card title="Products">
         {products == null ? (
-          <p className="muted">Loading…</p>
+          <SkeletonTable rows={5} cols={7} />
         ) : (
           <table className="data" aria-label="Inventory">
             <thead>
@@ -152,9 +152,10 @@ export function InventoryPage() {
 
       <Card title="Recent adjustments" soft>
         {events.length === 0 ? (
-          <p className="muted" data-testid="inv-events-empty">
-            No stock adjustments recorded.
-          </p>
+          <EmptyState
+            testId="inv-events-empty"
+            message="No stock adjustments recorded."
+          />
         ) : (
           <table className="data" aria-label="Recent stock adjustments">
             <thead>

@@ -27,7 +27,10 @@ export function MetricTile({
   icon?: LucideIcon;
 }) {
   return (
-    <div className={`metric-tile metric-tile--${tone}`} data-testid="metric-tile">
+    <div
+      className={`metric-tile metric-tile--${tone} hover-raise`}
+      data-testid="metric-tile"
+    >
       <div className="metric-tile__head">
         {Icon && (
           <span className="metric-tile__badge" aria-hidden>

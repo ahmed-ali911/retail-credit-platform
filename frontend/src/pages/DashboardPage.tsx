@@ -19,6 +19,7 @@ import { useAuth } from "../auth/AuthContext";
 import { MetricGrid, MetricTile } from "../components/MetricTile";
 import { AgingBarChart, RiskBandDonut, StatusDonut } from "../components/charts";
 import { Card, ErrorNote, money } from "../components/ui";
+import { SkeletonTiles } from "../components/Skeleton";
 import type {
   CollectionsSummary,
   CreditRiskSummary,
@@ -314,7 +315,7 @@ function TabBody<T>({
   children: (d: T) => ReactNode;
 }) {
   if (error) return <ErrorNote message={error} />;
-  if (!data) return <p className="muted">Loading…</p>;
+  if (!data) return <SkeletonTiles count={5} />;
   return <>{children(data)}</>;
 }
 

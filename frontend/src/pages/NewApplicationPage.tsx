@@ -4,7 +4,7 @@ import { api, errorMessage } from "../api/client";
 import type { ApplicationOut } from "../api/types";
 import { AssessmentPanel } from "../components/AssessmentPanel";
 import { SearchSelect } from "../components/SearchSelect";
-import { Card, ErrorNote, Field, RefCode, SelectField } from "../components/ui";
+import { Card, ErrorNote, Field, FormSection, RefCode, SelectField } from "../components/ui";
 import { StatusBadge } from "../components/StatusBadge";
 import { coerceId } from "../lib/reference";
 
@@ -60,44 +60,48 @@ export function NewApplicationPage() {
       <Card>
         <form onSubmit={onSubmit}>
           <ErrorNote message={error} />
-          <div className="field-row">
-            <SearchSelect
-              label="Customer # (or CU-code)"
-              kind="customer"
-              value={form.customer_id}
-              onChange={(v) => setForm((f) => ({ ...f, customer_id: v }))}
-              placeholder="Search by name, or paste an id / CU-code"
-              required
-            />
-            <SearchSelect
-              label="Product # (or PR-code)"
-              kind="product"
-              value={form.product_id}
-              onChange={(v) => setForm((f) => ({ ...f, product_id: v }))}
-              placeholder="Search by name, or paste an id / PR-code"
-              required
-            />
-          </div>
-          <div className="field-row">
-            <Field
-              label="Requested amount"
-              inputMode="decimal"
-              value={form.requested_amount}
-              onChange={set("requested_amount")}
-              required
-            />
-            <Field
-              label="Tenor (months)"
-              inputMode="numeric"
-              value={form.requested_tenor_months}
-              onChange={set("requested_tenor_months")}
-              required
-            />
-            <SelectField label="Channel" value={form.channel} onChange={set("channel")}>
-              <option value="branch">branch</option>
-              <option value="online">online</option>
-            </SelectField>
-          </div>
+          <FormSection title="Parties">
+            <div className="field-row">
+              <SearchSelect
+                label="Customer # (or CU-code)"
+                kind="customer"
+                value={form.customer_id}
+                onChange={(v) => setForm((f) => ({ ...f, customer_id: v }))}
+                placeholder="Search by name, or paste an id / CU-code"
+                required
+              />
+              <SearchSelect
+                label="Product # (or PR-code)"
+                kind="product"
+                value={form.product_id}
+                onChange={(v) => setForm((f) => ({ ...f, product_id: v }))}
+                placeholder="Search by name, or paste an id / PR-code"
+                required
+              />
+            </div>
+          </FormSection>
+          <FormSection title="Requested terms">
+            <div className="field-row">
+              <Field
+                label="Requested amount"
+                inputMode="decimal"
+                value={form.requested_amount}
+                onChange={set("requested_amount")}
+                required
+              />
+              <Field
+                label="Tenor (months)"
+                inputMode="numeric"
+                value={form.requested_tenor_months}
+                onChange={set("requested_tenor_months")}
+                required
+              />
+              <SelectField label="Channel" value={form.channel} onChange={set("channel")}>
+                <option value="branch">branch</option>
+                <option value="online">online</option>
+              </SelectField>
+            </div>
+          </FormSection>
           <button className="btn-primary" type="submit" disabled={busy}>
             {busy ? "Submitting…" : "Create & submit for assessment"}
           </button>

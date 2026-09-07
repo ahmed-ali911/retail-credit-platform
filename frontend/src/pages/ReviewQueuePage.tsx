@@ -4,7 +4,9 @@ import { api, errorMessage } from "../api/client";
 import type { ApplicationListItem, ApplicationOut } from "../api/types";
 import { AssessmentPanel } from "../components/AssessmentPanel";
 import { StatusBadge } from "../components/StatusBadge";
-import { Card, ErrorNote, RefCode, money } from "../components/ui";
+import { Card, EmptyState, ErrorNote, RefCode, money } from "../components/ui";
+import { SkeletonTable } from "../components/Skeleton";
+import { useToast } from "../components/Toast";
 
 export function ReviewQueuePage() {
   const [rows, setRows] = useState<ApplicationListItem[] | null>(null);
@@ -34,11 +36,12 @@ export function ReviewQueuePage() {
 
       <Card>
         {rows == null ? (
-          <p className="muted">Loading…</p>
+          <SkeletonTable rows={4} cols={6} />
         ) : rows.length === 0 ? (
-          <p className="muted" data-testid="review-empty">
-            Nothing in the queue — no referred applications.
-          </p>
+          <EmptyState
+            testId="review-empty"
+            message="Nothing in the queue — no referred applications."
+          />
         ) : (
           <table className="data" aria-label="Referred applications">
             <thead>
@@ -93,6 +96,7 @@ const DECISIONS = [
 
 export function ReviewApplicationPage() {
   const { applicationId } = useParams();
+  const toast = useToast();
   const [app, setApp] = useState<ApplicationOut | null>(null);
   const [decision, setDecision] =
     useState<(typeof DECISIONS)[number]["value"]>("approved");
@@ -124,6 +128,7 @@ export function ReviewApplicationPage() {
         { method: "POST", body: { decision, reason } },
       );
       setOutcome(res);
+      toast.success(`Decision recorded — application ${res.status}.`);
     } catch (err) {
       setError(errorMessage(err));
     } finally {

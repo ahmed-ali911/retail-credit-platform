@@ -3,11 +3,14 @@ import { Link } from "react-router-dom";
 import { api, errorMessage } from "../api/client";
 import type { ConfigParameterOut } from "../api/types";
 import { Card, ErrorNote } from "../components/ui";
+import { SkeletonTable } from "../components/Skeleton";
+import { useToast } from "../components/Toast";
 import { AppearancePanel } from "../components/AppearancePanel";
 
 type ConfigSection = "parameters" | "appearance";
 
 export function ConfigPage() {
+  const toast = useToast();
   const [section, setSection] = useState<ConfigSection>("parameters");
   const [params, setParams] = useState<ConfigParameterOut[] | null>(null);
   const [editing, setEditing] = useState<string | null>(null);
@@ -55,6 +58,7 @@ export function ConfigPage() {
       });
       setPending(p.key);
       setEditing(null);
+      toast.info("Configuration change requested — awaiting a different approver.");
     } catch (err) {
       setError(errorMessage(err));
     } finally {
@@ -148,7 +152,7 @@ function ConfigParameters(props: {
 
       <Card>
         {params == null ? (
-          <p className="muted">Loading…</p>
+          <SkeletonTable rows={6} cols={4} />
         ) : (
           <table className="data" aria-label="Config parameters">
             <thead>

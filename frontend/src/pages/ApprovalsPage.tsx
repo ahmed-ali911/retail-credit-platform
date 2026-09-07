@@ -2,7 +2,9 @@ import { useCallback, useEffect, useState } from "react";
 import { api, errorMessage } from "../api/client";
 import { useAuth } from "../auth/AuthContext";
 import type { ApprovalRequestOut } from "../api/types";
-import { Card, ErrorNote } from "../components/ui";
+import { Card, EmptyState, ErrorNote } from "../components/ui";
+import { SkeletonTable } from "../components/Skeleton";
+import { useToast } from "../components/Toast";
 import { formatReference } from "../lib/reference";
 
 function payloadSummary(req: ApprovalRequestOut): string {
@@ -36,9 +38,9 @@ function payloadSummary(req: ApprovalRequestOut): string {
 
 export function ApprovalsPage() {
   const { user } = useAuth();
+  const toast = useToast();
   const [rows, setRows] = useState<ApprovalRequestOut[] | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [notice, setNotice] = useState<string | null>(null);
   const [busyId, setBusyId] = useState<number | null>(null);
 
   const load = useCallback(async () => {
@@ -58,11 +60,12 @@ export function ApprovalsPage() {
 
   async function decide(id: number, action: "approve" | "reject") {
     setError(null);
-    setNotice(null);
     setBusyId(id);
     try {
       await api(`/approvals/${id}/${action}`, { method: "POST" });
-      setNotice(`Request #${id} ${action === "approve" ? "approved" : "rejected"}.`);
+      toast.success(
+        `Request #${id} ${action === "approve" ? "approved" : "rejected"}.`,
+      );
       await load();
     } catch (err) {
       setError(errorMessage(err));
@@ -79,20 +82,20 @@ export function ApprovalsPage() {
         yourself — a different approver is required.
       </p>
       <ErrorNote message={error} />
-      {notice && <div className="alert alert--info">{notice}</div>}
 
       <Card>
         {rows == null ? (
-          <p className="muted">Loading…</p>
+          <SkeletonTable rows={4} cols={6} />
         ) : rows.length === 0 ? (
-          <p className="muted" data-testid="approvals-empty">
-            No pending requests.
-          </p>
+          <EmptyState
+            testId="approvals-empty"
+            message="No pending requests."
+          />
         ) : (
           <table className="data" aria-label="Pending approvals">
             <thead>
               <tr>
-                <th>#</th>
+                <th className="num">#</th>
                 <th>Action</th>
                 <th>Summary</th>
                 <th>Requested by</th>
@@ -105,7 +108,7 @@ export function ApprovalsPage() {
                 const mine = user?.id === req.requested_by;
                 return (
                   <tr key={req.id} data-testid={`approval-row-${req.id}`}>
-                    <td>{req.id}</td>
+                    <td className="num">{req.id}</td>
                     <td>{req.action_type}</td>
                     <td>{payloadSummary(req)}</td>
                     <td>user #{req.requested_by}</td>

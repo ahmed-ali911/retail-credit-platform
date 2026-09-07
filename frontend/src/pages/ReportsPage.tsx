@@ -16,7 +16,8 @@ import {
 } from "lucide-react";
 import { api, downloadFile, errorMessage } from "../api/client";
 import type { ContractReportPage, ProfitabilityReport } from "../api/types";
-import { Card, ErrorNote, Field, RefCode, money } from "../components/ui";
+import { Card, EmptyState, ErrorNote, Field, RefCode, ResultSummary, money } from "../components/ui";
+import { SkeletonTable } from "../components/Skeleton";
 import { SearchSelect } from "../components/SearchSelect";
 import { coerceId } from "../lib/reference";
 import { StatusBadge } from "../components/StatusBadge";
@@ -144,6 +145,11 @@ function GenericTableReport({
         <ExportGroup path={endpoint} base={base} onError={setError} />
       </div>
       <ErrorNote message={error} />
+      {busy && !data && (
+        <Card>
+          <SkeletonTable rows={5} cols={4} />
+        </Card>
+      )}
       {data && (
         <Card>
           {summaryKeys && summaryKeys.some((k) => k in data) && (
@@ -165,8 +171,8 @@ function GenericTableReport({
             <tbody>
               {data.rows.length === 0 ? (
                 <tr>
-                  <td colSpan={data.columns.length} className="muted">
-                    No rows.
+                  <td colSpan={data.columns.length}>
+                    <EmptyState message="No rows match this report." />
                   </td>
                 </tr>
               ) : (
@@ -273,11 +279,25 @@ function ContractsReport() {
 
       <ErrorNote message={error} />
 
-      {page && (
+      {busy && !page && (
         <Card>
-          <p className="muted">
-            {page.total} contract(s) — showing {page.items.length}
-          </p>
+          <SkeletonTable rows={5} cols={8} />
+        </Card>
+      )}
+
+      {page && page.items.length === 0 && (
+        <Card>
+          <EmptyState message="No contracts match these filters." />
+        </Card>
+      )}
+
+      {page && page.items.length > 0 && (
+        <Card>
+          <ResultSummary
+            total={page.total}
+            shown={page.items.length}
+            noun="contract"
+          />
           <table className="data" aria-label="Contracts report results">
             <thead>
               <tr>
@@ -889,7 +909,11 @@ export function ReportsPage() {
                 role="tab"
                 aria-label={c.label}
                 aria-selected={c.id === categoryId}
-                className={c.id === categoryId ? "report-cat active" : "report-cat"}
+                className={
+                  c.id === categoryId
+                    ? "report-cat hover-raise active"
+                    : "report-cat hover-raise"
+                }
                 onClick={() => selectCategory(c)}
               >
                 <Icon size={18} aria-hidden />

@@ -7,7 +7,9 @@ import type {
   ReconciliationException,
   ReconciliationStatus,
 } from "../api/types";
-import { Card, ErrorNote, Field } from "../components/ui";
+import { Card, EmptyState, ErrorNote, Field } from "../components/ui";
+import { SkeletonText } from "../components/Skeleton";
+import { useToast } from "../components/Toast";
 import { StatusBadge } from "../components/StatusBadge";
 
 export function ReconciliationPage() {
@@ -22,6 +24,7 @@ export function ReconciliationPage() {
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const toast = useToast();
   const [matchFor, setMatchFor] = useState<number | null>(null);
   const [matchForm, setMatchForm] = useState({ payment_id: "", reason: "" });
 
@@ -65,7 +68,7 @@ export function ReconciliationPage() {
           value_date: line.value_date,
         },
       });
-      setNotice(`Bank line "${line.bank_reference}" recorded.`);
+      toast.success(`Bank line "${line.bank_reference}" recorded.`);
       setLine({ bank_reference: "", amount: "", value_date: "" });
       await loadStatus();
     } catch (err) {
@@ -148,7 +151,7 @@ export function ReconciliationPage() {
 
       <Card title="Status" soft>
         {!status ? (
-          <p className="muted">Loading…</p>
+          <SkeletonText lines={3} />
         ) : (
           <dl className="kv">
             <dt>Unreconciled payments</dt>
@@ -264,13 +267,13 @@ export function ReconciliationPage() {
         </label>
 
         {exceptions.length === 0 ? (
-          <p className="muted">No exceptions.</p>
+          <EmptyState message="No exceptions." />
         ) : (
           <table className="data" aria-label="Reconciliation exceptions">
             <thead>
               <tr>
-                <th>#</th>
-                <th>Bank line #</th>
+                <th className="num">#</th>
+                <th className="num">Bank line #</th>
                 <th>Reason</th>
                 <th>Status</th>
                 <th />
@@ -279,8 +282,8 @@ export function ReconciliationPage() {
             <tbody>
               {exceptions.map((ex) => (
                 <tr key={ex.id} data-testid={`exc-row-${ex.id}`}>
-                  <td>{ex.id}</td>
-                  <td>{ex.bank_line_id}</td>
+                  <td className="num">{ex.id}</td>
+                  <td className="num">{ex.bank_line_id}</td>
                   <td>{ex.reason.replace(/_/g, " ")}</td>
                   <td>
                     <StatusBadge status={ex.status} />

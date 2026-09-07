@@ -2,7 +2,8 @@ import { useCallback, useEffect, useState, type FormEvent } from "react";
 import { Link } from "react-router-dom";
 import { api, downloadFile, errorMessage } from "../api/client";
 import type { CustomerListItem } from "../api/types";
-import { Card, ErrorNote, Field, RefCode } from "../components/ui";
+import { Card, EmptyState, ErrorNote, Field, RefCode, ResultSummary } from "../components/ui";
+import { SkeletonTable } from "../components/Skeleton";
 import { StatusBadge } from "../components/StatusBadge";
 
 type StatusFilter = "all" | "active" | "inactive";
@@ -85,17 +86,19 @@ export function CustomerDirectoryPage() {
         </form>
       </Card>
 
-      {rows != null && (
-        <Card>
-          {rows.length === 0 ? (
-            <p className="muted" data-testid="customers-empty">
-              No customers match.
-            </p>
-          ) : (
+      <Card>
+        {rows == null ? (
+          <SkeletonTable rows={5} cols={5} />
+        ) : rows.length === 0 ? (
+          <EmptyState testId="customers-empty" message="No customers match." />
+        ) : (
             <>
-              <p className="muted" data-testid="customers-count">
-                {rows.length} customer{rows.length === 1 ? "" : "s"}
-              </p>
+              <ResultSummary
+                testId="customers-count"
+                total={rows.length}
+                shown={rows.length}
+                noun="customer"
+              />
               <table className="data" aria-label="Customer results">
               <thead>
                 <tr>
@@ -127,7 +130,6 @@ export function CustomerDirectoryPage() {
             </>
           )}
         </Card>
-      )}
     </div>
   );
 }

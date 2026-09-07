@@ -22,7 +22,8 @@ import type {
   EclRunResult,
 } from "../api/types";
 import { MetricGrid, MetricTile } from "../components/MetricTile";
-import { Card, ErrorNote, Field, RefCode, money } from "../components/ui";
+import { Card, EmptyState, ErrorNote, Field, RefCode, money } from "../components/ui";
+import { SkeletonTable, SkeletonText, SkeletonTiles } from "../components/Skeleton";
 
 const NA = "n/a";
 
@@ -172,7 +173,7 @@ function ContractDrilldown({ contractId }: { contractId: number }) {
   }, [contractId]);
 
   if (error) return <ErrorNote message={error} />;
-  if (!detail) return <p className="muted">Loading…</p>;
+  if (!detail) return <SkeletonText lines={4} />;
 
   return (
     <div className="stack" data-testid={`ecl-drilldown-${contractId}`}>
@@ -376,7 +377,19 @@ function PortfolioTable() {
 
       <ErrorNote message={error} />
 
-      {data && (
+      {!data && !error && (
+        <Card>
+          <SkeletonTable rows={5} cols={9} />
+        </Card>
+      )}
+
+      {data && data.rows.length === 0 && (
+        <Card>
+          <EmptyState message="No ECL assessments match these filters." />
+        </Card>
+      )}
+
+      {data && data.rows.length > 0 && (
         <Card>
           <p className="muted">
             {data.rows.length} contract(s) · Total EAD {money(data.total_ead)} ·
@@ -519,6 +532,8 @@ export function EclProvisionPage() {
           {runMsg}
         </div>
       )}
+
+      {!dash && !error && <SkeletonTiles count={6} />}
 
       {dash && (
         <>

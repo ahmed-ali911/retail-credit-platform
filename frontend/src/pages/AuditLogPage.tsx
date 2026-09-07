@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useState, type FormEvent } from "react";
 import { api, errorMessage } from "../api/client";
 import type { AuditEventOut } from "../api/types";
-import { Card, ErrorNote, Field } from "../components/ui";
+import { Card, EmptyState, ErrorNote, Field } from "../components/ui";
+import { SkeletonTable } from "../components/Skeleton";
 import { auditEntityRef, coerceId } from "../lib/reference";
 
 export function AuditLogPage() {
@@ -71,16 +72,14 @@ export function AuditLogPage() {
 
       <Card>
         {events == null ? (
-          <p className="muted">Loading…</p>
+          <SkeletonTable rows={6} cols={5} />
         ) : events.length === 0 ? (
-          <p className="muted" data-testid="audit-empty">
-            No events match.
-          </p>
+          <EmptyState testId="audit-empty" message="No events match." />
         ) : (
           <table className="data" aria-label="Audit events">
             <thead>
               <tr>
-                <th>Event</th>
+                <th className="num">Event</th>
                 <th>When</th>
                 <th>User</th>
                 <th>Action</th>

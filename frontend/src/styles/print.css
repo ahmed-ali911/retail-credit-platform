@@ -1,0 +1,96 @@
+/* Step 16, Part F — printable Customer & Contract report layout.
+   A CSS/layout treatment only: same data the screen already fetched, arranged
+   linearly with the app chrome removed. No new endpoint, no new field. */
+
+@media print {
+  /* remove the app shell — sidebar, top bar, mobile scrim */
+  .appshell__sidebar,
+  .appshell__topbar,
+  .appshell__scrim {
+    display: none !important;
+  }
+  .appshell {
+    display: block !important;
+  }
+  .appshell__main {
+    display: block !important;
+  }
+  .appshell__content {
+    max-width: none !important;
+    margin: 0 !important;
+    padding: 0 !important;
+  }
+
+  /* anything explicitly screen-only (buttons, forms, export controls, the
+     "Print / PDF view" button itself) */
+  .no-print,
+  button,
+  form,
+  .inline-form,
+  .export-group {
+    display: none !important;
+  }
+
+  /* the print-only report header/summary blocks */
+  .print-only {
+    display: block !important;
+  }
+
+  /* flatten cards into plain report sections */
+  .card {
+    box-shadow: none !important;
+    border: 0 !important;
+    border-bottom: 1px solid #ccc !important;
+    border-radius: 0 !important;
+    padding: 0.5rem 0 !important;
+    margin: 0 0 0.75rem !important;
+    overflow: visible !important;
+    break-inside: avoid;
+  }
+  .stack > * + * { margin-top: 0.5rem; }
+
+  body {
+    background: #fff;
+    color: #000;
+    font-size: 11pt;
+  }
+
+  a { color: #000; text-decoration: none; }
+
+  table.data { font-size: 9pt; }
+  table.data th { background: #f0f0f0 !important; }
+
+  .print-header {
+    border-bottom: 2px solid #000;
+    margin-bottom: 0.75rem;
+    padding-bottom: 0.4rem;
+  }
+  .print-header h1 { font-size: 16pt; margin: 0 0 0.2rem; }
+  .print-header .print-meta { font-size: 10pt; color: #333; }
+
+  .print-kpis {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 0.5rem;
+    margin-bottom: 0.75rem;
+  }
+  .print-kpi {
+    border: 1px solid #bbb;
+    padding: 0.4rem 0.5rem;
+  }
+  .print-kpi__label {
+    font-size: 8pt;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: #444;
+  }
+  .print-kpi__value {
+    font-size: 12pt;
+    font-weight: 700;
+    font-variant-numeric: tabular-nums;
+  }
+
+  @page {
+    margin: 14mm;
+  }
+}

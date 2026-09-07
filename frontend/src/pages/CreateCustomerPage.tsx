@@ -2,7 +2,7 @@ import { useState, type FormEvent } from "react";
 import { Link } from "react-router-dom";
 import { api, errorMessage } from "../api/client";
 import type { CustomerOut } from "../api/types";
-import { Card, ErrorNote, Field, RefCode } from "../components/ui";
+import { Card, ErrorNote, Field, FormSection, RefCode } from "../components/ui";
 
 export function CreateCustomerPage() {
   const [form, setForm] = useState({
@@ -84,47 +84,62 @@ export function CreateCustomerPage() {
         <Card>
           <form onSubmit={onSubmit}>
             <ErrorNote message={error} />
-            <div className="field-row">
-              <Field label="Name" value={form.name} onChange={set("name")} required />
-              <Field
-                label="National ID"
-                value={form.national_id}
-                onChange={set("national_id")}
-                required
-              />
-            </div>
-            <div className="field-row">
-              <Field label="Phone" value={form.phone} onChange={set("phone")} />
-              <Field label="Email" type="email" value={form.email} onChange={set("email")} />
-            </div>
-            <div className="field-row">
+
+            <FormSection title="Personal">
+              <div className="field-row">
+                <Field label="Name" value={form.name} onChange={set("name")} required />
+                <Field
+                  label="National ID"
+                  value={form.national_id}
+                  onChange={set("national_id")}
+                  required
+                />
+              </div>
+              <div className="field-row">
+                <Field label="Phone" value={form.phone} onChange={set("phone")} />
+                <Field label="Email" type="email" value={form.email} onChange={set("email")} />
+              </div>
+            </FormSection>
+
+            <FormSection title="Employment">
+              <div className="field-row">
+                <Field
+                  label="Employer (optional)"
+                  value={form.employer_name}
+                  onChange={set("employer_name")}
+                />
+                <Field
+                  label="Contact phone (optional)"
+                  value={form.contact_phone}
+                  onChange={set("contact_phone")}
+                />
+              </div>
+            </FormSection>
+
+            <FormSection title="Financial">
+              <div className="field-row">
+                <Field
+                  label="Monthly income"
+                  inputMode="decimal"
+                  value={form.monthly_income}
+                  onChange={set("monthly_income")}
+                  required
+                />
+                <Field
+                  label="Existing monthly obligations"
+                  inputMode="decimal"
+                  value={form.existing_monthly_obligations}
+                  onChange={set("existing_monthly_obligations")}
+                />
+              </div>
               <Field
                 label="Risk score (0–1000, optional)"
                 inputMode="numeric"
                 value={form.risk_score}
                 onChange={set("risk_score")}
               />
-              <Field
-                label="Employer (optional)"
-                value={form.employer_name}
-                onChange={set("employer_name")}
-              />
-            </div>
-            <div className="field-row">
-              <Field
-                label="Monthly income"
-                inputMode="decimal"
-                value={form.monthly_income}
-                onChange={set("monthly_income")}
-                required
-              />
-              <Field
-                label="Existing monthly obligations"
-                inputMode="decimal"
-                value={form.existing_monthly_obligations}
-                onChange={set("existing_monthly_obligations")}
-              />
-            </div>
+            </FormSection>
+
             <button className="btn-primary" type="submit" disabled={busy}>
               {busy ? "Creating…" : "Create customer"}
             </button>
