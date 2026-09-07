@@ -401,6 +401,8 @@ historical endpoint:
 A new **Appearance** tab **inside** the Configuration screen (admin only — not a
 new nav item). Colour pickers for `--color-primary`, `--color-secondary`,
 `--color-warm` and `--color-danger`, with a live preview and "Reset to defaults".
+*(Step 17 adds a preset gallery, `--color-bg` + `--color-surface` pickers, and
+Brightness / Accent-Intensity sliders — see "What's in Step 17".)*
 
 **This is a personal cosmetic setting, not a business-rule config value:**
 
@@ -596,6 +598,63 @@ Out of scope for Step 16 (unchanged from the prompt): any redesign of colour
 tokens / sidebar / nav grouping, new charts, new backend data or endpoints,
 dark mode, global cross-entity search, bulk-action / inline-editing table
 features.
+
+## What's in Step 17 — theme presets, extended custom colours, Brightness & Accent Intensity
+
+Extends the **Configuration → Appearance** panel (Step 14 Part E). Appearance
+stays exactly what it already was — a **personal, browser-local,
+non-maker-checker cosmetic preference**, stored at `localStorage["rc.appearance"]`
+(now with two extra slider values alongside the colours). No server sync, no
+change to the maker-checker business-rule config screen, nothing outside the
+Appearance panel.
+
+- **Preset gallery** — 6 named presets, each a 3-stripe swatch + label. Picking
+  one is a **shortcut that sets the 6 custom-colour values below** (not a
+  separate store). The active preset shows a selected ring; hand-editing any
+  colour afterwards flips the indicator to **"Custom"** (no preset falsely
+  reads as selected). Every preset is built **only from this platform's
+  established colour family** — navy / royal-blue primary (hue ~205–245°),
+  teal-green success (~137–150°), warm gold-brown attention (~30–45°),
+  brick-red danger (~5–10°), near-white/light-grey surfaces — at different
+  weightings and light/heavy balances. **No preset introduces a hue outside
+  that family, and none is bright, playful or saturated** (asserted in
+  `src/test/step17.test.tsx`):
+
+  | Preset | Character |
+  |---|---|
+  | **Default** | the shipped palette, unchanged (`#2c5fd6` / `#219653` / `#9c7b4f` / `#c0392b` / `#f7fbfd` / `#ffffff`) |
+  | **Deep Navy** | navy-forward — primary pulled toward `--color-primary-dark`, cooler ground |
+  | **Teal Forward** | success/secondary leans teal-green and sits forward; primary cools |
+  | **Warm Gold** | gold/brown attention forward; primary muted so it recedes; warm ground |
+  | **High Contrast** | darker, deeper accents on a crisp cool-grey ground for maximum legibility |
+  | **Graphite** | a heavier, dimmer *light* theme (not dark mode) — grey ground + off-white cards, accents lifted slightly |
+
+- **Custom colours 4 → 6** — added **Background** (`--color-bg`) and
+  **Card / Surface** (`--color-surface`) pickers alongside the existing
+  Primary / Success / Attention / Danger. Same swatch + hex + live-preview
+  interaction.
+- **Brightness slider** — 70–130 %, default 100, with a "Reset" link. Scales
+  the HSL **lightness** of the whole 6-colour palette.
+- **Accent Intensity slider** — 60–140 %, default 100, independent of
+  Brightness. Scales the HSL **saturation** of the **4 accent colours only** —
+  Background and Surface are untouched.
+- Both sliders are a **computed layer** (`adjustColor()` / `computeApplied()` in
+  [lib/appearance.ts](frontend/src/lib/appearance.ts)) applied on top of the 6
+  stored base colours — they change what lands on `:root`, they never rewrite
+  the stored values. `adjustColor(hex, 1, 1)` is an **exact identity**, so at
+  100 % / 100 % the base hex is what reaches `:root` (this is what keeps the
+  Step 14/15 appearance tests passing unmodified). The Live-preview card shows
+  the effective computed hex for all 6 tokens.
+- **Reset to defaults** now also returns Brightness and Accent Intensity to
+  100 %, in addition to the 6 colours reverting to the shipped palette and the
+  stored preference being cleared.
+
+Tests: `src/test/step17.test.tsx` (9). Frontend 94 → 103; **all prior frontend
+tests and all 267 backend tests pass unmodified.** tsc + vite build clean.
+
+Out of scope for Step 17 (from the prompt): any server-side sync of appearance,
+any change to the maker-checker business-rule config screen, dark mode as a
+distinct light/dark toggle, anything outside the Appearance panel.
 
 ### Explicitly out of scope (later steps)
 
@@ -1971,6 +2030,16 @@ Vitest + React Testing Library, API mocked at `fetch`:
   render a "Print / PDF view" button and a populated `PrintHeader`; the
   responsive rules (4-col cap ≥1000px, two-pane collapse ≤760px, `:has()`-scoped
   card overflow, fluid charts) are present
+- **`src/test/step17.test.tsx`** *(Step 17)* — the 6 presets are all within the
+  platform colour family (hue-range assertions per accent) and Default equals
+  the shipped palette; picking a preset updates the live preview and all 6
+  pickers; hand-editing a colour flips the indicator to "Custom" with no preset
+  falsely selected; Background/Surface pickers exist; the Brightness and Accent
+  Intensity sliders change the computed `:root` values while leaving the 6
+  stored base colours untouched (accent slider leaves Background/Surface alone);
+  `adjustColor(hex, 1, 1)` is an exact identity; a preset + both slider
+  positions survive a reload; Reset restores the Default preset and both sliders
+  to 100 %
 
 ---
 

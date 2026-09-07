@@ -375,6 +375,69 @@ a > .ref-code, .ref-code a { color: inherit; }
   cursor: pointer;
 }
 
+/* --- appearance: preset gallery (Step 17) --- */
+.preset-gallery {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+  gap: 0.6rem;
+  margin: 0.5rem 0 0;
+}
+.preset-swatch {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  padding: 0.5rem;
+  text-align: left;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  font-weight: 600;
+}
+.preset-swatch--selected {
+  border-color: var(--color-primary);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--color-primary) 35%, transparent);
+}
+.preset-stripes {
+  display: grid;
+  grid-template-rows: repeat(3, 1fr);
+  height: 34px;
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+  border: 1px solid var(--color-border);
+}
+.preset-stripes > span { display: block; }
+.preset-swatch__name { font-size: 0.8rem; color: var(--color-text); }
+
+/* --- appearance: brightness / accent sliders (Step 17) --- */
+.appearance-slider { margin-top: 1rem; }
+.appearance-slider__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+.appearance-slider input[type="range"] {
+  width: 100%;
+  margin: 0.4rem 0 0;
+  accent-color: var(--color-primary);
+}
+.appearance-slider__hint { font-size: 0.75rem; margin: 0.3rem 0 0; }
+
+/* --- appearance: computed-colour readout (Step 17) --- */
+.computed-swatches {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem 0.9rem;
+}
+.computed-swatch { display: inline-flex; align-items: center; gap: 0.35rem; }
+.computed-swatch__chip {
+  width: 18px;
+  height: 18px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--color-border);
+  flex-shrink: 0;
+}
+
 /* --- tab bar --- */
 .tabs { display: flex; gap: 0.25rem; border-bottom: 1px solid var(--color-border); flex-wrap: wrap; }
 .tabs button {
