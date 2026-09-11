@@ -182,7 +182,8 @@ def test_posting_job_is_idempotent(client):
     active_contract(client, national_id="AE-10")
 
     first = client.post("/jobs/post-accounting-events").json()
-    assert first["posted"] == 2  # contract_activated + down_payment_received
+    # contract_activated + down_payment_received + ecl_provision_created (day-one)
+    assert first["posted"] == 3
 
     second = client.post("/jobs/post-accounting-events").json()
     assert second["events_considered"] == 0

@@ -456,89 +456,189 @@ export interface PaymentResult {
   };
 }
 
-// --- ECL & provision (first slice) ---------------------------------------- //
-export interface EclLastRun {
+// --- ECL & provision ----------------------------------------------------- //
+export interface EclRunDict {
   run_id: number;
+  run_ref: string | null;
+  status: string;
   as_of_date: string;
   methodology: string;
+  ecl_config_version: number | null;
   contracts_assessed: number;
+  contracts_by_stage: Record<string, number> | null;
   total_ead: number | null;
   total_ecl: number | null;
+  total_ecl_stage_1: number | null;
+  total_ecl_stage_2: number | null;
+  total_ecl_stage_3: number | null;
   total_provision_movement: number | null;
   accounting_event_id: number | null;
+  posted_at: string | null;
   created_at: string;
 }
 
 export interface EclDashboard {
   active_methodology: string;
-  methodology_note: string;
-  total_ead: number;
-  ecl_balance: number;
-  provision_balance: number;
-  ecl_coverage_pct: number | null;
-  ecl_not_computable_count: number;
-  pd_lgd_note: string | null;
+  ecl_config_version: number;
+  total_exposure: number;
+  total_ecl: number;
+  total_provision: number;
+  provision_movement: number;
+  coverage_ratio: number | null;
   contracts_assessed: number;
-  stage_exposure: Record<string, number> | "n/a";
-  last_run: EclLastRun | null;
+  stage_exposure: Record<string, number>;
+  stage_ecl: Record<string, number>;
+  default_exposure: number;
+  overrides_pending: number;
+  overrides_active: number;
+  stage_migration: Record<string, number>;
+  last_run: EclRunDict | null;
+}
+
+export interface EclStageTrigger {
+  id: string;
+  name: string;
+  category: string;
+  triggered: boolean;
+  detail: string;
 }
 
 export interface EclAssessmentRow {
+  assessment_id: number;
+  run_id: number | null;
   contract_id: number;
   customer_id: number | null;
   customer_name: string | null;
   product_id: number | null;
   contract_status: string | null;
-  risk_band: string;
   assessment_date: string;
   methodology: string;
+  ecl_config_version: number | null;
   ead: number | null;
   dpd: number;
   dpd_bucket: string | null;
-  stage: number | null;
-  stage_reason: string | null;
-  pd: number | null;
-  lgd: number | null;
-  pd_lgd_note: string | null;
-  loss_rate: number | null;
-  ecl_amount: number | null;
-  ecl_note: string | null;
-  provision_before: number | null;
+  risk_rating: string | null;
+  risk_segment: string | null;
+  origination_rating: string | null;
+  origination_pd_12m: number | null;
+  automated_stage: number | null;
+  automated_pd_12m: number | null;
+  automated_pd_lifetime: number | null;
+  automated_lgd: number | null;
+  automated_ecl: number | null;
+  override_stage: number | null;
+  override_pd_12m: number | null;
+  override_pd_lifetime: number | null;
+  override_lgd: number | null;
+  override_status: string | null;
+  final_stage: number | null;
+  final_pd_12m: number | null;
+  final_pd_lifetime: number | null;
+  final_lgd: number | null;
+  final_ead: number | null;
+  final_ecl: number | null;
+  previous_ecl: number | null;
+  opening_provision: number | null;
+  calculated_ecl: number | null;
+  override_adjustment: number | null;
+  closing_provision: number | null;
   provision_movement: number | null;
+  movement_type: string | null;
+  stage_reason: string | null;
+  cure_note: string | null;
 }
 
 export interface EclPortfolio {
   columns: string[];
   rows: EclAssessmentRow[];
+  total: number;
+  limit: number;
+  offset: number;
   totals: Record<string, number>;
   total_ead: number;
-  total_ecl: number | null;
-  ecl_not_computable_count: number;
+  total_ecl: number;
+}
+
+export interface EclOverride {
+  id: number;
+  override_type: string;
+  status: string;
+  reason_code: string;
+  justification: string;
+  evidence_ref: string | null;
+  comments: string | null;
+  automated_value: Record<string, unknown>;
+  approved_value: Record<string, unknown>;
+  ecl_before: number | null;
+  ecl_after: number | null;
+  financial_impact: number | null;
+  effective_from: string;
+  effective_to: string | null;
+  review_date: string | null;
+  approval_request_id: number | null;
+  requested_by: number | null;
+  approved_by: number | null;
+  created_at: string;
 }
 
 export interface EclContractDetail extends EclAssessmentRow {
+  stage_triggers: EclStageTrigger[];
   config_snapshot: Record<string, unknown>;
+  versions: Record<string, string | number | null>;
   history: Array<{
     assessment_date: string;
+    run_id: number | null;
     methodology: string;
     ead: number | null;
     dpd: number;
-    dpd_bucket: string | null;
-    stage: number | null;
-    ecl_amount: number | null;
+    automated_stage: number | null;
+    final_stage: number | null;
+    automated_ecl: number | null;
+    final_ecl: number | null;
+    opening_provision: number | null;
+    closing_provision: number | null;
     provision_movement: number | null;
-    run_id: number | null;
+    movement_type: string | null;
+    override_id: number | null;
   }>;
+  stage_migration_history: Array<{ date: string; automated: number | null; final: number | null }>;
+  overrides: EclOverride[];
+  accounting_events: Array<{
+    id: number;
+    event_type: string;
+    amount: number | null;
+    status: string;
+    event_date: string;
+    external_gl_reference: string | null;
+  }>;
+  override_rules?: Record<string, unknown>;
 }
 
 export interface EclRunResult {
   run_id: number;
+  run_ref: string;
+  status: string;
   as_of_date: string;
   methodology: string;
+  ecl_config_version: number;
   contracts_assessed: number;
+  contracts_by_stage: Record<string, number>;
   total_ead: number;
   total_ecl: number | null;
+  total_ecl_by_stage: Record<string, number>;
   total_provision_movement: number | null;
   accounting_event_id: number | null;
-  pd_lgd_note: string | null;
+  posted: boolean;
+}
+
+export interface EclConfigResponse {
+  active: Record<string, unknown> & { ecl_config_version: number; methodology: string };
+  versions: Array<{
+    version: number;
+    is_active: boolean;
+    methodology: string;
+    notes: string | null;
+    created_by: number | null;
+    activated_at: string | null;
+  }>;
 }

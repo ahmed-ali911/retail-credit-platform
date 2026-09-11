@@ -26,6 +26,9 @@ from sqlalchemy.orm import Session
 
 from app.models.approval import (
     ACTION_CONFIG_UPDATE,
+    ACTION_ECL_CONFIG_UPDATE,
+    ACTION_ECL_PARAMETER_OVERRIDE,
+    ACTION_ECL_STAGE_OVERRIDE,
     ACTION_LATE_FEE_WAIVE,
     ACTION_RECON_MANUAL_MATCH,
     ACTION_SETTLEMENT_REBATE,
@@ -34,6 +37,8 @@ from app.models.approval import (
 )
 from app.models.accounting import AccountingEventType
 from app.models.contract import InstallmentContract
+from app.models.ecl import ECLOverride, ECLOverrideStatus
+from app.services import ecl_config
 from app.models.ledger import LedgerEntryType, LedgerRelatedAction
 from app.models.payment import LateFeeCharge, LateFeeStatus, Payment
 from app.models.reconciliation import ReconciliationException
@@ -119,6 +124,8 @@ def decide(
 
     if approve:
         _execute(db, approval, actor_id=decider_id)
+    else:
+        _on_reject(db, approval, actor_id=decider_id)
 
     record_event(
         db,
@@ -254,7 +261,82 @@ def _execute(db: Session, approval: ApprovalRequest, *, actor_id: int) -> None:
         )
         return
 
+    if approval.action_type in (ACTION_ECL_STAGE_OVERRIDE, ACTION_ECL_PARAMETER_OVERRIDE):
+        ov = db.get(ECLOverride, int(approval.entity_id))
+        if ov is None:
+            raise DomainError("ECL override no longer exists", status_code=409)
+        if ov.status != ECLOverrideStatus.pending:
+            raise DomainError(
+                f"ECL override {ov.id} is already {ov.status.value}", status_code=409
+            )
+        today = _utcnow().date()
+        in_window = ov.effective_from <= today and (
+            ov.effective_to is None or today <= ov.effective_to
+        )
+        ov.status = ECLOverrideStatus.active if in_window else ECLOverrideStatus.approved
+        ov.approved_by = actor_id
+        ov.decided_at = _utcnow()
+        record_event(
+            db,
+            user_id=actor_id,
+            action="ecl.override_approved",
+            entity_type="ecl_override",
+            entity_id=ov.id,
+            before={"status": "PENDING"},
+            after={
+                "status": ov.status.value,
+                "override_type": ov.override_type.value,
+                "approved_value": ov.approved_value,
+                "approval_request_id": approval.id,
+            },
+        )
+        return
+
+    if approval.action_type == ACTION_ECL_CONFIG_UPDATE:
+        payload = approval.payload or {}
+        try:
+            new_cfg = ecl_config.activate_version(
+                db,
+                changes=payload["changes"],
+                actor_id=actor_id,
+                notes=payload.get("notes"),
+            )
+        except ValueError as exc:
+            raise DomainError(str(exc), status_code=409)
+        record_event(
+            db,
+            user_id=actor_id,
+            action="ecl.config_activated",
+            entity_type="ecl_configuration",
+            entity_id=new_cfg.version,
+            after={
+                "version": new_cfg.version,
+                "changes": payload["changes"],
+                "approval_request_id": approval.id,
+            },
+        )
+        return
+
     raise DomainError(
         f"Don't know how to execute action_type '{approval.action_type}'",
         status_code=409,
     )
+
+
+def _on_reject(db: Session, approval: ApprovalRequest, *, actor_id: int) -> None:
+    """Cleanup hooks for rejected requests (most action types need none)."""
+    if approval.action_type in (ACTION_ECL_STAGE_OVERRIDE, ACTION_ECL_PARAMETER_OVERRIDE):
+        ov = db.get(ECLOverride, int(approval.entity_id))
+        if ov is not None and ov.status == ECLOverrideStatus.pending:
+            ov.status = ECLOverrideStatus.rejected
+            ov.approved_by = actor_id
+            ov.decided_at = _utcnow()
+            record_event(
+                db,
+                user_id=actor_id,
+                action="ecl.override_rejected",
+                entity_type="ecl_override",
+                entity_id=ov.id,
+                before={"status": "PENDING"},
+                after={"status": "REJECTED", "approval_request_id": approval.id},
+            )

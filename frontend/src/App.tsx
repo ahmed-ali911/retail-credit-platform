@@ -22,6 +22,8 @@ import { SnapshotPage } from "./pages/SnapshotPage";
 import { InventoryPage } from "./pages/InventoryPage";
 import { ReportsPage } from "./pages/ReportsPage";
 import { EclProvisionPage } from "./pages/EclProvisionPage";
+import { EclAssessmentDetailPage } from "./pages/EclAssessmentDetailPage";
+import { EclConfigPage } from "./pages/EclConfigPage";
 
 export default function App() {
   return (
@@ -55,6 +57,8 @@ export default function App() {
         <Route path="inventory" element={<InventoryPage />} />
         <Route path="reports" element={<ReportsPage />} />
         <Route path="ecl" element={<EclProvisionPage />} />
+        <Route path="ecl/config" element={<EclConfigPage />} />
+        <Route path="ecl/contracts/:contractId" element={<EclAssessmentDetailPage />} />
         <Route path="config" element={<ConfigPage />} />
         <Route path="audit" element={<AuditLogPage />} />
       </Route>

@@ -1,10 +1,11 @@
 import {
-  Fragment,
   useCallback,
   useEffect,
+  useMemo,
   useState,
   type FormEvent,
 } from "react";
+import { Link } from "react-router-dom";
 import {
   Activity,
   Gauge,
@@ -14,27 +15,43 @@ import {
   ShieldAlert,
   Wallet,
 } from "lucide-react";
+import {
+  Bar,
+  BarChart,
+  CartesianGrid,
+  Cell,
+  ResponsiveContainer,
+  Tooltip,
+  XAxis,
+  YAxis,
+} from "recharts";
 import { api, downloadFile, errorMessage } from "../api/client";
 import type {
-  EclContractDetail,
+  EclConfigResponse,
   EclDashboard,
   EclPortfolio,
   EclRunResult,
 } from "../api/types";
 import { MetricGrid, MetricTile } from "../components/MetricTile";
-import { Card, EmptyState, ErrorNote, Field, RefCode, money } from "../components/ui";
-import { SkeletonTable, SkeletonText, SkeletonTiles } from "../components/Skeleton";
+import { Card, EmptyState, ErrorNote, Field, money } from "../components/ui";
+import { SkeletonTable, SkeletonTiles } from "../components/Skeleton";
 
 const NA = "n/a";
+const STAGE_COLOURS: Record<string, string> = {
+  "1": "var(--color-secondary, #2e7d5b)",
+  "2": "var(--color-warm, #b7791f)",
+  "3": "var(--color-danger, #b3261e)",
+};
 
 function pct(v: number | null | undefined): string {
   return v == null ? NA : `${(v * 100).toFixed(2)}%`;
 }
-
 function num(v: number | null | undefined): string {
   return v == null ? NA : money(v);
 }
-
+function rate(v: number | null | undefined): string {
+  return v == null ? NA : `${(v * 100).toFixed(2)}%`;
+}
 function qs(params: Record<string, string>): string {
   const p = new URLSearchParams();
   for (const [k, v] of Object.entries(params)) if (v) p.set(k, v);
@@ -42,96 +59,176 @@ function qs(params: Record<string, string>): string {
 }
 
 // --------------------------------------------------------------------------- //
-// Dashboard tiles
+// KPI + stage cards
 // --------------------------------------------------------------------------- //
-function DashboardTiles({ data }: { data: EclDashboard }) {
-  const stage = data.stage_exposure;
+function Kpis({ d }: { d: EclDashboard }) {
   return (
-    <div className="stack">
-      <MetricGrid>
-        <MetricTile label="Total EAD" value={money(data.total_ead)} icon={Wallet} subLabel="exposure at default" />
-        <MetricTile
-          label="ECL balance"
-          value={money(data.ecl_balance)}
-          tone="warn"
-          icon={ShieldAlert}
-          subLabel={
-            data.ecl_not_computable_count > 0
-              ? `${data.ecl_not_computable_count} contract(s) n/a — ${data.pd_lgd_note ?? ""}`
-              : undefined
-          }
-        />
-        <MetricTile label="Provision balance" value={money(data.provision_balance)} icon={Layers} subLabel="provision = ECL in this slice" />
-        <MetricTile label="ECL coverage %" value={pct(data.ecl_coverage_pct)} icon={Percent} />
-        <MetricTile label="Contracts assessed" value={data.contracts_assessed} icon={Activity} />
-      </MetricGrid>
+    <MetricGrid>
+      <MetricTile label="Total exposure (EAD)" value={money(d.total_exposure)} icon={Wallet} />
+      <MetricTile
+        label="Total ECL"
+        value={money(d.total_ecl)}
+        tone="warn"
+        icon={ShieldAlert}
+        subLabel={`config v${d.ecl_config_version} · ${d.active_methodology}`}
+      />
+      <MetricTile
+        label="Total provision"
+        value={money(d.total_provision)}
+        icon={Layers}
+        subLabel="carrying provision = ECL"
+      />
+      <MetricTile
+        label="Provision movement"
+        value={money(d.provision_movement)}
+        tone={d.provision_movement > 0 ? "warn" : d.provision_movement < 0 ? "good" : "neutral"}
+        icon={Activity}
+        subLabel="latest run vs prior"
+      />
+      <MetricTile label="Coverage ratio" value={pct(d.coverage_ratio)} icon={Percent} />
+    </MetricGrid>
+  );
+}
 
-      <Card title="Stage exposure (IFRS 9 3-stage — Path B only)" soft>
-        {stage === "n/a" ? (
-          <p className="muted" data-testid="ecl-stage-na">
-            <strong>n/a</strong> — the active methodology (<code>{data.active_methodology}</code>)
-            has no stage concept. A 1/2/3 split only applies under{" "}
-            <code>three_stage</code>.
-          </p>
-        ) : (
-          <table className="data" aria-label="Stage exposure">
-            <thead>
-              <tr>
-                <th>Stage</th>
-                <th className="num">EAD exposure</th>
-              </tr>
-            </thead>
-            <tbody>
-              {Object.entries(stage).map(([k, v]) => (
-                <tr key={k} data-testid={`ecl-stage-${k}`}>
-                  <td>{k === "unstaged" ? "unstaged" : `Stage ${k}`}</td>
-                  <td className="num">{money(v)}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        )}
-      </Card>
-    </div>
+function StageCards({ d }: { d: EclDashboard }) {
+  const stageEcl = d.stage_ecl ?? {};
+  const stageExp = d.stage_exposure ?? {};
+  const chart = ["1", "2", "3"].map((s) => ({
+    stage: `Stage ${s}`,
+    key: s,
+    ecl: stageEcl[s] ?? 0,
+  }));
+  const staged = d.active_methodology === "three_stage";
+  return (
+    <Card title="IFRS 9 staging" soft>
+      {!staged ? (
+        <p className="muted" data-testid="ecl-stage-na">
+          <strong>n/a</strong> — the active methodology (<code>{d.active_methodology}</code>) has
+          no stage concept. A Stage 1 / 2 / 3 split applies only under <code>three_stage</code>.
+        </p>
+      ) : (
+        <>
+          <div className="metric-grid" style={{ marginBottom: "0.75rem" }}>
+            {["1", "2", "3"].map((s) => (
+              <div key={s} className="metric-tile" data-testid={`ecl-stage-card-${s}`}>
+                <div className="metric-tile__head">
+                  <span className="metric-tile__label">
+                    Stage {s}
+                    {s === "1" ? " — 12-month ECL" : " — lifetime ECL"}
+                  </span>
+                </div>
+                <div className="metric-tile__value">{money(stageEcl[s] ?? 0)}</div>
+                <div className="metric-tile__sub">
+                  exposure {money(stageExp[s] ?? 0)}
+                </div>
+              </div>
+            ))}
+          </div>
+          <div style={{ width: "100%", height: 200 }}>
+            <ResponsiveContainer>
+              <BarChart data={chart}>
+                <CartesianGrid strokeDasharray="3 3" opacity={0.3} />
+                <XAxis dataKey="stage" fontSize={12} />
+                <YAxis fontSize={12} width={70} />
+                <Tooltip formatter={(v) => money(Number(v))} />
+                <Bar dataKey="ecl" radius={[4, 4, 0, 0]}>
+                  {chart.map((c) => (
+                    <Cell key={c.key} fill={STAGE_COLOURS[c.key]} />
+                  ))}
+                </Bar>
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+        </>
+      )}
+    </Card>
+  );
+}
+
+function IndicatorStrip({ d }: { d: EclDashboard }) {
+  const m = d.stage_migration ?? {};
+  return (
+    <Card soft>
+      <div className="kv" data-testid="ecl-indicators">
+        <dt>Default (Stage 3) exposure</dt>
+        <dd>{money(d.default_exposure)}</dd>
+        <dt>Overrides — active</dt>
+        <dd>{d.overrides_active}</dd>
+        <dt>Overrides — pending approval</dt>
+        <dd>
+          {d.overrides_pending > 0 ? (
+            <Link to="/approvals">{d.overrides_pending} pending</Link>
+          ) : (
+            "0"
+          )}
+        </dd>
+        <dt>Stage migration (last run)</dt>
+        <dd>
+          ▲ {m.upgraded ?? 0} upgraded · ▼ {m.downgraded ?? 0} downgraded · {m.unchanged ?? 0} held
+        </dd>
+      </div>
+    </Card>
   );
 }
 
 // --------------------------------------------------------------------------- //
-// Run ECL Calculation panel
+// Run + post
 // --------------------------------------------------------------------------- //
 function RunPanel({
-  data,
-  onRun,
-  busy,
+  d,
+  onDone,
 }: {
-  data: EclDashboard;
-  onRun: (asOf: string) => void;
-  busy: boolean;
+  d: EclDashboard;
+  onDone: () => void;
 }) {
   const [asOf, setAsOf] = useState("");
-  const run = data.last_run;
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState<string | null>(null);
+  const [err, setErr] = useState<string | null>(null);
+  const run = d.last_run;
+
+  async function go(post: boolean) {
+    setBusy(true);
+    setMsg(null);
+    setErr(null);
+    try {
+      const res = await api<EclRunResult>("/ecl/run", {
+        method: "POST",
+        body: { post, ...(asOf ? { as_of: asOf } : {}) },
+      });
+      setMsg(
+        `${res.run_ref} — ${res.status} · ${res.contracts_assessed} contract(s) · ` +
+          `ECL ${money(res.total_ecl)} · movement ${num(res.total_provision_movement)}` +
+          (res.posted ? ` · posted (event #${res.accounting_event_id})` : " · not posted"),
+      );
+      onDone();
+    } catch (e) {
+      setErr(errorMessage(e));
+    } finally {
+      setBusy(false);
+    }
+  }
+
   return (
     <Card title="Run ECL calculation">
       <p className="muted">
-        On-demand recalculation (no scheduler yet). Re-assesses every active
-        contract and emits one <code>ecl_provision_movement</code> accounting
-        event for the portfolio's provision movement.
+        On-demand recalculation (no scheduler). Re-assesses every active contract; a run is
+        immutable. <strong>Post</strong> finalises it — one accounting event per contract
+        provision movement plus a portfolio roll-up.
       </p>
       <dl className="kv">
         <dt>Active methodology</dt>
         <dd data-testid="ecl-active-methodology">
-          <code>{data.active_methodology}</code> — read-only, set via Configuration
+          <code>{d.active_methodology}</code> · config v{d.ecl_config_version} — set via{" "}
+          <Link to="/ecl/config">ECL Configuration</Link>
         </dd>
-        <dd style={{ gridColumn: "1 / -1" }} className="muted">
-          {data.methodology_note}
-        </dd>
-        <dt>Last successful run</dt>
+        <dt>Last run</dt>
         <dd data-testid="ecl-last-run">
-          {run ? `${run.as_of_date} (run #${run.run_id})` : "— never run"}
+          {run
+            ? `${run.run_ref} · ${run.status} · as of ${run.as_of_date}`
+            : "— never run"}
         </dd>
-        <dt>Contracts processed</dt>
-        <dd>{run ? run.contracts_assessed : NA}</dd>
-        <dt>Total ECL generated</dt>
+        <dt>Total ECL (last run)</dt>
         <dd>{run ? num(run.total_ecl) : NA}</dd>
         <dt>Provision movement (last run)</dt>
         <dd>{run ? num(run.total_provision_movement) : NA}</dd>
@@ -140,7 +237,7 @@ function RunPanel({
         className="inline-form"
         onSubmit={(e: FormEvent) => {
           e.preventDefault();
-          onRun(asOf);
+          void go(false);
         }}
       >
         <Field
@@ -150,149 +247,61 @@ function RunPanel({
           onChange={(e) => setAsOf(e.target.value)}
         />
         <button className="btn-primary" type="submit" disabled={busy}>
-          <PlayCircle size={15} aria-hidden /> {busy ? "Running…" : "Run ECL calculation"}
+          <PlayCircle size={15} aria-hidden /> {busy ? "Running…" : "Run (draft)"}
+        </button>
+        <button
+          className="btn-secondary"
+          type="button"
+          disabled={busy}
+          onClick={() => void go(true)}
+        >
+          Run &amp; post
         </button>
       </form>
-    </Card>
-  );
-}
-
-// --------------------------------------------------------------------------- //
-// Drill-down — the exact inputs of a contract's last calculation
-// --------------------------------------------------------------------------- //
-function ContractDrilldown({ contractId }: { contractId: number }) {
-  const [detail, setDetail] = useState<EclContractDetail | null>(null);
-  const [error, setError] = useState<string | null>(null);
-
-  useEffect(() => {
-    setDetail(null);
-    setError(null);
-    void api<EclContractDetail>(`/ecl/contracts/${contractId}`)
-      .then(setDetail)
-      .catch((e) => setError(errorMessage(e)));
-  }, [contractId]);
-
-  if (error) return <ErrorNote message={error} />;
-  if (!detail) return <SkeletonText lines={4} />;
-
-  return (
-    <div className="stack" data-testid={`ecl-drilldown-${contractId}`}>
-      <dl className="kv">
-        <dt>Methodology</dt>
-        <dd>{detail.methodology}</dd>
-        <dt>Assessment date</dt>
-        <dd>{detail.assessment_date}</dd>
-        <dt>EAD</dt>
-        <dd>{num(detail.ead)}</dd>
-        <dt>DPD</dt>
-        <dd>{detail.dpd}</dd>
-        <dt>DPD bucket</dt>
-        <dd>{detail.dpd_bucket ?? NA}</dd>
-        <dt>Stage</dt>
-        <dd>{detail.stage ?? NA}</dd>
-        {detail.stage_reason && (
-          <>
-            <dt>Stage reasoning</dt>
-            <dd>{detail.stage_reason}</dd>
-          </>
-        )}
-        <dt>PD</dt>
-        <dd>{detail.pd ?? detail.pd_lgd_note ?? NA}</dd>
-        <dt>LGD</dt>
-        <dd>{detail.lgd ?? detail.pd_lgd_note ?? NA}</dd>
-        <dt>Loss rate</dt>
-        <dd>{detail.loss_rate == null ? NA : pct(detail.loss_rate)}</dd>
-        <dt>Calculated ECL</dt>
-        <dd>{detail.ecl_amount ?? detail.ecl_note ?? NA}</dd>
-        <dt>Provision movement</dt>
-        <dd>{num(detail.provision_movement)}</dd>
-      </dl>
-
-      <Card title="Config snapshot at calculation time" soft>
-        <pre
-          data-testid="ecl-config-snapshot"
-          style={{
-            margin: 0,
-            padding: "0.75rem",
-            background: "var(--color-bg)",
-            borderRadius: "var(--radius-sm, 6px)",
-            fontSize: "0.78rem",
-            overflowX: "auto",
-          }}
-        >
-          {JSON.stringify(detail.config_snapshot, null, 2)}
-        </pre>
-      </Card>
-
-      {detail.history.length > 1 && (
-        <Card title="Assessment history" soft>
-          <table className="data">
-            <thead>
-              <tr>
-                <th>Date</th>
-                <th>Method</th>
-                <th className="num">EAD</th>
-                <th className="num">DPD</th>
-                <th className="num">Stage</th>
-                <th className="num">ECL</th>
-                <th className="num">Movement</th>
-              </tr>
-            </thead>
-            <tbody>
-              {detail.history.map((h, i) => (
-                <tr key={i}>
-                  <td>{h.assessment_date}</td>
-                  <td>{h.methodology}</td>
-                  <td className="num">{num(h.ead)}</td>
-                  <td className="num">{h.dpd}</td>
-                  <td className="num">{h.stage ?? NA}</td>
-                  <td className="num">{h.ecl_amount ?? NA}</td>
-                  <td className="num">{num(h.provision_movement)}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </Card>
+      {msg && (
+        <div className="alert alert--info" role="status" data-testid="ecl-run-result">
+          {msg}
+        </div>
       )}
-    </div>
+      <ErrorNote message={err} />
+    </Card>
   );
 }
 
 // --------------------------------------------------------------------------- //
 // Portfolio table
 // --------------------------------------------------------------------------- //
-const RISK_BANDS = ["low", "medium", "high", "unscored"];
-const CONTRACT_STATUSES = ["created", "active", "closed"];
+const PAGE = 25;
 
 function PortfolioTable() {
   const [filters, setFilters] = useState({
-    assessment_date: "",
-    product_id: "",
-    risk_band: "",
-    dpd_bucket: "",
-    contract_status: "",
+    stage: "",
+    dpd_band: "",
+    risk_rating: "",
+    override_status: "",
   });
+  const [offset, setOffset] = useState(0);
   const [data, setData] = useState<EclPortfolio | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [open, setOpen] = useState<number | null>(null);
 
   const query = useCallback(
-    () =>
+    (extra: Record<string, string> = {}) =>
       qs({
-        assessment_date: filters.assessment_date,
-        product_id: filters.product_id,
-        risk_band: filters.risk_band,
-        dpd_bucket: filters.dpd_bucket,
-        contract_status: filters.contract_status,
+        stage: filters.stage,
+        dpd_band: filters.dpd_band,
+        risk_rating: filters.risk_rating,
+        override_status: filters.override_status,
+        limit: String(PAGE),
+        offset: String(offset),
+        ...extra,
       }),
-    [filters],
+    [filters, offset],
   );
 
   const load = useCallback(async () => {
     setError(null);
     try {
-      const q = query();
-      setData(await api<EclPortfolio>(`/ecl/assessments${q ? `?${q}` : ""}`));
+      setData(await api<EclPortfolio>(`/ecl/assessments?${query()}`));
     } catch (e) {
       setError(errorMessage(e));
     }
@@ -302,57 +311,57 @@ function PortfolioTable() {
     void load();
   }, [load]);
 
-  const set = (k: keyof typeof filters) => (e: { target: { value: string } }) =>
+  const set = (k: keyof typeof filters) => (e: { target: { value: string } }) => {
+    setOffset(0);
     setFilters((f) => ({ ...f, [k]: e.target.value }));
+  };
 
-  const buckets = Array.from(
-    new Set((data?.rows ?? []).map((r) => r.dpd_bucket).filter(Boolean) as string[]),
-  );
+  const pageInfo = useMemo(() => {
+    if (!data) return "";
+    const from = data.total === 0 ? 0 : data.offset + 1;
+    const to = Math.min(data.offset + data.limit, data.total);
+    return `${from}–${to} of ${data.total}`;
+  }, [data]);
 
   return (
     <div className="stack">
       <Card title="ECL portfolio">
-        <form
-          className="field-row"
-          onSubmit={(e: FormEvent) => {
-            e.preventDefault();
-            void load();
-          }}
-        >
-          <Field label="Assessment date" type="date" value={filters.assessment_date} onChange={set("assessment_date")} />
-          <Field label="Product #" value={filters.product_id} onChange={set("product_id")} inputMode="numeric" />
+        <form className="field-row" onSubmit={(e) => { e.preventDefault(); void load(); }}>
           <label className="field">
-            <span>Risk band</span>
-            <select value={filters.risk_band} onChange={set("risk_band")}>
+            <span>Final stage</span>
+            <select value={filters.stage} onChange={set("stage")}>
               <option value="">Any</option>
-              {RISK_BANDS.map((b) => (
+              <option value="1">Stage 1</option>
+              <option value="2">Stage 2</option>
+              <option value="3">Stage 3</option>
+            </select>
+          </label>
+          <label className="field">
+            <span>DPD band</span>
+            <select value={filters.dpd_band} onChange={set("dpd_band")}>
+              <option value="">Any</option>
+              {["current", "1-30", "31-60", "61-90", "91+"].map((b) => (
                 <option key={b} value={b}>{b}</option>
               ))}
             </select>
           </label>
+          <Field
+            label="Risk rating"
+            value={filters.risk_rating}
+            onChange={set("risk_rating")}
+            placeholder="A / B / C…"
+          />
           <label className="field">
-            <span>DPD bucket</span>
-            <select value={filters.dpd_bucket} onChange={set("dpd_bucket")}>
+            <span>Override</span>
+            <select value={filters.override_status} onChange={set("override_status")}>
               <option value="">Any</option>
-              {["current", ...buckets.filter((b) => b !== "current")].map((b) => (
-                <option key={b} value={b}>{b}</option>
-              ))}
-            </select>
-          </label>
-          <label className="field">
-            <span>Contract status</span>
-            <select value={filters.contract_status} onChange={set("contract_status")}>
-              <option value="">Any</option>
-              {CONTRACT_STATUSES.map((s) => (
-                <option key={s} value={s}>{s}</option>
-              ))}
+              <option value="active">With active override</option>
+              <option value="none">No override</option>
             </select>
           </label>
         </form>
         <div className="inline-form" style={{ marginTop: "0.75rem" }}>
-          <button className="btn-primary" onClick={() => void load()}>
-            Apply filters
-          </button>
+          <button className="btn-primary" onClick={() => void load()}>Apply</button>
           <span className="export-group">
             <span>Export</span>
             {(["csv", "xlsx", "pdf"] as const).map((fmt) => (
@@ -360,13 +369,12 @@ function PortfolioTable() {
                 key={fmt}
                 type="button"
                 className="btn-secondary"
-                onClick={() => {
-                  const q = query();
+                onClick={() =>
                   downloadFile(
-                    `/ecl/assessments?${q ? `${q}&` : ""}format=${fmt}`,
+                    `/ecl/assessments?${query({ format: fmt })}`,
                     `ecl-portfolio.${fmt}`,
-                  ).catch((e) => setError(errorMessage(e)));
-                }}
+                  ).catch((e) => setError(errorMessage(e)))
+                }
               >
                 {fmt.toUpperCase()}
               </button>
@@ -378,91 +386,78 @@ function PortfolioTable() {
       <ErrorNote message={error} />
 
       {!data && !error && (
-        <Card>
-          <SkeletonTable rows={5} cols={9} />
-        </Card>
+        <Card><SkeletonTable rows={6} cols={9} /></Card>
       )}
 
       {data && data.rows.length === 0 && (
-        <Card>
-          <EmptyState message="No ECL assessments match these filters." />
-        </Card>
+        <Card><EmptyState message="No ECL assessments match these filters." /></Card>
       )}
 
       {data && data.rows.length > 0 && (
         <Card>
           <p className="muted">
-            {data.rows.length} contract(s) · Total EAD {money(data.total_ead)} ·
-            ECL {data.total_ecl == null ? NA : money(data.total_ecl)}
-            {data.ecl_not_computable_count > 0 &&
-              ` · ${data.ecl_not_computable_count} not computable (no PD/LGD source)`}
+            {pageInfo} · EAD {money(data.total_ead)} · ECL {money(data.total_ecl)}
           </p>
-          <table className="data" aria-label="ECL portfolio">
-            <thead>
-              <tr>
-                <th>Contract</th>
-                <th>Customer</th>
-                <th className="num">EAD</th>
-                <th className="num">DPD</th>
-                <th>Stage</th>
-                <th>PD</th>
-                <th>LGD</th>
-                <th className="num">Calculated ECL</th>
-                <th>Assessment date</th>
-              </tr>
-            </thead>
-            <tbody>
-              {data.rows.length === 0 ? (
+          <div style={{ overflowX: "auto" }}>
+            <table className="data" aria-label="ECL portfolio">
+              <thead>
                 <tr>
-                  <td colSpan={9} className="muted">No assessments match.</td>
+                  <th>Contract</th>
+                  <th>Customer</th>
+                  <th>Rating</th>
+                  <th className="num">EAD</th>
+                  <th className="num">DPD</th>
+                  <th className="num">Auto stage</th>
+                  <th className="num">Override</th>
+                  <th className="num">Final stage</th>
+                  <th className="num">Final ECL</th>
+                  <th className="num">Movement</th>
                 </tr>
-              ) : (
-                data.rows.map((r) => (
-                  <Fragment key={r.contract_id}>
-                    <tr data-testid={`ecl-row-${r.contract_id}`}>
-                      <td>
-                        <button
-                          className="btn-link"
-                          onClick={() =>
-                            setOpen((o) => (o === r.contract_id ? null : r.contract_id))
-                          }
-                        >
-                          <RefCode entity="InstallmentContract" id={r.contract_id} />
-                        </button>
-                      </td>
-                      <td>{r.customer_name ?? "—"}</td>
-                      <td className="num">{num(r.ead)}</td>
-                      <td className="num">{r.dpd}</td>
-                      <td>
-                        {r.stage == null ? (
-                          <span className="muted">n/a</span>
-                        ) : (
-                          `Stage ${r.stage}`
-                        )}
-                      </td>
-                      <td>{r.pd ?? <span className="muted">{r.pd_lgd_note ?? "n/a"}</span>}</td>
-                      <td>{r.lgd ?? <span className="muted">{r.pd_lgd_note ?? "n/a"}</span>}</td>
-                      <td className="num">
-                        {r.ecl_amount == null ? (
-                          <span className="muted">{r.ecl_note ?? "n/a"}</span>
-                        ) : (
-                          money(r.ecl_amount)
-                        )}
-                      </td>
-                      <td>{r.assessment_date}</td>
-                    </tr>
-                    {open === r.contract_id && (
-                      <tr>
-                        <td colSpan={9}>
-                          <ContractDrilldown contractId={r.contract_id} />
-                        </td>
-                      </tr>
-                    )}
-                  </Fragment>
-                ))
-              )}
-            </tbody>
-          </table>
+              </thead>
+              <tbody>
+                {data.rows.map((r) => (
+                  <tr key={r.contract_id} data-testid={`ecl-row-${r.contract_id}`}>
+                    <td>
+                      <Link to={`/ecl/contracts/${r.contract_id}`}>#{r.contract_id}</Link>
+                    </td>
+                    <td>{r.customer_name ?? "—"}</td>
+                    <td>{r.risk_rating ?? NA}</td>
+                    <td className="num">{num(r.ead)}</td>
+                    <td className="num">{r.dpd}</td>
+                    <td className="num">{r.automated_stage ?? NA}</td>
+                    <td className="num">
+                      {r.override_stage != null ? (
+                        <span className="badge badge--warn">→ {r.override_stage}</span>
+                      ) : r.override_status === "active" ? (
+                        <span className="badge badge--warn">param</span>
+                      ) : (
+                        "—"
+                      )}
+                    </td>
+                    <td className="num"><strong>{r.final_stage ?? NA}</strong></td>
+                    <td className="num">{num(r.final_ecl)}</td>
+                    <td className="num">{num(r.provision_movement)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          <div className="inline-form" style={{ marginTop: "0.75rem" }}>
+            <button
+              className="btn-secondary"
+              disabled={data.offset === 0}
+              onClick={() => setOffset(Math.max(0, offset - PAGE))}
+            >
+              ← Prev
+            </button>
+            <button
+              className="btn-secondary"
+              disabled={data.offset + data.limit >= data.total}
+              onClick={() => setOffset(offset + PAGE)}
+            >
+              Next →
+            </button>
+          </div>
         </Card>
       )}
     </div>
@@ -474,82 +469,50 @@ function PortfolioTable() {
 // --------------------------------------------------------------------------- //
 export function EclProvisionPage() {
   const [dash, setDash] = useState<EclDashboard | null>(null);
+  const [cfg, setCfg] = useState<EclConfigResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [runMsg, setRunMsg] = useState<string | null>(null);
-  const [busy, setBusy] = useState(false);
   const [reloadKey, setReloadKey] = useState(0);
 
   useEffect(() => {
     setError(null);
-    void api<EclDashboard>("/ecl/dashboard")
-      .then(setDash)
-      .catch((e) => setError(errorMessage(e)));
+    void api<EclDashboard>("/ecl/dashboard").then(setDash).catch((e) => setError(errorMessage(e)));
+    void api<EclConfigResponse>("/ecl/config").then(setCfg).catch(() => undefined);
   }, [reloadKey]);
 
-  async function run(asOf: string) {
-    setBusy(true);
-    setRunMsg(null);
-    try {
-      const res = await api<EclRunResult>("/ecl/run", {
-        method: "POST",
-        body: asOf ? { as_of: asOf } : {},
-      });
-      setRunMsg(
-        `Run #${res.run_id} — ${res.contracts_assessed} contract(s), ` +
-          `ECL ${res.total_ecl == null ? "n/a (no PD/LGD source)" : money(res.total_ecl)}, ` +
-          `provision movement ${
-            res.total_provision_movement == null
-              ? "n/a"
-              : money(res.total_provision_movement)
-          }` +
-          (res.accounting_event_id
-            ? ` · accounting event #${res.accounting_event_id}`
-            : " · no accounting event (nothing computable to post)"),
-      );
-      setReloadKey((k) => k + 1);
-    } catch (e) {
-      setError(errorMessage(e));
-    } finally {
-      setBusy(false);
-    }
-  }
+  void rate; // retained helper (used by detail page pattern)
 
   return (
     <div className="stack">
       <h1>ECL &amp; Provision</h1>
       <p className="muted">
-        Expected Credit Loss is assessed for <strong>every</strong> active
-        contract from activation onward — not only delinquent ones. The
-        calculation path is set by the <code>ecl_methodology</code> config
-        switch. Paths A (simplified lifetime) and B (IFRS 9 3-stage) are
-        structurally present; Path B's PD/LGD/ECL show <strong>n/a</strong>{" "}
-        pending a real data source and Finance/Risk sign-off.
+        Expected Credit Loss is assessed for <strong>every</strong> active contract from
+        activation onward. Stage is decided by a configurable engine (Stage-3 triggers first,
+        then SICR) — DPD is one trigger among several. The automated result, any manual
+        override, and the final approved result are stored separately. Every PD / LGD /
+        threshold is a placeholder — <strong>BUSINESS / RISK MODEL DECISION REQUIRED</strong>.
       </p>
 
       <ErrorNote message={error} />
-      {runMsg && (
-        <div className="alert alert--info" role="status" data-testid="ecl-run-result">
-          {runMsg}
-        </div>
-      )}
-
-      {!dash && !error && <SkeletonTiles count={6} />}
+      {!dash && !error && <SkeletonTiles count={5} />}
 
       {dash && (
         <>
-          <DashboardTiles data={dash} />
-          <RunPanel data={dash} onRun={run} busy={busy} />
+          <Kpis d={dash} />
+          <StageCards d={dash} />
+          <IndicatorStrip d={dash} />
+          <RunPanel d={dash} onDone={() => setReloadKey((k) => k + 1)} />
         </>
       )}
 
-      <PortfolioTable />
+      {cfg && (
+        <p className="muted" style={{ display: "flex", gap: "0.4rem", alignItems: "center" }}>
+          <Gauge size={14} aria-hidden />
+          Active configuration <strong>v{cfg.active.ecl_config_version}</strong>. Past runs are
+          stamped with the version that produced them and stay reproducible.
+        </p>
+      )}
 
-      <p className="muted" style={{ display: "flex", gap: "0.4rem", alignItems: "center" }}>
-        <Gauge size={14} aria-hidden />
-        Every figure is a live read of persisted assessments; the methodology and
-        config values in force are snapshotted per assessment (see a contract's
-        drill-down).
-      </p>
+      <PortfolioTable />
     </div>
   );
 }

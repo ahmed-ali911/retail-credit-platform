@@ -126,6 +126,13 @@ const NAV: NavGroup[] = [
         // matches app/api/ecl.py's _VIEW_ROLES exactly
         roles: ["finance_officer", "credit_manager", "admin"],
       },
+      {
+        to: "/ecl/config",
+        label: "ECL Model & Rules",
+        icon: Settings,
+        end: true,
+        roles: ["finance_officer", "credit_manager", "admin"],
+      },
     ],
   },
   {

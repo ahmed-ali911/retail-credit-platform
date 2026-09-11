@@ -19,6 +19,24 @@ function payloadSummary(req: ApprovalRequestOut): string {
         "Payment",
         p.payment_id as number,
       )}${p.reason ? ` — ${p.reason}` : ""}`;
+    case "ecl.stage_override":
+      return `ECL: force ${formatReference(
+        "InstallmentContract",
+        Number(p.contract_id ?? req.entity_id),
+      )} to Stage ${p.requested_stage} (auto Stage ${p.automated_stage}) — ${
+        p.reason_code
+      }; ECL ${p.ecl_before} → ${p.ecl_after}`;
+    case "ecl.parameter_override":
+      return `ECL: pin ${Object.entries(p.approved_value ?? {})
+        .map(([k, v]) => `${k}=${v}`)
+        .join(", ")} on ${formatReference(
+        "InstallmentContract",
+        Number(p.contract_id ?? req.entity_id),
+      )} — ${p.reason_code}; ECL ${p.ecl_before} → ${p.ecl_after}`;
+    case "ecl.config_update":
+      return `ECL config: activate a new version from v${p.from_version} — ${JSON.stringify(
+        p.changes,
+      )}`;
     case "contract.settlement_rebate": {
       const pct = p.requested_rebate_pct as number | null;
       const amt = p.requested_rebate_amount as number | null;

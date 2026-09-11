@@ -13,6 +13,9 @@ ACTION_LATE_FEE_WAIVE = "late_fee.waive"
 ACTION_CONFIG_UPDATE = "config.update"
 ACTION_RECON_MANUAL_MATCH = "reconciliation.manual_match"  # P0-5
 ACTION_SETTLEMENT_REBATE = "contract.settlement_rebate"  # BDR item #7
+ACTION_ECL_STAGE_OVERRIDE = "ecl.stage_override"          # ECL module
+ACTION_ECL_PARAMETER_OVERRIDE = "ecl.parameter_override"  # ECL module
+ACTION_ECL_CONFIG_UPDATE = "ecl.config_update"            # ECL module (versioned config)
 
 
 class ApprovalStatus(str, enum.Enum):

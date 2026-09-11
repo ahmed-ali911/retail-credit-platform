@@ -142,3 +142,17 @@ def set_config(db):
         db.commit()
 
     return _set
+
+
+@pytest.fixture
+def set_ecl_config(db):
+    """Activate a new ECL configuration version mid-test, bypassing maker-checker
+    (like ``set_config``). ``set_ecl_config(methodology="simplified_lifetime")``."""
+    from app.services import ecl_config
+
+    def _set(**changes):
+        cfg = ecl_config.activate_version(db, changes=changes, notes="test override")
+        db.commit()
+        return cfg
+
+    return _set

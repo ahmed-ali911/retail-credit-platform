@@ -45,7 +45,12 @@ class AccountingEventType(str, enum.Enum):
     cancellation = "cancellation"
     return_ = "return"          # value "return"; matches ClosureReason.return_
     contract_closed = "contract_closed"  # normal full-repayment closure (bug fix)
-    ecl_provision_movement = "ecl_provision_movement"  # ECL slice — one per portfolio run
+    ecl_provision_movement = "ecl_provision_movement"  # portfolio-level roll-up, one per posted run
+    # per-contract provision movements (GL mapping is BDR-31 — one signed amount each)
+    ecl_provision_created = "ecl_provision_created"
+    ecl_provision_increased = "ecl_provision_increased"
+    ecl_provision_released = "ecl_provision_released"
+    ecl_provision_override_adjustment = "ecl_provision_override_adjustment"
 
 
 class AccountingStatus(str, enum.Enum):
@@ -72,7 +77,7 @@ class AccountingEvent(Base):
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     event_type: Mapped[AccountingEventType] = mapped_column(
-        Enum(AccountingEventType, native_enum=False, length=30),
+        Enum(AccountingEventType, native_enum=False, length=40),
         nullable=False,
         index=True,
     )

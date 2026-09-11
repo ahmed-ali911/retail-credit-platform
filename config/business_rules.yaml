@@ -110,29 +110,34 @@ parameters:
       collections-policy decision.
 
   # ---------------------------------------------------------------------------
-  # ECL & provision (first implementation slice)
+  # ECL & provision
+  #
+  # SUPERSEDED: the ECL engine now reads the versioned `ecl_configurations`
+  # table (methodology, rating/segment maps, PD term structure, LGD model,
+  # stage-determination rules, cure rules, override policy) — see
+  # app/services/ecl_config.py. These keys remain seeded only as human-readable
+  # reference for the retained non-three-stage paths; the engine does not read
+  # them. Every value here and in ecl_configurations is a placeholder —
+  # BUSINESS / RISK MODEL DECISION REQUIRED (audit BDR-43 … BDR-52).
   #
   # ECL is assessed for EVERY active contract from activation onward, not just
-  # delinquent ones. `ecl_methodology` picks which calculation path produces
-  # the figure. Which path is the approved accounting policy is a BUSINESS
-  # DECISION still open — all three are structurally present.
+  # delinquent ones. The confirmed methodology shape is three_stage (12-month
+  # ECL for Stage 1, lifetime ECL for Stages 2 & 3), with simplified_lifetime
+  # retained as an alternative Finance may designate per portfolio.
   # ---------------------------------------------------------------------------
   ecl_methodology:
-    value: dpd_banded
+    value: three_stage
     type: str
     description: >
-      BUSINESS DECISION REQUIRED — placeholder default. Which ECL calculation
-      path is in force:
-        simplified_lifetime  (Path A) = lifetime ECL from day one, no staging;
-                                        EAD x ecl_lifetime_loss_rate.
-        three_stage          (Path B) = IFRS 9 general 3-stage model. Structure
-                                        is present but PD/LGD/ECL are left
-                                        "n/a" — no real PD/LGD source exists.
-        dpd_banded            (Path C) = provision % per DPD band
-                                        (ecl_provision_pct_by_bucket). The only
-                                        path fully computable today, hence the
-                                        default. Not a formal IFRS 9 model.
-      Any other value raises rather than silently mis-provisioning.
+      REFERENCE ONLY (engine reads ecl_configurations.methodology). Confirmed
+      methodology shape:
+        three_stage          = primary. Stage decided by the CONFIGURABLE Stage
+                               Determination Engine (Stage-3 triggers first,
+                               then SICR), not a hard DPD ladder.
+        simplified_lifetime  = retained alternative — lifetime ECL from day one,
+                               no staging; EAD x lifetime_loss_rate.
+        dpd_banded           = retained pragmatic path — provision % per DPD band.
+      All PD / LGD / threshold values are BUSINESS / RISK MODEL DECISION REQUIRED.
 
   ecl_provision_pct_by_bucket:
     type: json
