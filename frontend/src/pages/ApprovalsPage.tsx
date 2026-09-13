@@ -3,9 +3,19 @@ import { api, errorMessage } from "../api/client";
 import { useAuth } from "../auth/AuthContext";
 import type { ApprovalRequestOut } from "../api/types";
 import { Card, EmptyState, ErrorNote } from "../components/ui";
+import { PageHeader } from "../components/PageHeader";
+import { Tabs } from "../components/Tabs";
+import { ConfirmationDialog } from "../components/ConfirmationDialog";
 import { SkeletonTable } from "../components/Skeleton";
 import { useToast } from "../components/Toast";
 import { formatReference } from "../lib/reference";
+
+const STATUS_TABS = [
+  { value: "pending", label: "Pending" },
+  { value: "approved", label: "Approved" },
+  { value: "rejected", label: "Rejected" },
+] as const;
+type StatusTab = (typeof STATUS_TABS)[number]["value"];
 
 function payloadSummary(req: ApprovalRequestOut): string {
   const p = req.payload ?? {};
@@ -57,20 +67,22 @@ function payloadSummary(req: ApprovalRequestOut): string {
 export function ApprovalsPage() {
   const { user } = useAuth();
   const toast = useToast();
+  const [tab, setTab] = useState<StatusTab>("pending");
   const [rows, setRows] = useState<ApprovalRequestOut[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busyId, setBusyId] = useState<number | null>(null);
+  const [confirmAction, setConfirmAction] =
+    useState<{ id: number; action: "approve" | "reject" } | null>(null);
 
   const load = useCallback(async () => {
     setError(null);
+    setRows(null);
     try {
-      setRows(
-        await api<ApprovalRequestOut[]>("/approvals?status=pending"),
-      );
+      setRows(await api<ApprovalRequestOut[]>(`/approvals?status=${tab}`));
     } catch (err) {
       setError(errorMessage(err));
     }
-  }, []);
+  }, [tab]);
 
   useEffect(() => {
     void load();
@@ -93,31 +105,33 @@ export function ApprovalsPage() {
   }
 
   return (
-    <div className="stack">
-      <h1>Approvals</h1>
-      <p className="muted">
-        Pending maker-checker requests. You cannot decide a request you made
-        yourself — a different approver is required.
-      </p>
+    <div className="stack page-wide">
+      <PageHeader
+        title="Approvals"
+        description="Maker-checker requests. You cannot decide a request you made yourself — a different approver is required."
+      />
       <ErrorNote message={error} />
 
       <Card>
+        <Tabs ariaLabel="Approval status" items={[...STATUS_TABS]} value={tab} onChange={(v) => setTab(v as StatusTab)} />
+        <div style={{ marginTop: "1rem" }}>
         {rows == null ? (
           <SkeletonTable rows={4} cols={6} />
         ) : rows.length === 0 ? (
           <EmptyState
             testId="approvals-empty"
-            message="No pending requests."
+            message={`No ${tab} requests.`}
           />
         ) : (
-          <table className="data" aria-label="Pending approvals">
+          <table className="data" aria-label={`${tab} approvals`}>
             <thead>
               <tr>
                 <th className="num">#</th>
-                <th>Action</th>
+                <th>Request type</th>
                 <th>Summary</th>
                 <th>Requested by</th>
                 <th>Requested at</th>
+                {tab !== "pending" && <th>Decided by / at</th>}
                 <th />
               </tr>
             </thead>
@@ -131,8 +145,18 @@ export function ApprovalsPage() {
                     <td>{payloadSummary(req)}</td>
                     <td>user #{req.requested_by}</td>
                     <td>{new Date(req.requested_at).toLocaleString()}</td>
+                    {tab !== "pending" && (
+                      <td>
+                        {req.decided_by != null
+                          ? `user #${req.decided_by} · ${new Date(req.decided_at!).toLocaleString()}`
+                          : "—"}
+                        {req.decision_notes && (
+                          <div className="muted">{req.decision_notes}</div>
+                        )}
+                      </td>
+                    )}
                     <td>
-                      {mine ? (
+                      {tab !== "pending" ? null : mine ? (
                         <span
                           className="muted"
                           data-testid={`approval-blocked-${req.id}`}
@@ -145,7 +169,7 @@ export function ApprovalsPage() {
                             className="btn-primary"
                             data-testid={`approve-${req.id}`}
                             disabled={busyId === req.id}
-                            onClick={() => decide(req.id, "approve")}
+                            onClick={() => setConfirmAction({ id: req.id, action: "approve" })}
                           >
                             Approve
                           </button>
@@ -153,7 +177,7 @@ export function ApprovalsPage() {
                             className="btn-secondary"
                             data-testid={`reject-${req.id}`}
                             disabled={busyId === req.id}
-                            onClick={() => decide(req.id, "reject")}
+                            onClick={() => setConfirmAction({ id: req.id, action: "reject" })}
                           >
                             Reject
                           </button>
@@ -166,7 +190,36 @@ export function ApprovalsPage() {
             </tbody>
           </table>
         )}
+        </div>
       </Card>
+
+      <ConfirmationDialog
+        open={confirmAction != null}
+        title={
+          confirmAction?.action === "approve"
+            ? `Approve request #${confirmAction.id}?`
+            : `Reject request #${confirmAction?.id}?`
+        }
+        confirmLabel={confirmAction?.action === "approve" ? "Approve" : "Reject"}
+        destructive={confirmAction?.action === "reject"}
+        busy={busyId === confirmAction?.id}
+        onCancel={() => setConfirmAction(null)}
+        onConfirm={() => {
+          if (!confirmAction) return;
+          const { id, action } = confirmAction;
+          setConfirmAction(null);
+          void decide(id, action);
+        }}
+      >
+        {confirmAction && (
+          <>
+            <strong>{rows?.find((r) => r.id === confirmAction.id)?.action_type}</strong>
+            {" — "}
+            {rows?.find((r) => r.id === confirmAction.id) &&
+              payloadSummary(rows.find((r) => r.id === confirmAction.id)!)}
+          </>
+        )}
+      </ConfirmationDialog>
     </div>
   );
 }

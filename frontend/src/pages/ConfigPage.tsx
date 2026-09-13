@@ -3,6 +3,8 @@ import { Link } from "react-router-dom";
 import { api, errorMessage } from "../api/client";
 import type { ConfigParameterOut } from "../api/types";
 import { Card, ErrorNote } from "../components/ui";
+import { PageHeader } from "../components/PageHeader";
+import { Tabs } from "../components/Tabs";
 import { SkeletonTable } from "../components/Skeleton";
 import { useToast } from "../components/Toast";
 import { AppearancePanel } from "../components/AppearancePanel";
@@ -68,26 +70,17 @@ export function ConfigPage() {
 
   return (
     <div className="stack">
-      <h1>Configuration</h1>
+      <PageHeader title="Configuration" />
 
-      <div className="tabs" role="tablist">
-        <button
-          role="tab"
-          aria-selected={section === "parameters"}
-          className={section === "parameters" ? "active" : undefined}
-          onClick={() => setSection("parameters")}
-        >
-          Business rules
-        </button>
-        <button
-          role="tab"
-          aria-selected={section === "appearance"}
-          className={section === "appearance" ? "active" : undefined}
-          onClick={() => setSection("appearance")}
-        >
-          Appearance
-        </button>
-      </div>
+      <Tabs
+        ariaLabel="Configuration section"
+        items={[
+          { value: "parameters", label: "Business rules" },
+          { value: "appearance", label: "Appearance" },
+        ]}
+        value={section}
+        onChange={(v) => setSection(v as ConfigSection)}
+      />
 
       {section === "appearance" ? (
         <AppearancePanel />
@@ -177,12 +170,16 @@ function ConfigParameters(props: {
                       <form
                         onSubmit={(e) => submit(e, p)}
                         aria-label={`Edit ${p.key}`}
-                        style={{ display: "flex", gap: "0.4rem" }}
+                        className="config-edit-form"
                       >
+                        <span className="config-edit-form__current">
+                          Current: <code>{p.value}</code>
+                        </span>
                         <input
                           value={value}
                           onChange={(e) => setValue(e.target.value)}
                           aria-label={`New value for ${p.key}`}
+                          placeholder="Proposed value"
                         />
                         <button
                           className="btn-primary"

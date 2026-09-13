@@ -840,6 +840,36 @@ a > .ref-code, .ref-code a { color: inherit; }
 .nav-new[open] .nav-new__trigger { border-style: solid; background: var(--status-info-bg); }
 .nav-new__items { display: flex; flex-direction: column; gap: 1px; padding-top: var(--space-1); }
 
+/* --- Phase 4 — Configuration inline edit: current + proposed value ------- */
+.config-edit-form {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  flex-wrap: wrap;
+}
+.config-edit-form__current { font-size: var(--text-xs); color: var(--text-muted); white-space: nowrap; }
+
+/* --- Phase 4 — Audit Log row-expansion detail ----------------------------- */
+.audit-detail {
+  display: flex;
+  gap: var(--space-6);
+  flex-wrap: wrap;
+  padding: var(--space-3) 0;
+}
+.audit-detail > div { flex: 1; min-width: 220px; }
+.audit-detail pre {
+  margin: var(--space-1) 0 0;
+  padding: var(--space-3);
+  background: var(--color-bg);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  font-family: var(--font-family-mono);
+  font-size: var(--text-xs);
+  overflow-x: auto;
+  max-height: 240px;
+  overflow-y: auto;
+}
+
 /* --- Responsive: filter bars stack on narrow screens ---------------------- */
 @media (max-width: 760px) {
   .filter-bar { flex-direction: column; align-items: stretch; }
