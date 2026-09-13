@@ -143,15 +143,28 @@ button:disabled { opacity: 0.5; cursor: not-allowed; }
 .btn-secondary:hover:not(:disabled) { background: var(--color-accent-soft); }
 .btn-link { background: none; color: var(--color-primary); padding: 0; font-weight: 600; }
 .btn-link:hover { text-decoration: underline; }
+.btn-danger { background: var(--color-danger); color: #fff; }
+.btn-danger:hover:not(:disabled) { background: color-mix(in srgb, var(--color-danger) 82%, #000); }
 
-/* --- tables --- */
+/* --- tables (Phase 1 — one enterprise row-height/header language for every
+   data table: Customers, Products, Contracts, Collections, Audit, Approvals,
+   Reconciliation, Reports, ECL, Inventory, Review Queue) --- */
 table.data { width: 100%; border-collapse: collapse; font-size: 0.85rem; }
 table.data th, table.data td {
   text-align: left;
-  padding: 0.45rem 0.6rem;
+  /* ~44px row height at this font size/line-height */
+  padding: 0.7rem 0.75rem;
   border-bottom: 1px solid var(--color-border);
 }
-table.data th { color: var(--color-muted); font-weight: 600; background: var(--color-bg); }
+table.data th {
+  color: var(--color-muted);
+  font-weight: 600;
+  background: var(--color-bg);
+  /* sticks just below the sticky topbar (z-index: 20), not behind it */
+  position: sticky;
+  top: var(--header-height);
+  z-index: 5;
+}
 table.data td.num, table.data th.num { text-align: right; font-variant-numeric: tabular-nums; }
 /* was a hardcoded teal rgba() — now follows --color-secondary (Step 15, incl. Appearance overrides) */
 table.data tr.is-paid { background: color-mix(in srgb, var(--color-secondary) 7%, transparent); }
@@ -175,22 +188,26 @@ table.data tfoot tr.totals-row td {
   background: var(--color-bg);
 }
 
-/* --- badges --- */
+/* --- badges (Phase 1 — migrated onto the --status-* token pairs already
+   defined in tokens.css, so every tone is a light tint + coloured text/
+   border, none a saturated solid fill; still driven by --color-secondary /
+   --color-warm / --color-danger / --color-primary via color-mix, so
+   Appearance overrides keep flowing through) --- */
 .badge {
   display: inline-block;
   padding: 0.15rem 0.55rem;
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   font-size: 0.75rem;
   font-weight: 700;
   text-transform: capitalize;
   border: 1px solid transparent;
 }
-.badge--good { background: var(--color-secondary); color: #04343a; }
-.badge--warn { background: #f4ecdf; color: var(--color-warm); border-color: var(--color-warm); }
-.badge--bad { background: #f8e4e1; color: var(--color-danger); border-color: var(--color-danger); }
-.badge--neutral { background: var(--color-accent-soft); color: var(--color-primary-dark); }
-.badge--dark { background: var(--color-primary-dark); color: #fff; }
-.badge--cured { background: #e6efe1; color: var(--color-natural); border-color: var(--color-natural); }
+.badge--good { background: var(--status-good-bg); color: var(--status-good-fg); border-color: color-mix(in srgb, var(--color-secondary) 35%, transparent); }
+.badge--warn { background: var(--status-warn-bg); color: var(--status-warn-fg); border-color: color-mix(in srgb, var(--color-warm) 35%, transparent); }
+.badge--bad { background: var(--status-bad-bg); color: var(--status-bad-fg); border-color: color-mix(in srgb, var(--color-danger) 35%, transparent); }
+.badge--neutral { background: var(--status-neutral-bg); color: var(--text-muted); }
+.badge--dark { background: var(--status-info-bg); color: var(--status-info-fg); border-color: color-mix(in srgb, var(--color-primary) 35%, transparent); }
+.badge--cured { background: color-mix(in srgb, var(--color-natural) 14%, var(--color-surface)); color: color-mix(in srgb, var(--color-natural) 65%, #0d2a0d); border-color: color-mix(in srgb, var(--color-natural) 35%, transparent); }
 
 /* --- reference codes & numeric legibility (Step 14, Part B) --- */
 /* Applied only to reference codes, monetary amounts and ID-like numbers — not
@@ -285,6 +302,16 @@ a > .ref-code, .ref-code a { color: inherit; }
 }
 .metric-tile__sub { font-size: 0.74rem; color: var(--color-muted); margin-top: 0.15rem; }
 .metric-tile__trend { font-size: 0.74rem; margin-top: 0.3rem; }
+
+/* Phase 1 — "primary" KPI hierarchy variant (see MetricTile's `emphasis` prop):
+   a visually dominant figure for the one or two numbers that matter most on a
+   given screen (Outstanding Receivable, Expected Credit Loss, ...). */
+.metric-tile--primary { grid-column: span 2; }
+.metric-tile--primary .metric-tile__value { font-size: var(--text-2xl); }
+.metric-tile--primary .metric-tile__label { font-size: 0.76rem; }
+@media (max-width: 640px) {
+  .metric-tile--primary { grid-column: span 1; }
+}
 
 /* --- dashboard charts (Step 14, Part D — recharts) --- */
 .chart-row {
@@ -662,3 +689,136 @@ a > .ref-code, .ref-code a { color: inherit; }
    single chart never forces page-level horizontal scroll on a laptop. */
 .chart { max-width: 100%; }
 .chart-row { grid-template-columns: repeat(auto-fit, minmax(min(100%, 300px), 1fr)); }
+
+/* ========================================================================= */
+/* Phase 1 (2026 redesign) — shared foundation primitives                    */
+/* ========================================================================= */
+
+/* --- PageHeader / SectionHeader ---------------------------------------- */
+.page-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-4);
+  flex-wrap: wrap;
+  margin-bottom: var(--space-5);
+}
+.page-header__title {
+  font-size: var(--text-2xl);
+  font-weight: var(--font-weight-semibold);
+  margin: 0;
+  color: var(--text-strong);
+}
+.page-header__desc { margin: var(--space-1) 0 0; font-size: var(--text-sm); max-width: 62ch; }
+.page-header__actions { display: flex; gap: var(--space-2); flex-shrink: 0; flex-wrap: wrap; }
+
+.section-header {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: var(--space-3);
+  flex-wrap: wrap;
+  margin-bottom: var(--space-3);
+}
+.section-header__title {
+  font-size: var(--text-lg);
+  font-weight: var(--font-weight-semibold);
+  margin: 0;
+  color: var(--text-strong);
+}
+.section-header__desc { margin: 2px 0 0; font-size: var(--text-xs); }
+.section-header__actions { display: flex; gap: var(--space-2); flex-shrink: 0; flex-wrap: wrap; }
+
+/* --- FilterBar ----------------------------------------------------------- */
+.filter-bar {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: var(--space-4);
+  flex-wrap: wrap;
+  margin-bottom: var(--space-4);
+}
+.filter-bar__fields {
+  display: flex;
+  align-items: flex-end;
+  gap: var(--space-3);
+  flex-wrap: wrap;
+  row-gap: var(--space-2);
+}
+.filter-bar__fields .field { margin-bottom: 0; min-width: 160px; }
+.filter-bar__actions { display: flex; gap: var(--space-2); flex-shrink: 0; }
+
+/* --- Tabs: optional count chip ------------------------------------------ */
+.tabs__count {
+  display: inline-block;
+  margin-left: var(--space-2);
+  padding: 0 0.4rem;
+  border-radius: var(--radius-pill);
+  background: var(--status-neutral-bg);
+  color: var(--text-muted);
+  font-size: var(--text-2xs);
+  font-weight: var(--font-weight-bold);
+  font-variant-numeric: tabular-nums;
+}
+.tabs button.active .tabs__count {
+  background: color-mix(in srgb, var(--color-primary) 16%, var(--surface-1));
+  color: var(--color-primary);
+}
+
+/* --- ConfirmationDialog --------------------------------------------------- */
+.dialog-scrim {
+  position: fixed;
+  inset: 0;
+  z-index: 200;
+  background: rgba(15, 35, 80, 0.36);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--space-4);
+  animation: dialog-scrim-in 120ms ease;
+}
+.dialog {
+  width: min(440px, 100%);
+  background: var(--surface-1);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-lg);
+  padding: var(--space-6);
+  animation: dialog-in 140ms ease;
+}
+.dialog__title { margin: 0 0 var(--space-2); font-size: var(--text-lg); font-weight: var(--font-weight-semibold); }
+.dialog__body { font-size: var(--text-sm); color: var(--text-muted); margin-bottom: var(--space-5); }
+.dialog__actions { display: flex; justify-content: flex-end; gap: var(--space-2); }
+@keyframes dialog-scrim-in { from { opacity: 0; } to { opacity: 1; } }
+@keyframes dialog-in { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: translateY(0); } }
+@media (prefers-reduced-motion: reduce) {
+  .dialog-scrim, .dialog { animation: none; }
+}
+
+/* --- Sidebar "New" quick-action disclosure -------------------------------- */
+/* A native <details>/<summary> so its items stay reachable without floating-
+   panel JS state, keyboard-operable for free, and calm (no bounce/scale). */
+.nav-new { margin: var(--space-1) var(--space-2) var(--space-3); }
+.nav-new__trigger {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  list-style: none;
+  cursor: pointer;
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-md);
+  border: 1px dashed var(--border-strong);
+  color: var(--color-primary);
+  font-size: var(--text-sm);
+  font-weight: var(--font-weight-semibold);
+}
+.nav-new__trigger::-webkit-details-marker { display: none; }
+.nav-new__trigger:hover { background: var(--status-info-bg); }
+.nav-new[open] .nav-new__trigger { border-style: solid; background: var(--status-info-bg); }
+.nav-new__items { display: flex; flex-direction: column; gap: 1px; padding-top: var(--space-1); }
+
+/* --- Responsive: filter bars stack on narrow screens ---------------------- */
+@media (max-width: 760px) {
+  .filter-bar { flex-direction: column; align-items: stretch; }
+  .filter-bar__actions { justify-content: flex-end; }
+}

@@ -105,5 +105,10 @@
   --sidebar-width: 244px;
   --sidebar-width-collapsed: 0px;
   --header-height: 56px;
-  --content-max: 1180px;
+  /* Phase 1 (2026 redesign) — widened from 1180px so enterprise data tables
+     (ECL portfolio, Reports, directories) have real working width on a
+     laptop screen. A page with a large table opts into using the full
+     content column via the `.page-wide` marker (see shell.css); everything
+     else (forms, detail pages) still comfortably centers under this cap. */
+  --content-max: 1440px;
 }

@@ -337,8 +337,18 @@ describe("Part F — --color-secondary default is green", () => {
   });
 
   it("badge--good and the DPD-current chart slice are driven by --color-secondary (so they follow the new green)", () => {
+    // Phase 1 (frontend redesign) — badge--good was migrated from a solid
+    // fill straight off --color-secondary onto the tinted --status-good-*
+    // token pair (so every badge tone is a light tint, not a saturated
+    // solid pill). The real assertion here — "a custom Appearance green
+    // still flows through to the badge" — now holds one indirection deeper:
+    // app.css's badge--good references --status-good-*, and tokens.css's
+    // --status-good-* are themselves color-mix'd from --color-secondary.
     const appCss = readFileSync(resolve(process.cwd(), "src/styles/app.css"), "utf8");
-    expect(appCss).toMatch(/\.badge--good\s*\{[^}]*var\(--color-secondary\)/);
+    const tokensCss = readFileSync(resolve(process.cwd(), "src/styles/tokens.css"), "utf8");
+    expect(appCss).toMatch(/\.badge--good\s*\{[^}]*var\(--status-good-(bg|fg)\)/);
+    expect(tokensCss).toMatch(/--status-good-bg:[^;]*var\(--color-secondary\)/);
+    expect(tokensCss).toMatch(/--status-good-fg:[^;]*var\(--color-secondary\)/);
   });
 
   it("Appearance's Reset restores the new green, not the old teal", async () => {

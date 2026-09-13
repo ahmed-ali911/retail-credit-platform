@@ -18,6 +18,7 @@ export function MetricTile({
   tone = "neutral",
   trend,
   icon: Icon,
+  emphasis = "normal",
 }: {
   label: string;
   value: ReactNode;
@@ -25,10 +26,18 @@ export function MetricTile({
   tone?: TileTone;
   trend?: { direction: "up" | "down"; text: string };
   icon?: LucideIcon;
+  /**
+   * Phase 1 (frontend redesign) — "primary" renders a visually dominant KPI
+   * (larger value, e.g. Outstanding Receivable / Expected Credit Loss);
+   * "normal" (default, unchanged) is every supporting statistic. Gives each
+   * dashboard a clear primary-vs-supporting hierarchy instead of every tile
+   * carrying identical weight — no new data, purely presentational.
+   */
+  emphasis?: "primary" | "normal";
 }) {
   return (
     <div
-      className={`metric-tile metric-tile--${tone} hover-raise`}
+      className={`metric-tile metric-tile--${tone} metric-tile--${emphasis} hover-raise`}
       data-testid="metric-tile"
     >
       <div className="metric-tile__head">

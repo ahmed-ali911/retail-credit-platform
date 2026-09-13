@@ -1,5 +1,5 @@
 import { Fragment, useEffect, useRef, useState } from "react";
-import { NavLink, Outlet, useLocation } from "react-router-dom";
+import { Link, NavLink, Outlet, useLocation } from "react-router-dom";
 import {
   BarChart3,
   Boxes,
@@ -15,6 +15,7 @@ import {
   Menu,
   Package,
   PackagePlus,
+  Plus,
   ScrollText,
   Settings,
   ShieldAlert,
@@ -50,9 +51,16 @@ const DIRECTORY_ROLES = [
 
 /**
  * The sidebar, grouped by business domain. Every route the app has today has a
- * home here; capabilities that have no screen yet (Contracts list, Payments,
- * Accounting Events, Settlements, portfolio Exposure, Overdue, User Management)
- * are tracked in docs/frontend-redesign-audit.md, not shown as dead links.
+ * home here; capabilities that have no screen yet (Payments, Accounting
+ * Events, Settlements, portfolio Exposure, Overdue, User Management) are
+ * tracked in docs/frontend-redesign-audit.md, not shown as dead links.
+ *
+ * Phase 1 (frontend redesign) — regrouped from the earlier flat "Operations"
+ * bucket into Origination / Servicing / Collections / Risk & Finance /
+ * Controls, matching how the business actually separates these functions.
+ * Every `to` / `roles` / label is unchanged from before the regroup — this
+ * only moves items between group headers; it does not change what any role
+ * can see or reach.
  */
 const NAV: NavGroup[] = [
   {
@@ -63,22 +71,11 @@ const NAV: NavGroup[] = [
     ],
   },
   {
-    id: "operations",
-    title: "Operations",
+    id: "origination",
+    title: "Origination",
     items: [
-      { to: "/applications/new", label: "New Application", icon: FilePlus2 },
       { to: "/customers", label: "Customers", icon: Users, end: true, roles: DIRECTORY_ROLES },
-      { to: "/customers/new", label: "New Customer", icon: UserPlus },
       { to: "/products", label: "Products", icon: Package, end: true, roles: DIRECTORY_ROLES },
-      { to: "/products/new", label: "New Product", icon: PackagePlus },
-      { to: "/contracts", label: "Contracts", icon: FileSignature, end: true, roles: DIRECTORY_ROLES },
-      { to: "/inventory", label: "Inventory", icon: Boxes, roles: ["finance_officer", "admin"] },
-    ],
-  },
-  {
-    id: "credit",
-    title: "Credit & Risk",
-    items: [
       {
         to: "/review",
         label: "Review Queue",
@@ -86,6 +83,14 @@ const NAV: NavGroup[] = [
         end: true,
         roles: ["credit_officer", "credit_manager", "admin"],
       },
+    ],
+  },
+  {
+    id: "servicing",
+    title: "Servicing",
+    items: [
+      { to: "/contracts", label: "Contracts", icon: FileSignature, end: true, roles: DIRECTORY_ROLES },
+      { to: "/inventory", label: "Inventory", icon: Boxes, roles: ["finance_officer", "admin"] },
     ],
   },
   {
@@ -103,20 +108,8 @@ const NAV: NavGroup[] = [
     ],
   },
   {
-    id: "finance",
-    title: "Finance",
-    items: [
-      {
-        to: "/reconciliation",
-        label: "Reconciliation",
-        icon: Landmark,
-        roles: ["finance_officer", "admin"],
-      },
-    ],
-  },
-  {
-    id: "ecl",
-    title: "Finance / Risk",
+    id: "risk-finance",
+    title: "Risk & Finance",
     items: [
       {
         to: "/ecl",
@@ -133,17 +126,11 @@ const NAV: NavGroup[] = [
         end: true,
         roles: ["finance_officer", "credit_manager", "admin"],
       },
-    ],
-  },
-  {
-    id: "portfolio",
-    title: "Portfolio",
-    items: [
       {
-        to: "/snapshot",
-        label: "Snapshot",
-        icon: Gauge,
-        roles: ["finance_officer", "credit_manager", "admin"],
+        to: "/reconciliation",
+        label: "Reconciliation",
+        icon: Landmark,
+        roles: ["finance_officer", "admin"],
       },
       {
         to: "/reports",
@@ -151,11 +138,17 @@ const NAV: NavGroup[] = [
         icon: BarChart3,
         roles: ["finance_officer", "credit_manager", "admin"],
       },
+      {
+        to: "/snapshot",
+        label: "Snapshot",
+        icon: Gauge,
+        roles: ["finance_officer", "credit_manager", "admin"],
+      },
     ],
   },
   {
-    id: "control",
-    title: "Control",
+    id: "controls",
+    title: "Controls",
     items: [
       {
         to: "/approvals",
@@ -169,15 +162,22 @@ const NAV: NavGroup[] = [
         icon: ScrollText,
         roles: ["admin", "credit_manager"],
       },
-    ],
-  },
-  {
-    id: "administration",
-    title: "Administration",
-    items: [
       { to: "/config", label: "Configuration", icon: Settings, roles: ["admin"] },
     ],
   },
+];
+
+/**
+ * Phase 1 — the compact "New" quick-create action (section 9 of the redesign
+ * brief): these three used to be permanent, equal-weight sidebar items mixed
+ * into the old "Operations" group. Same routes, same (unrestricted)
+ * visibility — just no longer competing with the directory/lookup items for
+ * top-level attention.
+ */
+const QUICK_CREATE: NavItem[] = [
+  { to: "/applications/new", label: "New Application", icon: FilePlus2 },
+  { to: "/customers/new", label: "New Customer", icon: UserPlus },
+  { to: "/products/new", label: "New Product", icon: PackagePlus },
 ];
 
 export function canSee(item: { roles?: string[] }, role: string | undefined): boolean {
@@ -357,6 +357,8 @@ export function Shell() {
     items: g.items.filter((it) => canSee(it, user?.role)),
   })).filter((g) => g.items.length > 0);
 
+  const visibleQuickCreate = QUICK_CREATE.filter((it) => canSee(it, user?.role));
+
   return (
     <div className={`appshell${navOpen ? " appshell--nav-open" : ""}`}>
       <div
@@ -377,6 +379,25 @@ export function Shell() {
         </div>
 
         <nav className="appshell__nav" aria-label="Primary">
+          {visibleQuickCreate.length > 0 && (
+            <details className="nav-new">
+              <summary className="nav-new__trigger">
+                <Plus size={15} aria-hidden />
+                New
+              </summary>
+              <div className="nav-new__items">
+                {visibleQuickCreate.map((item) => {
+                  const Icon = item.icon;
+                  return (
+                    <Link key={item.to} to={item.to} className="navlink">
+                      <Icon size={16} className="navlink__icon" aria-hidden />
+                      <span className="navlink__label">{item.label}</span>
+                    </Link>
+                  );
+                })}
+              </div>
+            </details>
+          )}
           {visibleGroups.map((group) => {
             const isCollapsed = collapsed.has(group.id);
             return (

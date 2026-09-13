@@ -254,6 +254,13 @@ body {
   max-width: var(--content-max);
   margin: 0 auto;
 }
+/* Phase 1 — a page whose primary content is a large operational table (ECL
+   portfolio, Reports, directories) marks its root with `.page-wide` to use
+   the full available content column instead of the general reading-width cap.
+   General/detail/form pages are unaffected. */
+.appshell__content:has(.page-wide) {
+  max-width: none;
+}
 
 /* --------------------------------------------------------------------- */
 /* Responsive — sidebar becomes an off-canvas drawer on narrow screens.  */
