@@ -132,7 +132,9 @@ describe("ECL & Provision workstation", () => {
     ]);
     renderWithProviders(<EclProvisionPage />, { user: { role: "finance_officer" } });
 
-    expect(await screen.findByText("Total exposure (EAD)")).toBeInTheDocument();
+    // Phase 2 (frontend redesign) — KPI relabelled "Total exposure" ->
+    // "Portfolio exposure" to match the workbench's KPI-hierarchy language.
+    expect(await screen.findByText("Portfolio exposure (EAD)")).toBeInTheDocument();
     expect(screen.getByText("Coverage ratio")).toBeInTheDocument();
     expect(screen.getByTestId("ecl-active-methodology")).toHaveTextContent("three_stage");
     expect(screen.getByTestId("ecl-last-run")).toHaveTextContent("ECL-RUN-2026-09-003");

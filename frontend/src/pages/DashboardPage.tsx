@@ -19,6 +19,8 @@ import { useAuth } from "../auth/AuthContext";
 import { MetricGrid, MetricTile } from "../components/MetricTile";
 import { AgingBarChart, RiskBandDonut, StatusDonut } from "../components/charts";
 import { Card, ErrorNote, money } from "../components/ui";
+import { PageHeader } from "../components/PageHeader";
+import { Tabs } from "../components/Tabs";
 import { SkeletonTiles } from "../components/Skeleton";
 import type {
   CollectionsSummary,
@@ -65,7 +67,13 @@ function ExecutiveTab() {
     <TabBody error={error} data={data}>
       {(s) => (
         <MetricGrid>
-          <MetricTile label="Total customers" value={s.total_customers} icon={Users} />
+          <MetricTile
+            emphasis="primary"
+            label="Outstanding receivable"
+            value={money(s.total_outstanding_receivable)}
+            subLabel="principal + profit, active contracts"
+            icon={Wallet}
+          />
           <MetricTile
             label="Active contracts"
             value={s.active_contracts}
@@ -73,17 +81,12 @@ function ExecutiveTab() {
             icon={FileText}
           />
           <MetricTile
-            label="Outstanding receivable"
-            value={money(s.total_outstanding_receivable)}
-            subLabel="principal + profit, active contracts"
-            icon={Wallet}
-          />
-          <MetricTile
             label="Profit recognized to date"
             value={money(s.total_profit_recognized)}
             tone="good"
             icon={TrendingUp}
           />
+          <MetricTile label="Total customers" value={s.total_customers} icon={Users} />
           <MetricTile
             label="Approval rate"
             value={pct(s.approval_rate)}
@@ -336,23 +339,16 @@ export function DashboardPage() {
 
   return (
     <div className="stack dashboard-page">
-      <h1>Dashboard</h1>
+      <PageHeader title="Dashboard" />
 
       {showTabs ? (
         <Card>
-          <div className="tabs" role="tablist">
-            {TABS.map((t) => (
-              <button
-                key={t}
-                role="tab"
-                aria-selected={tab === t}
-                className={tab === t ? "active" : undefined}
-                onClick={() => setTab(t)}
-              >
-                {t}
-              </button>
-            ))}
-          </div>
+          <Tabs
+            ariaLabel="Dashboard"
+            items={TABS.map((t) => ({ value: t, label: t }))}
+            value={tab}
+            onChange={(v) => setTab(v as Tab)}
+          />
           <div style={{ marginTop: "1rem" }} data-testid={`tab-${tab}`}>
             <ActiveTab />
           </div>

@@ -3,6 +3,7 @@ import { useParams } from "react-router-dom";
 import { api, errorMessage } from "../api/client";
 import type { ContractReportPage, CustomerExposure, CustomerOut } from "../api/types";
 import { Card, EmptyState, ErrorNote, PrintButton, RefCode, money } from "../components/ui";
+import { PageHeader } from "../components/PageHeader";
 import { PrintHeader } from "../components/PrintHeader";
 import { SkeletonTable, SkeletonText } from "../components/Skeleton";
 import { StatusBadge } from "../components/StatusBadge";
@@ -81,15 +82,26 @@ export function CustomerPage() {
           { label: "Risk score", value: customer.risk_score ?? "—" },
         ]}
       />
-      <div className="inline-form" style={{ justifyContent: "space-between" }}>
-        <h1 style={{ margin: 0 }}>
-          {customer.name}{" "}
-          <span className="muted">
-            <RefCode code={customer.reference_code} />
+      <PageHeader
+        title={
+          <>
+            {customer.name}{" "}
+            <span className="muted page-header__ref">
+              <RefCode code={customer.reference_code} />
+            </span>
+          </>
+        }
+        description={
+          <span className="summary-strip">
+            <StatusBadge status={customer.status} />
+            <span>Risk score {customer.risk_score ?? "—"}</span>
+            {exposure && (
+              <span>Total outstanding {money(exposure.total_outstanding)}</span>
+            )}
           </span>
-        </h1>
-        <PrintButton />
-      </div>
+        }
+        actions={<PrintButton />}
+      />
       <ErrorNote message={error} />
 
       {/* Part B — every field already in the API response, grouped instead of

@@ -379,8 +379,17 @@ a > .ref-code, .ref-code a { color: inherit; }
   border-color: var(--color-primary);
   color: #fff;
 }
-.export-group { display: inline-flex; gap: 0.4rem; align-items: center; }
+.export-group { display: inline-flex; gap: 0.35rem; align-items: center; }
 .export-group > span { font-size: 0.8rem; color: var(--color-muted); font-weight: 600; }
+/* Phase 2 — a compact grouped control (section 28): smaller than the default
+   secondary button so three Export actions read as one control, not three
+   full-size buttons. Button text/role is unchanged (Export CSV/Excel/PDF),
+   so this is purely visual — existing tests that click these by name are
+   unaffected. */
+.export-group button.btn-secondary {
+  padding: 0.32rem 0.65rem;
+  font-size: 0.78rem;
+}
 
 /* --- appearance panel (Step 14, Part E) --- */
 .appearance-grid {
@@ -711,6 +720,20 @@ a > .ref-code, .ref-code a { color: inherit; }
 }
 .page-header__desc { margin: var(--space-1) 0 0; font-size: var(--text-sm); max-width: 62ch; }
 .page-header__actions { display: flex; gap: var(--space-2); flex-shrink: 0; flex-wrap: wrap; }
+.page-header__ref { font-weight: var(--font-weight-regular); font-size: 0.8em; }
+
+/* Phase 2 — a record page's "key summary strip" (Customer/Contract detail):
+   status + one or two already-fetched facts, inline under the title. Not a
+   new data source — whatever the page already has in hand. */
+.summary-strip {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-3);
+  flex-wrap: wrap;
+  font-size: var(--text-sm);
+  color: var(--text-muted);
+}
+.summary-strip .num { font-variant-numeric: tabular-nums; }
 
 .section-header {
   display: flex;

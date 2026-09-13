@@ -2,6 +2,8 @@ import { useCallback, useEffect, useState, type FormEvent } from "react";
 import { api, errorMessage } from "../api/client";
 import type { ContractReportPage } from "../api/types";
 import { Card, EmptyState, ErrorNote, RefCode, ResultSummary, money } from "../components/ui";
+import { PageHeader } from "../components/PageHeader";
+import { FilterBar } from "../components/FilterBar";
 import { SkeletonTable } from "../components/Skeleton";
 import { SearchSelect } from "../components/SearchSelect";
 import { StatusBadge } from "../components/StatusBadge";
@@ -50,37 +52,39 @@ export function ContractDirectoryPage() {
   }
 
   return (
-    <div className="stack">
-      <h1>Contracts</h1>
-      <p className="muted">
-        Day-to-day lookup. For filtered exports (status, date range, category)
-        see <strong>Reports → Contracts</strong> instead.
-      </p>
+    <div className="stack page-wide">
+      <PageHeader
+        title="Contracts"
+        description={
+          <>
+            Day-to-day lookup. For filtered exports (status, date range,
+            category) see <strong>Reports → Contracts</strong> instead.
+          </>
+        }
+      />
       <ErrorNote message={error} />
 
-      <Card>
-        <form className="inline-form" onSubmit={search}>
-          <label className="field" style={{ maxWidth: 220 }}>
-            <span>Contract reference (CN-code)</span>
-            <input
-              value={refTerm}
-              onChange={(e) => setRefTerm(e.target.value)}
-              placeholder="CN-000012 or a raw id"
-              data-testid="contract-directory-ref-input"
-            />
-          </label>
-          <SearchSelect
-            label="Customer"
-            kind="customer"
-            value={customerTerm}
-            onChange={setCustomerTerm}
-            placeholder="Search by name, or paste an id / CU-code"
+      <FilterBar as="form" onSubmit={search}>
+        <label className="field" style={{ maxWidth: 220 }}>
+          <span>Contract reference (CN-code)</span>
+          <input
+            value={refTerm}
+            onChange={(e) => setRefTerm(e.target.value)}
+            placeholder="CN-000012 or a raw id"
+            data-testid="contract-directory-ref-input"
           />
-          <button className="btn-primary" type="submit">
-            Search
-          </button>
-        </form>
-      </Card>
+        </label>
+        <SearchSelect
+          label="Customer"
+          kind="customer"
+          value={customerTerm}
+          onChange={setCustomerTerm}
+          placeholder="Search by name, or paste an id / CU-code"
+        />
+        <button className="btn-primary" type="submit">
+          Search
+        </button>
+      </FilterBar>
 
       <Card>
         {page == null ? (

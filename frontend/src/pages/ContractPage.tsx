@@ -18,6 +18,7 @@ import {
   RefCode,
   money,
 } from "../components/ui";
+import { PageHeader } from "../components/PageHeader";
 import { PrintHeader } from "../components/PrintHeader";
 import { SkeletonText } from "../components/Skeleton";
 import { useToast } from "../components/Toast";
@@ -221,13 +222,28 @@ export function ContractPage() {
           },
         ]}
       />
-      <div className="inline-form" style={{ justifyContent: "space-between" }}>
-        <h1 style={{ margin: 0 }}>
-          Contract <RefCode code={contract.reference_code} />{" "}
-          <StatusBadge status={contract.status} />
-        </h1>
-        <PrintButton />
-      </div>
+      <PageHeader
+        title={
+          <>
+            Contract <RefCode code={contract.reference_code} />{" "}
+            <StatusBadge status={contract.status} />
+          </>
+        }
+        description={
+          <span className="summary-strip">
+            <span>Sale price {money(so.sale_price)}</span>
+            <span>Down payment {money(so.down_payment_amount)}</span>
+            <span>Total profit {money(contract.total_profit)}</span>
+            {receivable && (
+              <span>
+                Outstanding{" "}
+                {money(receivable.outstanding_principal + receivable.outstanding_profit)}
+              </span>
+            )}
+          </span>
+        }
+        actions={<PrintButton />}
+      />
       <ErrorNote message={error} />
       {notice && <div className="alert alert--info">{notice}</div>}
 

@@ -34,6 +34,9 @@ import type {
 } from "../api/types";
 import { MetricGrid, MetricTile } from "../components/MetricTile";
 import { Card, EmptyState, ErrorNote, Field, money } from "../components/ui";
+import { PageHeader, SectionHeader } from "../components/PageHeader";
+import { FilterBar } from "../components/FilterBar";
+import { ConfirmationDialog } from "../components/ConfirmationDialog";
 import { SkeletonTable, SkeletonTiles } from "../components/Skeleton";
 
 const NA = "n/a";
@@ -62,18 +65,28 @@ function qs(params: Record<string, string>): string {
 // KPI + stage cards
 // --------------------------------------------------------------------------- //
 function Kpis({ d }: { d: EclDashboard }) {
+  // Derived from two numbers the dashboard already returns — never a new
+  // data source, never a fabricated trend.
+  const overrideRate =
+    d.contracts_assessed > 0 ? d.overrides_active / d.contracts_assessed : null;
   return (
     <MetricGrid>
-      <MetricTile label="Total exposure (EAD)" value={money(d.total_exposure)} icon={Wallet} />
       <MetricTile
-        label="Total ECL"
+        emphasis="primary"
+        label="Portfolio exposure (EAD)"
+        value={money(d.total_exposure)}
+        icon={Wallet}
+      />
+      <MetricTile
+        emphasis="primary"
+        label="Expected credit loss"
         value={money(d.total_ecl)}
         tone="warn"
         icon={ShieldAlert}
         subLabel={`config v${d.ecl_config_version} · ${d.active_methodology}`}
       />
       <MetricTile
-        label="Total provision"
+        label="Provision balance"
         value={money(d.total_provision)}
         icon={Layers}
         subLabel="carrying provision = ECL"
@@ -86,6 +99,11 @@ function Kpis({ d }: { d: EclDashboard }) {
         subLabel="latest run vs prior"
       />
       <MetricTile label="Coverage ratio" value={pct(d.coverage_ratio)} icon={Percent} />
+      <MetricTile
+        label="Override rate"
+        value={overrideRate == null ? NA : pct(overrideRate)}
+        subLabel={`${d.overrides_active} active override(s)`}
+      />
     </MetricGrid>
   );
 }
@@ -185,6 +203,7 @@ function RunPanel({
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
   const [err, setErr] = useState<string | null>(null);
+  const [confirmPost, setConfirmPost] = useState(false);
   const run = d.last_run;
 
   async function go(post: boolean) {
@@ -210,7 +229,7 @@ function RunPanel({
   }
 
   return (
-    <Card title="Run ECL calculation">
+    <Card title="ECL calculation">
       <p className="muted">
         On-demand recalculation (no scheduler). Re-assesses every active contract; a run is
         immutable. <strong>Post</strong> finalises it — one accounting event per contract
@@ -253,7 +272,7 @@ function RunPanel({
           className="btn-secondary"
           type="button"
           disabled={busy}
-          onClick={() => void go(true)}
+          onClick={() => setConfirmPost(true)}
         >
           Run &amp; post
         </button>
@@ -264,6 +283,22 @@ function RunPanel({
         </div>
       )}
       <ErrorNote message={err} />
+
+      <ConfirmationDialog
+        open={confirmPost}
+        title="Run and post ECL calculation"
+        confirmLabel="Run & post"
+        busy={busy}
+        onCancel={() => setConfirmPost(false)}
+        onConfirm={() => {
+          setConfirmPost(false);
+          void go(true);
+        }}
+      >
+        This recalculates the portfolio and immediately posts it — one
+        accounting event per contract provision movement plus a portfolio
+        roll-up. A posted run is immutable and cannot be posted again.
+      </ConfirmationDialog>
     </Card>
   );
 }
@@ -325,63 +360,68 @@ function PortfolioTable() {
 
   return (
     <div className="stack">
-      <Card title="ECL portfolio">
-        <form className="field-row" onSubmit={(e) => { e.preventDefault(); void load(); }}>
-          <label className="field">
-            <span>Final stage</span>
-            <select value={filters.stage} onChange={set("stage")}>
-              <option value="">Any</option>
-              <option value="1">Stage 1</option>
-              <option value="2">Stage 2</option>
-              <option value="3">Stage 3</option>
-            </select>
-          </label>
-          <label className="field">
-            <span>DPD band</span>
-            <select value={filters.dpd_band} onChange={set("dpd_band")}>
-              <option value="">Any</option>
-              {["current", "1-30", "31-60", "61-90", "91+"].map((b) => (
-                <option key={b} value={b}>{b}</option>
+      <SectionHeader title="ECL portfolio" description="Every assessed contract — automated, override and final result." />
+
+      <FilterBar
+        as="form"
+        onSubmit={(e) => { e.preventDefault(); void load(); }}
+        actions={
+          <>
+            <button className="btn-primary" type="submit">Apply</button>
+            <span className="export-group">
+              <span>Export</span>
+              {(["csv", "xlsx", "pdf"] as const).map((fmt) => (
+                <button
+                  key={fmt}
+                  type="button"
+                  className="btn-secondary"
+                  onClick={() =>
+                    downloadFile(
+                      `/ecl/assessments?${query({ format: fmt })}`,
+                      `ecl-portfolio.${fmt}`,
+                    ).catch((e) => setError(errorMessage(e)))
+                  }
+                >
+                  {fmt.toUpperCase()}
+                </button>
               ))}
-            </select>
-          </label>
-          <Field
-            label="Risk rating"
-            value={filters.risk_rating}
-            onChange={set("risk_rating")}
-            placeholder="A / B / C…"
-          />
-          <label className="field">
-            <span>Override</span>
-            <select value={filters.override_status} onChange={set("override_status")}>
-              <option value="">Any</option>
-              <option value="active">With active override</option>
-              <option value="none">No override</option>
-            </select>
-          </label>
-        </form>
-        <div className="inline-form" style={{ marginTop: "0.75rem" }}>
-          <button className="btn-primary" onClick={() => void load()}>Apply</button>
-          <span className="export-group">
-            <span>Export</span>
-            {(["csv", "xlsx", "pdf"] as const).map((fmt) => (
-              <button
-                key={fmt}
-                type="button"
-                className="btn-secondary"
-                onClick={() =>
-                  downloadFile(
-                    `/ecl/assessments?${query({ format: fmt })}`,
-                    `ecl-portfolio.${fmt}`,
-                  ).catch((e) => setError(errorMessage(e)))
-                }
-              >
-                {fmt.toUpperCase()}
-              </button>
+            </span>
+          </>
+        }
+      >
+        <label className="field">
+          <span>Final stage</span>
+          <select value={filters.stage} onChange={set("stage")}>
+            <option value="">Any</option>
+            <option value="1">Stage 1</option>
+            <option value="2">Stage 2</option>
+            <option value="3">Stage 3</option>
+          </select>
+        </label>
+        <label className="field">
+          <span>DPD band</span>
+          <select value={filters.dpd_band} onChange={set("dpd_band")}>
+            <option value="">Any</option>
+            {["current", "1-30", "31-60", "61-90", "91+"].map((b) => (
+              <option key={b} value={b}>{b}</option>
             ))}
-          </span>
-        </div>
-      </Card>
+          </select>
+        </label>
+        <Field
+          label="Risk rating"
+          value={filters.risk_rating}
+          onChange={set("risk_rating")}
+          placeholder="A / B / C…"
+        />
+        <label className="field">
+          <span>Override</span>
+          <select value={filters.override_status} onChange={set("override_status")}>
+            <option value="">Any</option>
+            <option value="active">With active override</option>
+            <option value="none">No override</option>
+          </select>
+        </label>
+      </FilterBar>
 
       <ErrorNote message={error} />
 
@@ -482,15 +522,19 @@ export function EclProvisionPage() {
   void rate; // retained helper (used by detail page pattern)
 
   return (
-    <div className="stack">
-      <h1>ECL &amp; Provision</h1>
-      <p className="muted">
-        Expected Credit Loss is assessed for <strong>every</strong> active contract from
-        activation onward. Stage is decided by a configurable engine (Stage-3 triggers first,
-        then SICR) — DPD is one trigger among several. The automated result, any manual
-        override, and the final approved result are stored separately. Every PD / LGD /
-        threshold is a placeholder — <strong>BUSINESS / RISK MODEL DECISION REQUIRED</strong>.
-      </p>
+    <div className="stack page-wide">
+      <PageHeader
+        title="ECL & Provision"
+        description={
+          <>
+            Expected Credit Loss is assessed for <strong>every</strong> active contract from
+            activation onward. Stage is decided by a configurable engine (Stage-3 triggers first,
+            then SICR) — DPD is one trigger among several. The automated result, any manual
+            override, and the final approved result are stored separately. Every PD / LGD /
+            threshold is a placeholder — <strong>BUSINESS / RISK MODEL DECISION REQUIRED</strong>.
+          </>
+        }
+      />
 
       <ErrorNote message={error} />
       {!dash && !error && <SkeletonTiles count={5} />}

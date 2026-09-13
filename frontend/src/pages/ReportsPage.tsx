@@ -17,6 +17,7 @@ import {
 import { api, downloadFile, errorMessage } from "../api/client";
 import type { ContractReportPage, ProfitabilityReport } from "../api/types";
 import { Card, EmptyState, ErrorNote, Field, RefCode, ResultSummary, money } from "../components/ui";
+import { PageHeader } from "../components/PageHeader";
 import { SkeletonTable } from "../components/Skeleton";
 import { SearchSelect } from "../components/SearchSelect";
 import { coerceId } from "../lib/reference";
@@ -893,12 +894,11 @@ export function ReportsPage() {
   }
 
   return (
-    <div className="stack reports-page">
-      <h1>Reports</h1>
-      <p className="muted">
-        Bounded reporting — every figure is a live query over existing tables.
-        No charts or scheduled reports; CSV / Excel / PDF export.
-      </p>
+    <div className="stack reports-page page-wide">
+      <PageHeader
+        title="Reports"
+        description="Bounded reporting — every figure is a live query over existing tables. No charts or scheduled reports; CSV / Excel / PDF export."
+      />
       <div className="split">
         <div className="report-cats" role="tablist" aria-label="Report categories">
           {CATEGORIES.map((c) => {

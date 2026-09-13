@@ -3,6 +3,8 @@ import { Link } from "react-router-dom";
 import { api, downloadFile, errorMessage } from "../api/client";
 import type { CustomerListItem } from "../api/types";
 import { Card, EmptyState, ErrorNote, Field, RefCode, ResultSummary } from "../components/ui";
+import { PageHeader } from "../components/PageHeader";
+import { FilterBar } from "../components/FilterBar";
 import { SkeletonTable } from "../components/Skeleton";
 import { StatusBadge } from "../components/StatusBadge";
 
@@ -45,46 +47,51 @@ export function CustomerDirectoryPage() {
   }
 
   return (
-    <div className="stack">
-      <h1>Customers</h1>
+    <div className="stack page-wide">
+      <PageHeader title="Customers" description="Search and manage customer records." />
       <ErrorNote message={error} />
 
-      <Card>
-        <form className="inline-form" onSubmit={onSearch}>
-          <Field
-            label="Search by name or national ID"
-            value={term}
-            onChange={(e) => setTerm(e.target.value)}
-          />
-          <label className="field">
-            <span>Status</span>
-            <select
-              value={status}
-              onChange={(e) => setStatus(e.target.value as StatusFilter)}
+      <FilterBar
+        as="form"
+        onSubmit={onSearch}
+        actions={
+          <>
+            <button className="btn-primary" type="submit">
+              Search
+            </button>
+            <button
+              type="button"
+              className="btn-secondary"
+              onClick={() => {
+                const q = query();
+                downloadFile(
+                  `/customers${q ? `?${q}&` : "?"}format=csv`,
+                  "customers.csv",
+                ).catch((err) => setError(errorMessage(err)));
+              }}
             >
-              <option value="all">All</option>
-              <option value="active">Active</option>
-              <option value="inactive">Inactive</option>
-            </select>
-          </label>
-          <button className="btn-primary" type="submit">
-            Search
-          </button>
-          <button
-            type="button"
-            className="btn-secondary"
-            onClick={() => {
-              const q = query();
-              downloadFile(
-                `/customers${q ? `?${q}&` : "?"}format=csv`,
-                "customers.csv",
-              ).catch((err) => setError(errorMessage(err)));
-            }}
+              Export CSV
+            </button>
+          </>
+        }
+      >
+        <Field
+          label="Search by name or national ID"
+          value={term}
+          onChange={(e) => setTerm(e.target.value)}
+        />
+        <label className="field">
+          <span>Status</span>
+          <select
+            value={status}
+            onChange={(e) => setStatus(e.target.value as StatusFilter)}
           >
-            Export CSV
-          </button>
-        </form>
-      </Card>
+            <option value="all">All</option>
+            <option value="active">Active</option>
+            <option value="inactive">Inactive</option>
+          </select>
+        </label>
+      </FilterBar>
 
       <Card>
         {rows == null ? (
