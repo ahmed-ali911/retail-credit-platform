@@ -5,6 +5,7 @@ import type { ApplicationListItem, ApplicationOut } from "../api/types";
 import { AssessmentPanel } from "../components/AssessmentPanel";
 import { StatusBadge } from "../components/StatusBadge";
 import { Card, EmptyState, ErrorNote, RefCode, money } from "../components/ui";
+import { PageHeader } from "../components/PageHeader";
 import { SkeletonTable } from "../components/Skeleton";
 import { useToast } from "../components/Toast";
 
@@ -26,12 +27,16 @@ export function ReviewQueuePage() {
   }, []);
 
   return (
-    <div className="stack">
-      <h1>Review Queue</h1>
-      <p className="muted">
-        Applications the automated engine sent to <strong>referred</strong> —
-        awaiting a manual credit decision.
-      </p>
+    <div className="stack page-wide">
+      <PageHeader
+        title="Review Queue"
+        description={
+          <>
+            Applications the automated engine sent to <strong>referred</strong> —
+            awaiting a manual credit decision.
+          </>
+        }
+      />
       <ErrorNote message={error} />
 
       <Card>
@@ -153,15 +158,19 @@ export function ReviewApplicationPage() {
 
   return (
     <div className="stack">
-      <h1>
-        Review application <RefCode code={app.reference_code} />{" "}
-        <StatusBadge status={done ? outcome!.status : app.status} />
-      </h1>
-      <p>
-        <Link className="btn-link" to="/review">
-          ← Back to queue
-        </Link>
-      </p>
+      <PageHeader
+        title={
+          <>
+            Review application <RefCode code={app.reference_code} />{" "}
+            <StatusBadge status={done ? outcome!.status : app.status} />
+          </>
+        }
+        description={
+          <Link className="btn-link" to="/review">
+            ← Back to queue
+          </Link>
+        }
+      />
       <ErrorNote message={error} />
 
       <Card title="Application">

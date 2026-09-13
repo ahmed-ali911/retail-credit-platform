@@ -2,6 +2,8 @@ import { useCallback, useEffect, useState, type FormEvent } from "react";
 import { api, downloadFile, errorMessage } from "../api/client";
 import type { ProductOut } from "../api/types";
 import { Card, EmptyState, ErrorNote, Field, RefCode, ResultSummary, money } from "../components/ui";
+import { PageHeader } from "../components/PageHeader";
+import { FilterBar } from "../components/FilterBar";
 import { SkeletonTable } from "../components/Skeleton";
 
 function StockBadge({ available }: { available: number }) {
@@ -45,38 +47,47 @@ export function ProductDirectoryPage() {
   }
 
   return (
-    <div className="stack">
-      <h1>Products</h1>
-      <p className="muted">
-        Read-only. Correcting stock levels is done on the{" "}
-        <strong>Inventory</strong> screen.
-      </p>
+    <div className="stack page-wide">
+      <PageHeader
+        title="Products"
+        description={
+          <>
+            Read-only. Correcting stock levels is done on the{" "}
+            <strong>Inventory</strong> screen.
+          </>
+        }
+      />
       <ErrorNote message={error} />
 
-      <Card>
-        <form className="inline-form" onSubmit={search}>
-          <Field
-            label="Search by name or category"
-            value={term}
-            onChange={(e) => setTerm(e.target.value)}
-          />
-          <button className="btn-primary" type="submit">
-            Search
-          </button>
-          <button
-            type="button"
-            className="btn-secondary"
-            onClick={() =>
-              downloadFile(
-                `/products?search=${encodeURIComponent(term.trim())}&format=csv`,
-                "products.csv",
-              ).catch((err) => setError(errorMessage(err)))
-            }
-          >
-            Export CSV
-          </button>
-        </form>
-      </Card>
+      <FilterBar
+        as="form"
+        onSubmit={search}
+        actions={
+          <>
+            <button className="btn-primary" type="submit">
+              Search
+            </button>
+            <button
+              type="button"
+              className="btn-secondary"
+              onClick={() =>
+                downloadFile(
+                  `/products?search=${encodeURIComponent(term.trim())}&format=csv`,
+                  "products.csv",
+                ).catch((err) => setError(errorMessage(err)))
+              }
+            >
+              Export CSV
+            </button>
+          </>
+        }
+      >
+        <Field
+          label="Search by name or category"
+          value={term}
+          onChange={(e) => setTerm(e.target.value)}
+        />
+      </FilterBar>
 
       <Card>
         {rows == null ? (

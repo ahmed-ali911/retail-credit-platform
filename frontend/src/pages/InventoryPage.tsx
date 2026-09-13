@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState, type FormEvent } from "react";
 import { api, errorMessage } from "../api/client";
 import type { AuditEventOut, ProductOut } from "../api/types";
 import { Card, EmptyState, ErrorNote, Field, RefCode, money } from "../components/ui";
+import { PageHeader } from "../components/PageHeader";
 import { SkeletonTable } from "../components/Skeleton";
 import { useToast } from "../components/Toast";
 import { formatReference } from "../lib/reference";
@@ -69,14 +70,19 @@ export function InventoryPage() {
     }
   }
 
+  const adjusting = products?.find((p) => p.id === adjustFor) ?? null;
+  const deltaNum = Number(form.delta);
+  const previewBalance =
+    adjusting && form.delta.trim() !== "" && !Number.isNaN(deltaNum)
+      ? adjusting.stock_quantity + deltaNum
+      : null;
+
   return (
-    <div className="stack">
-      <h1>Inventory Adjustment</h1>
-      <p className="muted">
-        Privileged — correct stock levels (restock, damage/loss). A positive
-        delta adds stock; a negative delta cannot drop below the reserved
-        quantity.
-      </p>
+    <div className="stack page-wide">
+      <PageHeader
+        title="Inventory Adjustment"
+        description="Privileged — correct stock levels (restock, damage/loss). A positive delta adds stock; a negative delta cannot drop below the reserved quantity."
+      />
       <ErrorNote message={error} />
 
       <Card title="Products">
@@ -124,29 +130,52 @@ export function InventoryPage() {
         )}
 
         {adjustFor != null && (
-          <form
-            className="inline-form"
-            style={{ marginTop: "1rem" }}
-            aria-label={`Adjust stock for product ${adjustFor}`}
-            onSubmit={(e) => submit(e, adjustFor)}
-          >
-            <Field
-              label="Delta (+/-)"
-              inputMode="numeric"
-              value={form.delta}
-              onChange={(e) => setForm((f) => ({ ...f, delta: e.target.value }))}
-              required
-            />
-            <Field
-              label="Reason"
-              value={form.reason}
-              onChange={(e) => setForm((f) => ({ ...f, reason: e.target.value }))}
-              required
-            />
-            <button className="btn-primary" type="submit" disabled={busy}>
-              Apply adjustment
-            </button>
-          </form>
+          <div className="dialog-scrim" role="presentation" onClick={() => setAdjustFor(null)}>
+            <div
+              className="dialog"
+              role="dialog"
+              aria-label={`Adjust stock for product ${adjustFor}`}
+              onClick={(e) => e.stopPropagation()}
+            >
+              <h2 className="dialog__title">Adjust stock</h2>
+              <form className="stack" onSubmit={(e) => submit(e, adjustFor)}>
+                <dl className="kv">
+                  <dt>Current stock</dt>
+                  <dd>{adjusting?.stock_quantity ?? "—"}</dd>
+                  <dt>New balance (preview)</dt>
+                  <dd data-testid="inv-preview-balance">
+                    {previewBalance ?? "—"}
+                  </dd>
+                </dl>
+                <Field
+                  label="Delta (+/-)"
+                  inputMode="numeric"
+                  value={form.delta}
+                  onChange={(e) => setForm((f) => ({ ...f, delta: e.target.value }))}
+                  required
+                />
+                <Field
+                  label="Reason"
+                  value={form.reason}
+                  onChange={(e) => setForm((f) => ({ ...f, reason: e.target.value }))}
+                  required
+                />
+                <div className="dialog__actions">
+                  <button
+                    type="button"
+                    className="btn-secondary"
+                    onClick={() => setAdjustFor(null)}
+                    disabled={busy}
+                  >
+                    Cancel
+                  </button>
+                  <button className="btn-primary" type="submit" disabled={busy}>
+                    Apply adjustment
+                  </button>
+                </div>
+              </form>
+            </div>
+          </div>
         )}
       </Card>
 

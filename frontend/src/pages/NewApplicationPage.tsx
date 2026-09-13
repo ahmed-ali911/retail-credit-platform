@@ -5,6 +5,7 @@ import type { ApplicationOut } from "../api/types";
 import { AssessmentPanel } from "../components/AssessmentPanel";
 import { SearchSelect } from "../components/SearchSelect";
 import { Card, ErrorNote, Field, FormSection, RefCode, SelectField } from "../components/ui";
+import { PageHeader } from "../components/PageHeader";
 import { StatusBadge } from "../components/StatusBadge";
 import { coerceId } from "../lib/reference";
 
@@ -55,7 +56,7 @@ export function NewApplicationPage() {
 
   return (
     <div className="stack">
-      <h1>New application</h1>
+      <PageHeader title="New application" description="Origination — automated credit assessment runs on submit." />
 
       <Card>
         <form onSubmit={onSubmit}>

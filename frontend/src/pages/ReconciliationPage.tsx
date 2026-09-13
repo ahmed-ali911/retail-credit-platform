@@ -8,6 +8,8 @@ import type {
   ReconciliationStatus,
 } from "../api/types";
 import { Card, EmptyState, ErrorNote, Field } from "../components/ui";
+import { PageHeader } from "../components/PageHeader";
+import { FilterBar } from "../components/FilterBar";
 import { SkeletonText } from "../components/Skeleton";
 import { useToast } from "../components/Toast";
 import { StatusBadge } from "../components/StatusBadge";
@@ -145,7 +147,10 @@ export function ReconciliationPage() {
 
   return (
     <div className="stack">
-      <h1>Bank Reconciliation</h1>
+      <PageHeader
+        title="Bank Reconciliation"
+        description="Match recorded payments against the bank statement and resolve exceptions."
+      />
       <ErrorNote message={error} />
       {notice && <div className="alert alert--info">{notice}</div>}
 
@@ -168,37 +173,10 @@ export function ReconciliationPage() {
         )}
       </Card>
 
-      <Card title="Add bank line">
-        <form className="inline-form" onSubmit={addLine}>
-          <Field
-            label="Bank reference"
-            value={line.bank_reference}
-            onChange={(e) => setLine((l) => ({ ...l, bank_reference: e.target.value }))}
-            required
-          />
-          <Field
-            label="Amount"
-            inputMode="decimal"
-            value={line.amount}
-            onChange={(e) => setLine((l) => ({ ...l, amount: e.target.value }))}
-            required
-          />
-          <Field
-            label="Value date"
-            type="date"
-            value={line.value_date}
-            onChange={(e) => setLine((l) => ({ ...l, value_date: e.target.value }))}
-            required
-          />
-          <button className="btn-primary" type="submit" disabled={busy}>
-            Add bank line
-          </button>
-        </form>
-      </Card>
-
-      <Card title="Upload bank statement (.xlsx)" soft>
+      <Card title="Upload bank statement (.xlsx)">
         <p className="muted">
-          Bulk alternative to the single-line form above — doesn't replace it.
+          The normal bulk workflow — an <strong>Add bank line</strong> manual
+          fallback follows below.
           Expected columns: <code>bank_reference</code>, <code>amount</code>,{" "}
           <code>value_date</code> (any order, case-insensitive header, extra
           columns ignored — see the README for the exact layout).
@@ -239,6 +217,34 @@ export function ReconciliationPage() {
         )}
       </Card>
 
+      <Card title="Add bank line" soft>
+        <form className="inline-form" onSubmit={addLine}>
+          <Field
+            label="Bank reference"
+            value={line.bank_reference}
+            onChange={(e) => setLine((l) => ({ ...l, bank_reference: e.target.value }))}
+            required
+          />
+          <Field
+            label="Amount"
+            inputMode="decimal"
+            value={line.amount}
+            onChange={(e) => setLine((l) => ({ ...l, amount: e.target.value }))}
+            required
+          />
+          <Field
+            label="Value date"
+            type="date"
+            value={line.value_date}
+            onChange={(e) => setLine((l) => ({ ...l, value_date: e.target.value }))}
+            required
+          />
+          <button className="btn-primary" type="submit" disabled={busy}>
+            Add bank line
+          </button>
+        </form>
+      </Card>
+
       <Card title="Run matching">
         <button className="btn-primary" onClick={runMatching} disabled={busy}>
           Run matching
@@ -252,19 +258,21 @@ export function ReconciliationPage() {
       </Card>
 
       <Card title="Exceptions">
-        <label className="field" style={{ maxWidth: 220 }}>
-          <span>Filter by status</span>
-          <select
-            value={statusFilter}
-            onChange={(e) =>
-              setStatusFilter(e.target.value as "" | "open" | "resolved")
-            }
-          >
-            <option value="">All</option>
-            <option value="open">Open</option>
-            <option value="resolved">Resolved</option>
-          </select>
-        </label>
+        <FilterBar>
+          <label className="field" style={{ maxWidth: 220 }}>
+            <span>Filter by status</span>
+            <select
+              value={statusFilter}
+              onChange={(e) =>
+                setStatusFilter(e.target.value as "" | "open" | "resolved")
+              }
+            >
+              <option value="">All</option>
+              <option value="open">Open</option>
+              <option value="resolved">Resolved</option>
+            </select>
+          </label>
+        </FilterBar>
 
         {exceptions.length === 0 ? (
           <EmptyState message="No exceptions." />

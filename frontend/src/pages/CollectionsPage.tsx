@@ -7,6 +7,8 @@ import type {
   CollectionCaseOut,
 } from "../api/types";
 import { Card, EmptyState, ErrorNote, Field, RefCode, ResultSummary, money } from "../components/ui";
+import { PageHeader } from "../components/PageHeader";
+import { FilterBar } from "../components/FilterBar";
 import { SkeletonTable, SkeletonText } from "../components/Skeleton";
 import { StatusBadge } from "../components/StatusBadge";
 import { coerceId } from "../lib/reference";
@@ -70,8 +72,8 @@ export function CollectionsPage() {
   }
 
   return (
-    <div className="stack">
-      <h1>Collections</h1>
+    <div className="stack page-wide">
+      <PageHeader title="Collections" description="Open cases, activity log and promise-to-pay tracking." />
       <ErrorNote message={error} />
       {notice && <div className="alert alert--info">{notice}</div>}
 
@@ -88,7 +90,23 @@ export function CollectionsPage() {
       )}
 
       <Card title="Cases">
-        <div className="inline-form">
+        <FilterBar
+          actions={
+            <button
+              type="button"
+              className="btn-secondary"
+              onClick={() => {
+                const q = buildQuery();
+                downloadFile(
+                  `/collections/cases?${q ? `${q}&` : ""}format=csv`,
+                  "collection-cases.csv",
+                ).catch((err) => setError(errorMessage(err)));
+              }}
+            >
+              Export CSV
+            </button>
+          }
+        >
           <label className="field" style={{ maxWidth: 180 }}>
             <span>Status</span>
             <select
@@ -119,20 +137,7 @@ export function CollectionsPage() {
             value={dateTo}
             onChange={(e) => setDateTo(e.target.value)}
           />
-          <button
-            type="button"
-            className="btn-secondary"
-            onClick={() => {
-              const q = buildQuery();
-              downloadFile(
-                `/collections/cases?${q ? `${q}&` : ""}format=csv`,
-                "collection-cases.csv",
-              ).catch((err) => setError(errorMessage(err)));
-            }}
-          >
-            Export CSV
-          </button>
-        </div>
+        </FilterBar>
 
         {rows == null ? (
           <SkeletonTable rows={5} cols={6} />
@@ -266,15 +271,19 @@ export function CollectionCasePage() {
 
   return (
     <div className="stack">
-      <h1>
-        Case <RefCode code={detail.reference_code} />{" "}
-        <StatusBadge status={detail.status} />
-      </h1>
-      <p>
-        <Link className="btn-link" to="/collections">
-          ← Back to cases
-        </Link>
-      </p>
+      <PageHeader
+        title={
+          <>
+            Case <RefCode code={detail.reference_code} />{" "}
+            <StatusBadge status={detail.status} />
+          </>
+        }
+        description={
+          <Link className="btn-link" to="/collections">
+            ← Back to cases
+          </Link>
+        }
+      />
       <ErrorNote message={error} />
 
       <Card title="Case">
