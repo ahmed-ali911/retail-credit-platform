@@ -325,7 +325,14 @@ describe("Part G — responsive", () => {
     expect(appCss).toMatch(
       /@media \(min-width: 1000px\)\s*\{\s*\.metric-grid\s*\{\s*grid-template-columns:\s*repeat\(4/,
     );
-    expect(appCss).toMatch(/\.card:has\(table\.data\)\s*\{\s*overflow-x:\s*auto/);
+    // Post-redesign bug fix: overflow-x alone forced overflow-y to 'auto' too
+    // (per the CSS overflow spec), which silently made the card — not the
+    // page — the sticky-header's positioning ancestor, causing the header to
+    // overlap the first row. Now an intentional, bounded scroll region
+    // (overflow: auto + max-height) so the sticky header has a real,
+    // correctly-offset (top: 0) scrollport — wide content still scrolls
+    // inside the card either way.
+    expect(appCss).toMatch(/\.card:has\(table\.data\)\s*\{\s*overflow:\s*auto;\s*max-height:/);
     // Reports Center two-pane collapses on narrow
     expect(appCss).toMatch(/@media \(max-width: 760px\)[\s\S]*\.split\s*\{\s*flex-direction:\s*column/);
   });

@@ -42,6 +42,26 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.models.base import Base, utcnow
 
 
+def _by_value(enum_cls: type[enum.Enum]) -> list[str]:
+    """For ``Enum(SomeEnum, native_enum=False, values_callable=_by_value)``.
+
+    SQLAlchemy's ``Enum`` type persists/reads a Python enum column by member
+    **name** unless told otherwise — fine for every enum in this codebase
+    where name == value (e.g. ``pending = "pending"``), but wrong for the
+    handful of ECL enums below that deliberately use SCREAMING_CASE *values*
+    (the API/JSON contract, e.g. ``"COMPLETED"``) with lowercase *names*
+    (``completed``, the Pythonic convention). Without this, a value written
+    via ``server_default`` or a raw-SQL migration UPDATE (which naturally use
+    the enum's *value*, e.g. `'COMPLETED'`) round-trips back through the ORM
+    as a ``LookupError`` — confirmed live against a real database with
+    pre-existing rows (a fresh, always-empty test DB never hits this, since
+    every row it creates goes through the ORM's own — consistent — write
+    path; it only surfaces once real data exists, e.g. after migrating a
+    database that had rows before this column existed).
+    """
+    return [e.value for e in enum_cls]
+
+
 class ECLMethodology(str, enum.Enum):
     three_stage = "three_stage"                  # primary
     simplified_lifetime = "simplified_lifetime"  # retained alternative
@@ -174,7 +194,7 @@ class ECLRun(Base):
         Enum(ECLMethodology, native_enum=False, length=30), nullable=False
     )
     status: Mapped[ECLRunStatus] = mapped_column(
-        Enum(ECLRunStatus, native_enum=False, length=20),
+        Enum(ECLRunStatus, native_enum=False, length=20, values_callable=_by_value),
         default=ECLRunStatus.completed,
         server_default=ECLRunStatus.completed.value,
         nullable=False,
@@ -360,16 +380,18 @@ class ECLOverride(Base):
         ForeignKey("customers.id"), nullable=True
     )
     override_type: Mapped[ECLOverrideType] = mapped_column(
-        Enum(ECLOverrideType, native_enum=False, length=15), nullable=False
+        Enum(ECLOverrideType, native_enum=False, length=15, values_callable=_by_value),
+        nullable=False,
     )
     status: Mapped[ECLOverrideStatus] = mapped_column(
-        Enum(ECLOverrideStatus, native_enum=False, length=15),
+        Enum(ECLOverrideStatus, native_enum=False, length=15, values_callable=_by_value),
         default=ECLOverrideStatus.pending,
         nullable=False,
         index=True,
     )
     reason_code: Mapped[ECLOverrideReasonCode] = mapped_column(
-        Enum(ECLOverrideReasonCode, native_enum=False, length=40), nullable=False
+        Enum(ECLOverrideReasonCode, native_enum=False, length=40, values_callable=_by_value),
+        nullable=False,
     )
     justification: Mapped[str] = mapped_column(Text, nullable=False)
     evidence_ref: Mapped[str | None] = mapped_column(String(255), nullable=True)

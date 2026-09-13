@@ -183,9 +183,11 @@ table.data th {
   color: var(--color-muted);
   font-weight: 600;
   background: var(--color-bg);
-  /* sticks just below the sticky topbar (z-index: 20), not behind it */
+  /* Sticks to the top of its own scrolling ancestor — see the
+     .card:has(table.data) rule below for why that's the card, not the
+     page/topbar, and why `top` must be 0 here, not --header-height. */
   position: sticky;
-  top: var(--header-height);
+  top: 0;
   z-index: 5;
 }
 table.data td.num, table.data th.num { text-align: right; font-variant-numeric: tabular-nums; }
@@ -202,8 +204,25 @@ table.data tbody tr:hover {
 /* Step 16, Part G — a wide data table scrolls inside its own card instead of
    pushing the page wider on a narrow screen. Scoped with :has() to cards that
    actually contain a data table, so cards holding a search form keep
-   overflow:visible and never clip a SearchSelect dropdown. */
-.card:has(table.data) { overflow-x: auto; }
+   overflow:visible and never clip a SearchSelect dropdown.
+   Bug fix (post-redesign) — this used to be `overflow-x: auto` only. Per the
+   CSS overflow spec, setting overflow-x to a non-'visible' value while
+   overflow-y is left at its default 'visible' forces overflow-y's USED value
+   to 'auto' too — so the card was *already* a vertical scroll container, just
+   an unbounded one (height: auto, never actually needing to scroll). That
+   silently made the card — not the page/topbar — the nearest scrolling
+   ancestor for `table.data th`'s `position: sticky`, which is what caused the
+   sticky header to render across the first data row instead of above it: it
+   was sticking against the wrong box, at an offset (--header-height, 56px)
+   calibrated for a completely different one (the topbar).
+   Fix: make the card an intentional, bounded scroll region (max-height +
+   overflow: auto on both axes) so the sticky header has a real scrollport to
+   stick to, with `top: 0` on the header now correctly relative to it. Short
+   tables are unaffected — max-height only caps, it doesn't force a height. */
+.card:has(table.data) {
+  overflow: auto;
+  max-height: 640px;
+}
 table.data tfoot tr.totals-row td {
   font-weight: 700;
   border-top: 2px solid var(--color-border);

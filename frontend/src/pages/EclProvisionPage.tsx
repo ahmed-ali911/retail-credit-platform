@@ -46,14 +46,22 @@ const STAGE_COLOURS: Record<string, string> = {
   "3": "var(--color-danger, #b3261e)",
 };
 
+// Guards against NaN/undefined, not just null: a value can arrive as
+// `undefined` at runtime (a field genuinely missing from the response, e.g.
+// a schema/version mismatch) even though the TS type says it's required —
+// types aren't checked at runtime. Never render "NaN%" or "vundefined";
+// render the same explicit "n/a" as a real null.
+function isNum(v: unknown): v is number {
+  return typeof v === "number" && !Number.isNaN(v);
+}
 function pct(v: number | null | undefined): string {
-  return v == null ? NA : `${(v * 100).toFixed(2)}%`;
+  return isNum(v) ? `${(v * 100).toFixed(2)}%` : NA;
 }
 function num(v: number | null | undefined): string {
-  return v == null ? NA : money(v);
+  return isNum(v) ? money(v) : NA;
 }
 function rate(v: number | null | undefined): string {
-  return v == null ? NA : `${(v * 100).toFixed(2)}%`;
+  return isNum(v) ? `${(v * 100).toFixed(2)}%` : NA;
 }
 function qs(params: Record<string, string>): string {
   const p = new URLSearchParams();
@@ -66,9 +74,15 @@ function qs(params: Record<string, string>): string {
 // --------------------------------------------------------------------------- //
 function Kpis({ d }: { d: EclDashboard }) {
   // Derived from two numbers the dashboard already returns — never a new
-  // data source, never a fabricated trend.
+  // data source, never a fabricated trend. Guard both operands: `isNum`
+  // catches the case where the response the page actually got doesn't carry
+  // these fields at all (e.g. a stale/mismatched backend), not just the
+  // typed-as-required-but-actually-absent case.
   const overrideRate =
-    d.contracts_assessed > 0 ? d.overrides_active / d.contracts_assessed : null;
+    isNum(d.contracts_assessed) && d.contracts_assessed > 0 && isNum(d.overrides_active)
+      ? d.overrides_active / d.contracts_assessed
+      : null;
+  const configLabel = isNum(d.ecl_config_version) ? `config v${d.ecl_config_version} · ` : "";
   return (
     <MetricGrid>
       <MetricTile
@@ -83,7 +97,7 @@ function Kpis({ d }: { d: EclDashboard }) {
         value={money(d.total_ecl)}
         tone="warn"
         icon={ShieldAlert}
-        subLabel={`config v${d.ecl_config_version} · ${d.active_methodology}`}
+        subLabel={`${configLabel}${d.active_methodology ?? NA}`}
       />
       <MetricTile
         label="Provision balance"
@@ -102,7 +116,7 @@ function Kpis({ d }: { d: EclDashboard }) {
       <MetricTile
         label="Override rate"
         value={overrideRate == null ? NA : pct(overrideRate)}
-        subLabel={`${d.overrides_active} active override(s)`}
+        subLabel={isNum(d.overrides_active) ? `${d.overrides_active} active override(s)` : NA}
       />
     </MetricGrid>
   );
@@ -238,7 +252,8 @@ function RunPanel({
       <dl className="kv">
         <dt>Active methodology</dt>
         <dd data-testid="ecl-active-methodology">
-          <code>{d.active_methodology}</code> · config v{d.ecl_config_version} — set via{" "}
+          <code>{d.active_methodology ?? NA}</code>
+          {isNum(d.ecl_config_version) ? ` · config v${d.ecl_config_version}` : ""} — set via{" "}
           <Link to="/ecl/config">ECL Configuration</Link>
         </dd>
         <dt>Last run</dt>
@@ -548,7 +563,7 @@ export function EclProvisionPage() {
         </>
       )}
 
-      {cfg && (
+      {cfg && isNum(cfg.active.ecl_config_version) && (
         <p className="muted" style={{ display: "flex", gap: "0.4rem", alignItems: "center" }}>
           <Gauge size={14} aria-hidden />
           Active configuration <strong>v{cfg.active.ecl_config_version}</strong>. Past runs are

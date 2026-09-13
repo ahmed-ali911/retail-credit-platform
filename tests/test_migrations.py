@@ -157,6 +157,88 @@ def test_downgrade_survives_same_day_origination_and_run_assessments(tmp_path):
     )
 
 
+_READ_DASHBOARD_SCRIPT = textwrap.dedent(
+    """
+    # Reads ecl_runs through the real ORM/service path (GET /ecl/dashboard's
+    # own code), the same way a live server does — not a raw SELECT, which
+    # wouldn't exercise SQLAlchemy's Enum type and so wouldn't reproduce the
+    # bug this test guards against.
+    import os
+    from sqlalchemy import create_engine
+    from sqlalchemy.orm import sessionmaker
+    import app.core.database as database
+
+    url = os.environ["DATABASE_URL"]
+    engine = create_engine(url, connect_args={"check_same_thread": False}, future=True)
+    SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False, future=True)
+    database.engine = engine
+    database.SessionLocal = SessionLocal
+
+    from app.services import ecl as ecl_service
+
+    db = SessionLocal()
+    result = ecl_service.dashboard(db)
+    assert result["contracts_assessed"] == 0, result
+    print("OK")
+    db.close()
+    """
+)
+
+
+def test_legacy_ecl_run_status_survives_the_0013_backfill(tmp_path):
+    """Regression for a bug found via live verification (not by this
+    always-fresh-DB suite): migration 0013 adds ecl_runs.status and backfills
+    every pre-existing row to the literal 'COMPLETED' (the enum's *value* —
+    natural to write in raw SQL). But SQLAlchemy's ``Enum`` type persists/
+    reads a Python str-enum column by member *name* unless told otherwise,
+    and ECLRunStatus deliberately has name != value (``completed = "COMPLETED"``,
+    lowercase Python convention vs. the SCREAMING_CASE API contract) — so
+    reading that backfilled row back through the ORM raised
+    ``LookupError: 'COMPLETED' is not among the defined enum values``.
+
+    Never caught by the rest of the suite because a fresh test DB has no
+    pre-existing ecl_runs row for the backfill to touch — every row it ever
+    sees was written by the (self-consistent) ORM write path. This only
+    surfaces once a real database has rows that predate the status column,
+    exactly what a real `alembic upgrade head` against deployed data does.
+    """
+    db_path = tmp_path / "legacy_ecl_run.db"
+
+    up_to_0012 = _alembic("upgrade", "0012", db_path=db_path)
+    assert up_to_0012.returncode == 0, up_to_0012.stdout + up_to_0012.stderr
+
+    # A pre-existing ecl_runs row, written before the `status` column existed
+    # — exactly what migration 0013's backfill is for.
+    con = sqlite3.connect(db_path)
+    try:
+        con.execute(
+            "INSERT INTO ecl_runs (as_of_date, methodology, created_at) "
+            "VALUES ('2026-09-01', 'dpd_banded', '2026-09-01 00:00:00')"
+        )
+        con.commit()
+    finally:
+        con.close()
+
+    up_to_head = _alembic("upgrade", "head", db_path=db_path)
+    assert up_to_head.returncode == 0, up_to_head.stdout + up_to_head.stderr
+
+    script_path = tmp_path / "read_dashboard.py"
+    script_path.write_text(_READ_DASHBOARD_SCRIPT)
+    env = os.environ.copy()
+    env["DATABASE_URL"] = f"sqlite+pysqlite:///{db_path}"
+    env["PYTHONPATH"] = str(REPO_ROOT) + os.pathsep + env.get("PYTHONPATH", "")
+    result = subprocess.run(
+        [sys.executable, str(script_path)],
+        cwd=REPO_ROOT,
+        env=env,
+        capture_output=True,
+        text=True,
+        timeout=60,
+    )
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "OK" in result.stdout
+
+
 def test_full_migration_chain_up_and_down(tmp_path):
     """The rest of the chain (0001..head) round-trips cleanly on a DB that was
     never actually used — the ordinary "empty schema" case, unaffected by the
