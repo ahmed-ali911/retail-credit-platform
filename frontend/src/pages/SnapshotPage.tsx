@@ -7,6 +7,7 @@ import type {
   ReconciliationStatus,
 } from "../api/types";
 import { Card, ErrorNote } from "../components/ui";
+import { PageHeader } from "../components/PageHeader";
 
 // Accounting events reused from Step G — minimal shape.
 interface AccountingEvent {
@@ -52,12 +53,16 @@ export function SnapshotPage() {
 
   return (
     <div className="stack">
-      <h1>Portfolio Snapshot</h1>
-      <p className="muted" data-testid="snapshot-disclaimer">
-        A snapshot of current counts assembled from data that already exists —{" "}
-        <strong>not</strong> a reporting / KPI platform. Proper reporting needs
-        its own design pass (see the Gap Matrix).
-      </p>
+      <PageHeader
+        title="Portfolio Snapshot"
+        description={
+          <span data-testid="snapshot-disclaimer">
+            A snapshot of current counts assembled from data that already
+            exists — <strong>not</strong> a reporting / KPI platform. Proper
+            reporting needs its own design pass (see the Gap Matrix).
+          </span>
+        }
+      />
       <ErrorNote message={error} />
 
       <Card title="Reconciliation health" soft>

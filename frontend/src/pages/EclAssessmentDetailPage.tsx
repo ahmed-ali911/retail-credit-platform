@@ -5,6 +5,7 @@ import { api, errorMessage } from "../api/client";
 import type { EclContractDetail } from "../api/types";
 import { useAuth } from "../auth/AuthContext";
 import { Card, EmptyState, ErrorNote, Field, SelectField, money } from "../components/ui";
+import { PageHeader } from "../components/PageHeader";
 import { SkeletonText } from "../components/Skeleton";
 import { useToast } from "../components/Toast";
 
@@ -276,8 +277,8 @@ export function EclAssessmentDetailPage() {
     }
   }
 
-  if (error) return <div className="stack"><h1>ECL assessment</h1><ErrorNote message={error} /></div>;
-  if (!d) return <div className="stack"><h1>ECL assessment</h1><SkeletonText lines={6} /></div>;
+  if (error) return <div className="stack"><PageHeader title="ECL assessment" /><ErrorNote message={error} /></div>;
+  if (!d) return <div className="stack"><PageHeader title="ECL assessment" /><SkeletonText lines={6} /></div>;
 
   const canOverride = user != null && OVERRIDE_ROLES.includes(user.role);
 
@@ -286,10 +287,21 @@ export function EclAssessmentDetailPage() {
       <p className="muted">
         <Link to="/ecl">← ECL &amp; Provision</Link>
       </p>
-      <h1>
-        ECL assessment — contract #{d.contract_id}
-        {d.customer_name ? ` · ${d.customer_name}` : ""}
-      </h1>
+      <PageHeader
+        title={
+          <>
+            ECL assessment — contract #{d.contract_id}
+            {d.customer_name ? ` · ${d.customer_name}` : ""}
+          </>
+        }
+        description={
+          <span className="summary-strip">
+            <span>Methodology {d.methodology}</span>
+            <span>Final stage {d.final_stage ?? NA}</span>
+            <span>Final ECL {num(d.final_ecl)}</span>
+          </span>
+        }
+      />
 
       <Card title="Summary" soft>
         <div className="kv" data-testid="ecl-summary">

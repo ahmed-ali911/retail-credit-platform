@@ -3,6 +3,7 @@ import { Link } from "react-router-dom";
 import { api, errorMessage } from "../api/client";
 import type { ProductOut } from "../api/types";
 import { Card, ErrorNote, Field, RefCode, SelectField, money } from "../components/ui";
+import { PageHeader } from "../components/PageHeader";
 
 const CATEGORIES = ["electronics", "appliances", "furniture", "automotive", "other"];
 
@@ -33,7 +34,7 @@ export function CreateProductPage() {
 
   return (
     <div className="stack">
-      <h1>Create product</h1>
+      <PageHeader title="Create product" />
       {created ? (
         <Card soft title={<>Product <RefCode code={created.reference_code} /> created</>}>
           <dl className="kv">

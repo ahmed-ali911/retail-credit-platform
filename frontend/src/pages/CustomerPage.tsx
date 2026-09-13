@@ -51,7 +51,7 @@ export function CustomerPage() {
   if (!customer) {
     return (
       <div className="stack">
-        <h1>Customer</h1>
+        <PageHeader title="Customer" />
         <ErrorNote message={error} />
         {!error && (
           <Card>

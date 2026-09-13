@@ -3,6 +3,7 @@ import { Link } from "react-router-dom";
 import { api, errorMessage } from "../api/client";
 import type { EclConfigResponse } from "../api/types";
 import { Card, EmptyState, ErrorNote } from "../components/ui";
+import { PageHeader } from "../components/PageHeader";
 import { SkeletonText } from "../components/Skeleton";
 import { useToast } from "../components/Toast";
 
@@ -67,13 +68,17 @@ export function EclConfigPage() {
   return (
     <div className="stack">
       <p className="muted"><Link to="/ecl">← ECL &amp; Provision</Link></p>
-      <h1>ECL Configuration</h1>
-      <p className="muted">
-        The ECL model calibration is an immutable, <strong>versioned</strong> record. A change
-        activates a new version (maker-checker — a different user must approve). Past runs keep
-        the version that produced them, so they stay reproducible. Every value is a placeholder —
-        <strong> BUSINESS / RISK MODEL DECISION REQUIRED</strong>.
-      </p>
+      <PageHeader
+        title="ECL Configuration"
+        description={
+          <>
+            The ECL model calibration is an immutable, <strong>versioned</strong> record. A change
+            activates a new version (maker-checker — a different user must approve). Past runs keep
+            the version that produced them, so they stay reproducible. Every value is a placeholder —
+            <strong> BUSINESS / RISK MODEL DECISION REQUIRED</strong>.
+          </>
+        }
+      />
 
       <ErrorNote message={error} />
       {!cfg && !error && <SkeletonText lines={8} />}

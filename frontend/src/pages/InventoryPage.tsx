@@ -42,6 +42,17 @@ export function InventoryPage() {
     void loadEvents();
   }, [loadProducts, loadEvents]);
 
+  // Phase 5 — Escape closes the stock-adjustment modal, matching
+  // ConfirmationDialog's keyboard behaviour.
+  useEffect(() => {
+    if (adjustFor == null) return;
+    function onKey(e: KeyboardEvent) {
+      if (e.key === "Escape") setAdjustFor(null);
+    }
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [adjustFor]);
+
   async function submit(e: FormEvent, productId: number) {
     e.preventDefault();
     setError(null);
@@ -134,6 +145,7 @@ export function InventoryPage() {
             <div
               className="dialog"
               role="dialog"
+              aria-modal="true"
               aria-label={`Adjust stock for product ${adjustFor}`}
               onClick={(e) => e.stopPropagation()}
             >

@@ -5,6 +5,7 @@ import type { AcceptResult, ApplicationOut, OfferOut } from "../api/types";
 import { ScheduleTable } from "../components/ScheduleTable";
 import { StatusBadge } from "../components/StatusBadge";
 import { Card, ErrorNote, Field, RefCode, money } from "../components/ui";
+import { PageHeader } from "../components/PageHeader";
 
 export function OfferPage() {
   const { applicationId, offerId } = useParams();
@@ -73,7 +74,7 @@ export function OfferPage() {
 
   return (
     <div className="stack">
-      <h1>Offer</h1>
+      <PageHeader title="Offer" />
       <ErrorNote message={error} />
 
       {!offer && application && (

@@ -190,7 +190,7 @@ export function ContractPage() {
   if (!contract) {
     return (
       <div className="stack">
-        <h1>Contract</h1>
+        <PageHeader title="Contract" />
         <ErrorNote message={error} />
         {!error && (
           <Card>

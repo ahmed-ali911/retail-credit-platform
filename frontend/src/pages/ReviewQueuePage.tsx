@@ -144,7 +144,7 @@ export function ReviewApplicationPage() {
   if (!app) {
     return (
       <div className="stack">
-        <h1>Review application</h1>
+        <PageHeader title="Review application" />
         <ErrorNote message={error} />
         {!error && <p className="muted">Loading…</p>}
       </div>

@@ -256,7 +256,7 @@ export function CollectionCasePage() {
   if (!detail) {
     return (
       <div className="stack">
-        <h1>Collection case</h1>
+        <PageHeader title="Collection case" />
         <ErrorNote message={error} />
         {!error && (
           <Card>

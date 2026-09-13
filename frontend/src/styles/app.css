@@ -15,6 +15,29 @@ body {
 a { color: var(--color-primary); text-decoration: none; }
 a:hover { text-decoration: underline; }
 
+/* Phase 5 — one deliberate keyboard-focus treatment for every interactive
+   element (buttons, links, nav items, tabs, custom controls), instead of
+   relying on the browser default (which clashes with rounded pills/tags and
+   varies by browser). Never removes focus — only replaces its appearance.
+   :focus-visible so a mouse click doesn't show the ring, only keyboard/AT
+   navigation does. */
+a:focus-visible,
+button:focus-visible,
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible,
+summary:focus-visible,
+[tabindex]:focus-visible {
+  outline: 2px solid var(--color-primary);
+  outline-offset: 2px;
+  border-radius: var(--radius-sm);
+}
+@media (prefers-reduced-motion: no-preference) {
+  a, button, input, select, textarea, summary, [tabindex] {
+    transition: outline-offset 120ms ease;
+  }
+}
+
 h1 { font-size: 1.4rem; margin: 0 0 0.75rem; }
 h2 { font-size: 1.1rem; margin: 0 0 0.5rem; }
 h3 { font-size: 0.95rem; margin: 0 0 0.4rem; color: var(--color-muted); }

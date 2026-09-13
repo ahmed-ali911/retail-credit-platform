@@ -3,6 +3,7 @@ import { Link } from "react-router-dom";
 import { api, errorMessage } from "../api/client";
 import type { CustomerOut } from "../api/types";
 import { Card, ErrorNote, Field, FormSection, RefCode } from "../components/ui";
+import { PageHeader } from "../components/PageHeader";
 
 export function CreateCustomerPage() {
   const [form, setForm] = useState({
@@ -52,7 +53,7 @@ export function CreateCustomerPage() {
 
   return (
     <div className="stack">
-      <h1>Create customer</h1>
+      <PageHeader title="Create customer" />
       {created ? (
         <Card soft title={<>Customer <RefCode code={created.reference_code} /> created</>}>
           <dl className="kv">
