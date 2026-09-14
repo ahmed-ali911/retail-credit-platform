@@ -1686,6 +1686,21 @@ model, macroeconomic overlay, write-off/recovery integration, a real scheduled
 | `GET` | `/reports/collections/{status-summary,promise-performance,late-fees-summary}` | **Step 13** — collections sub-reports |
 | `GET` | `/reports/aging` | **Step 13** — overdue installments by DPD bucket; `?bucket=<index>` drills into one bucket's installment list |
 | — | *all `/reports/*`* | **Step 13** — `?format=csv\|xlsx\|pdf` on every report endpoint; unknown format → 422 |
+| `GET` | `/contracts/{id}/payment-options` | **Mock Payment Gateway** — next installment, overdue, late fees, total outstanding, minimum acceptable payment |
+| `GET` | `/payments/intents` | List/filter payment intents (`status`, `contract_id`) — Payment Operations Dashboard (`sales_employee`/`finance_officer`/`admin`) |
+| `POST` | `/payments/intents` | Body `{contract_id, payment_purpose, amount?, idempotency_key}` → `PaymentIntent` (`INITIATED`) |
+| `POST` | `/payments/intents/{id}/checkout` | Opens a checkout session on the separate mock-payment-gateway service → `PENDING` |
+| `GET` | `/payments/{reference}/status` | Status + full `GatewayTransaction` timeline for one payment |
+| `POST` | `/integrations/mock-gateway/webhooks` | Unauthenticated (HMAC-verified instead) — the gateway's inbound status callback |
+| `POST` | `/payments/settlement-batches` · `/payments/settlement-batches/pull` | Import a gateway settlement batch manually, or pull+import it in one call (`finance_officer`/`admin`) |
+| `GET` | `/payments/settlement-batches` · `/payments/settlement-batches/{id}` | List / detail |
+| `GET` | `/payments/reconciliation-items` | Filter `outcome` / `status` / `batch_id` |
+| `POST` | `/payments/reconciliation-items/{id}/resolve` | Body `{reason, comments?}` → pending `ApprovalRequest` (`gateway_reconciliation.resolve`); a *different* approver resolves it |
+
+See [docs/payment-gateway/](docs/payment-gateway/) for the full BRD, FSD,
+sequence diagrams, and the reconciliation-engine reuse-decision writeup, and
+[mock-payment-gateway/README.md](mock-payment-gateway/README.md) for that
+service's own endpoints.
 
 ### Example
 

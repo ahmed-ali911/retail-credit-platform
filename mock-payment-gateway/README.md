@@ -52,11 +52,12 @@ uvicorn app.main:app --reload --port 8100
 | POST | `/gateway/checkout/{token}/simulate` | The customer's one click — fires the signed webhook(s) for the chosen outcome |
 | GET | `/gateway/transactions/{reference}` | This gateway's own view of one transaction (by merchant or gateway reference) |
 | POST | `/gateway/webhooks/{event_id}/retry` | Manually redeliver a previously-sent webhook event |
+| GET | `/gateway/settlement-batches/generate` | This gateway's own daily settlement feed — retail-credit-api pulls this and imports it (`POST /payments/settlement-batches/pull`) |
 | GET | `/health` | Liveness check |
 
-`POST /gateway/settlement-batches/generate` (the daily reconciliation feed)
-is deferred to the reconciliation-engine checkpoint — see the repo root
-`docs/payment-gateway/` once that lands.
+See the repo root [`docs/payment-gateway/`](../docs/payment-gateway/) for
+the full BRD/FSD, sequence diagrams, and the reconciliation-engine
+reuse-decision writeup.
 
 ## Simulated outcomes
 
