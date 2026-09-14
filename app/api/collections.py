@@ -19,6 +19,7 @@ from app.models.collections import (
     CollectionCaseStatus,
 )
 from app.models.contract import InstallmentContract
+from app.models.payment import Payment
 from app.models.user import User, UserRole
 from app.schemas.collections import (
     ActivityCreate,
@@ -126,7 +127,21 @@ def get_case(
         staff_roles=_VIEW_ROLES,
         owner_customer_id=contract_owner_customer_id(db, contract),
     )
-    return case
+    payments = db.execute(
+        select(Payment)
+        .where(Payment.contract_id == case.contract_id)
+        .order_by(Payment.received_at.desc())
+    ).scalars().all()
+    return CollectionCaseDetailOut(
+        id=case.id,
+        contract_id=case.contract_id,
+        status=case.status,
+        opened_at=case.opened_at,
+        opened_reason=case.opened_reason,
+        closed_at=case.closed_at,
+        activities=list(case.activities),
+        payments=list(payments),
+    )
 
 
 @router.post(

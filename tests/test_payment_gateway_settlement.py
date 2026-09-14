@@ -552,3 +552,80 @@ def test_duplicate_batch_reference_is_rejected(client):
     assert first.status_code == 201
     second = _import_batch(client, batch_reference="BATCH-DUP", settlement_date_=today, items=[])
     assert second.status_code == 409
+
+
+# --------------------------------------------------------------------------- #
+# Checkpoint 3 scope: the small backend additions the frontend screens need
+# --------------------------------------------------------------------------- #
+def test_list_payment_intents_filters_by_status_and_contract(client):
+    ctx1 = active_contract(client, national_id="PGS-17")
+    ctx2 = active_contract(client, national_id="PGS-18")
+    cid1, cid2 = ctx1["contract_id"], ctx2["contract_id"]
+    settled = _settle_intent(client, cid1, idem="PGS-17")
+    pending = _open_intent(client, cid2, idem="PGS-18")
+    _checkout(client, pending["id"])
+
+    all_rows = client.get("/payments/intents").json()
+    refs = {r["payment_reference"] for r in all_rows}
+    assert settled["payment_reference"] in refs
+    assert pending["payment_reference"] in refs
+
+    settled_only = client.get("/payments/intents?status=SETTLED").json()
+    assert all(r["status"] == "SETTLED" for r in settled_only)
+    assert settled["payment_reference"] in {r["payment_reference"] for r in settled_only}
+    assert pending["payment_reference"] not in {r["payment_reference"] for r in settled_only}
+
+    by_contract = client.get(f"/payments/intents?contract_id={cid1}").json()
+    assert all(r["contract_id"] == cid1 for r in by_contract)
+
+
+def test_pull_settlement_batch_fetches_from_gateway_and_imports(client, monkeypatch, db):
+    ctx = active_contract(client, national_id="PGS-19")
+    cid = ctx["contract_id"]
+    today = date.today()
+    intent = _settle_intent(
+        client, cid, idem="PGS-19", gateway_fee="1.00",
+        gateway_txn_ref="GWTXN-PGS-19", settlement_date=today,
+    )
+    gross = float(intent["requested_amount"])
+
+    from app.services import payment_gateway_client
+
+    def fake_fetch(settlement_date_):
+        return {
+            "batch_reference": f"GW-SETTLEMENT-{today.isoformat()}",
+            "settlement_date": today.isoformat(),
+            "currency": "KWD",
+            "items": [{
+                "gateway_transaction_reference": "GWTXN-PGS-19",
+                "merchant_reference": intent["payment_reference"],
+                "settlement_date": today.isoformat(),
+                "gross_amount": gross,
+                "gateway_fee": 1.00,
+                "net_amount": round(gross - 1.00, 2),
+                "currency": "KWD",
+                "gateway_status": "SETTLED",
+            }],
+        }
+
+    monkeypatch.setattr(payment_gateway_client, "fetch_settlement_batch", fake_fetch)
+
+    resp = client.post("/payments/settlement-batches/pull")
+    assert resp.status_code == 201, resp.text
+    body = resp.json()
+    assert body["matched"] == 1
+    assert body["batch"]["batch_reference"] == f"GW-SETTLEMENT-{today.isoformat()}"
+
+
+def test_collections_case_detail_includes_related_payments(client, db):
+    ctx = active_contract(client, national_id="PGS-20")
+    cid = ctx["contract_id"]
+    _assess_overdue(client, first_due_date(client, cid) + timedelta(days=6))
+    case_id = _open_cases(client, cid)[0]["id"]
+
+    _settle_intent(client, cid, idem="PGS-20", purpose="overdue_amount")
+
+    detail = client.get(f"/collections/cases/{case_id}").json()
+    assert len(detail["payments"]) == 1
+    assert detail["payments"][0]["source"] == "gateway"
+    assert detail["payments"][0]["status"] == "applied"

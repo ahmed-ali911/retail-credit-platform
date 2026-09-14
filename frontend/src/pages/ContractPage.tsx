@@ -10,6 +10,7 @@ import type {
   SettlementQuoteOut,
 } from "../api/types";
 import { StatusBadge } from "../components/StatusBadge";
+import { GatewayPaymentCard } from "../components/GatewayPaymentCard";
 import {
   Card,
   ErrorNote,
@@ -346,6 +347,10 @@ export function ContractPage() {
           </p>
         )}
       </Card>
+
+      {contract.status === "active" && (
+        <GatewayPaymentCard contractId={Number(contractId)} onSettled={load} />
+      )}
 
       <Card title="Closure">
         {contract.closure ? (

@@ -8,6 +8,7 @@ payment provider would be.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import date
 from decimal import Decimal
 
 import httpx
@@ -88,3 +89,23 @@ def fetch_transaction(gateway_transaction_reference: str) -> dict | None:
         return resp.json()
     except httpx.HTTPError as exc:
         raise GatewayClientError(f"mock-payment-gateway transaction lookup failed: {exc}") from exc
+
+
+def fetch_settlement_batch(settlement_date: date | None = None) -> dict:
+    """Pull the gateway's own daily settlement feed (Reconciliation Screen's
+    "Pull today's batch" action) — read-only on the gateway's side, never a
+    write. Returns the raw dict; the caller (services/gateway_reconciliation.py
+    via app/api/gateway_settlement.py) is what actually compares it against
+    this app's own records."""
+    settings = get_settings()
+    params = {"settlement_date": settlement_date.isoformat()} if settlement_date else {}
+    try:
+        resp = httpx.get(
+            f"{settings.gateway_base_url}/gateway/settlement-batches/generate",
+            params=params,
+            timeout=15.0,
+        )
+        resp.raise_for_status()
+        return resp.json()
+    except (httpx.HTTPError, ValueError) as exc:
+        raise GatewayClientError(f"mock-payment-gateway settlement-batch fetch failed: {exc}") from exc

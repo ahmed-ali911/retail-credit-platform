@@ -173,8 +173,19 @@ export interface CollectionCaseOut {
   contract_reference: string;
 }
 
+export interface CasePaymentOut {
+  id: number;
+  amount: number;
+  external_reference: string;
+  received_at: string;
+  status: "applied" | "overpaid" | "reversed";
+  source: "staff" | "gateway";
+  reference_code: string;
+}
+
 export interface CollectionCaseDetailOut extends CollectionCaseOut {
   activities: CollectionActivityOut[];
+  payments: CasePaymentOut[];
 }
 
 export interface TriggeredRule {
@@ -641,4 +652,142 @@ export interface EclConfigResponse {
     created_by: number | null;
     activated_at: string | null;
   }>;
+}
+
+// --- Mock Payment Gateway ------------------------------------------------- //
+export type PaymentIntentStatusValue =
+  | "INITIATED"
+  | "PENDING"
+  | "AUTHORIZED"
+  | "CAPTURED"
+  | "SETTLED"
+  | "FAILED"
+  | "CANCELLED"
+  | "EXPIRED"
+  | "REVERSED"
+  | "PARTIALLY_REFUNDED"
+  | "REFUNDED"
+  | "CHARGEBACK";
+
+export interface PaymentOptionsOut {
+  contract_id: number;
+  currency: string;
+  next_installment_amount: number | null;
+  next_installment_due_date: string | null;
+  overdue_amount: number;
+  late_fees_outstanding: number;
+  total_outstanding: number;
+  minimum_partial_amount: number;
+  can_pay_current_installment: boolean;
+  can_pay_overdue: boolean;
+  can_pay_full_outstanding: boolean;
+  can_pay_partial: boolean;
+  contract_reference: string;
+}
+
+export interface GatewayTransactionOut {
+  id: number;
+  gateway_transaction_reference: string;
+  gateway_status: PaymentIntentStatusValue;
+  authorized_amount: number | null;
+  captured_amount: number | null;
+  settled_amount: number | null;
+  gateway_fee: number | null;
+  authorization_timestamp: string | null;
+  capture_timestamp: string | null;
+  settlement_timestamp: string | null;
+  failure_code: string | null;
+  failure_reason: string | null;
+  created_at: string;
+}
+
+export interface PaymentIntentOut {
+  id: number;
+  payment_reference: string;
+  customer_id: number;
+  contract_id: number;
+  requested_amount: number;
+  currency: string;
+  payment_purpose: "current_installment" | "overdue_amount" | "full_outstanding" | "partial";
+  status: PaymentIntentStatusValue;
+  gateway_session_id: string | null;
+  gateway_name: string;
+  expires_at: string | null;
+  created_at: string;
+  updated_at: string;
+  transactions: GatewayTransactionOut[];
+  contract_reference: string;
+}
+
+export interface CheckoutSessionOut {
+  payment_reference: string;
+  checkout_url: string;
+  expires_at: string | null;
+  status: PaymentIntentStatusValue;
+}
+
+export interface PaymentStatusOut {
+  payment_reference: string;
+  status: PaymentIntentStatusValue;
+  requested_amount: number;
+  currency: string;
+  contract_id: number;
+  created_at: string;
+  updated_at: string;
+  transactions: GatewayTransactionOut[];
+}
+
+export type ReconciliationOutcomeValue =
+  | "MATCHED"
+  | "MISSING_IN_GATEWAY"
+  | "MISSING_IN_INTERNAL_SYSTEM"
+  | "AMOUNT_MISMATCH"
+  | "STATUS_MISMATCH"
+  | "DUPLICATE"
+  | "DATE_MISMATCH"
+  | "UNRESOLVED";
+
+export interface SettlementBatchOut {
+  id: number;
+  batch_reference: string;
+  settlement_date: string;
+  gateway_name: string;
+  currency: string;
+  item_count: number;
+  total_gross_amount: number;
+  total_gateway_fee: number;
+  total_net_amount: number;
+  imported_by: number | null;
+  imported_at: string;
+}
+
+export interface GatewayReconciliationItemOut {
+  id: number;
+  settlement_batch_id: number | null;
+  settlement_date: string;
+  gateway_transaction_reference: string | null;
+  merchant_reference: string | null;
+  gross_amount: number | null;
+  gateway_fee: number | null;
+  net_amount: number | null;
+  currency: string;
+  gateway_reported_status: string | null;
+  outcome: ReconciliationOutcomeValue;
+  status: "open" | "resolved";
+  matched_payment_id: number | null;
+  matched_intent_id: number | null;
+  variance_amount: number | null;
+  resolution_reason: string | null;
+  resolution_comments: string | null;
+  resolved_by: number | null;
+  resolved_at: string | null;
+  created_at: string;
+}
+
+export interface SettlementBatchImportResult {
+  batch: SettlementBatchOut;
+  items_processed: number;
+  matched: number;
+  exceptions: number;
+  missing_in_gateway: number;
 }

@@ -5,7 +5,7 @@ from datetime import date, datetime
 from pydantic import BaseModel, ConfigDict, Field, computed_field
 
 from app.core.references import format_reference
-from app.models.payment import PaymentReconciliationStatus, PaymentStatus
+from app.models.payment import PaymentReconciliationStatus, PaymentSource, PaymentStatus
 
 
 class PaymentCreate(BaseModel):
@@ -37,6 +37,9 @@ class PaymentOut(BaseModel):
     allocated_amount: float
     unallocated_amount: float
     allocations: list[PaymentAllocationOut]
+    # Mock Payment Gateway feature — which channel produced this Payment row.
+    source: PaymentSource = PaymentSource.staff
+    payment_intent_id: int | None = None
 
     @computed_field  # type: ignore[prop-decorator]
     @property

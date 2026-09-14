@@ -970,6 +970,22 @@ used to attribute webhook-triggered state changes, and serves on
 Every other endpoint needs `Authorization: Bearer <token>` — see
 [Authentication & RBAC](#authentication--rbac-step-5).
 
+Once both services are up, seed the Mock Payment Gateway demo data — a
+customer/contract, an overdue installment + Promise to Pay, and a narrated
+walkthrough of six scenarios (pay 100 successfully, pay 50 partially, a
+failed payment, a duplicate settlement webhook, a settle-then-reverse, and a
+reconciliation amount mismatch):
+
+```bash
+python -m scripts.seed_demo_gateway
+```
+
+This is a real HTTP client script (unlike `scripts.create_admin` /
+`scripts.seed_config`, which run in-process) — the payment journey genuinely
+crosses both running services, so it needs them actually up. See
+[mock-payment-gateway/README.md](mock-payment-gateway/README.md) and the
+script's own docstring for details.
+
 ## Running locally without Docker
 
 ```bash

@@ -14,13 +14,14 @@ from __future__ import annotations
 
 from decimal import Decimal
 
-from fastapi import APIRouter, Depends, HTTPException, Request, Response
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.core.auth import authorize_owner_or_roles, contract_owner_customer_id, get_current_user
+from app.core.auth import authorize_owner_or_roles, contract_owner_customer_id, get_current_user, require_roles
 from app.core.database import get_db
 from app.models.contract import InstallmentContract
-from app.models.payment_gateway import PaymentIntent
+from app.models.payment_gateway import PaymentIntent, PaymentIntentStatus
 from app.models.user import User, UserRole
 from app.schemas.payment_gateway import (
     CheckoutSessionOut,
@@ -70,6 +71,25 @@ def get_payment_options(
     contract = _get_contract(db, contract_id)
     _authorize_contract(db, actor, contract)
     return payment_intents.compute_payment_options(db, contract)
+
+
+@router.get("/payments/intents", response_model=list[PaymentIntentOut])
+def list_payment_intents(
+    db: Session = Depends(get_db),
+    status_: PaymentIntentStatus | None = Query(default=None, alias="status"),
+    contract_id: int | None = Query(default=None),
+    limit: int = Query(default=50, ge=1, le=200),
+    _: User = Depends(require_roles(*_PAYMENT_STAFF_ROLES)),
+):
+    """Payment Operations Dashboard — every payment intent, most recent
+    first. Staff-only (not the owner-or-staff rule the single-intent/status
+    endpoints use below): this is a cross-contract operational view."""
+    stmt = select(PaymentIntent).order_by(PaymentIntent.id.desc()).limit(limit)
+    if status_ is not None:
+        stmt = stmt.where(PaymentIntent.status == status_)
+    if contract_id is not None:
+        stmt = stmt.where(PaymentIntent.contract_id == contract_id)
+    return db.execute(stmt).scalars().all()
 
 
 @router.post("/payments/intents", response_model=PaymentIntentOut, status_code=201)

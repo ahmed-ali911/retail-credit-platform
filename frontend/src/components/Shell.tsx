@@ -6,9 +6,11 @@ import {
   CheckSquare,
   ChevronDown,
   ClipboardCheck,
+  CreditCard,
   FilePlus2,
   FileSignature,
   Gauge,
+  GitCompareArrows,
   HandCoins,
   Landmark,
   LayoutDashboard,
@@ -91,6 +93,14 @@ const NAV: NavGroup[] = [
     items: [
       { to: "/contracts", label: "Contracts", icon: FileSignature, end: true, roles: DIRECTORY_ROLES },
       { to: "/inventory", label: "Inventory", icon: Boxes, roles: ["finance_officer", "admin"] },
+      {
+        to: "/payments",
+        label: "Payment Operations",
+        icon: CreditCard,
+        end: true,
+        // matches app/api/payment_gateway.py's _PAYMENT_STAFF_ROLES
+        roles: ["sales_employee", "finance_officer", "admin"],
+      },
     ],
   },
   {
@@ -128,8 +138,15 @@ const NAV: NavGroup[] = [
       },
       {
         to: "/reconciliation",
-        label: "Reconciliation",
+        label: "Bank Reconciliation",
         icon: Landmark,
+        roles: ["finance_officer", "admin"],
+      },
+      {
+        to: "/payments/reconciliation",
+        label: "Gateway Reconciliation",
+        icon: GitCompareArrows,
+        end: true,
         roles: ["finance_officer", "admin"],
       },
       {

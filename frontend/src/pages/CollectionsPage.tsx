@@ -365,6 +365,37 @@ export function CollectionCasePage() {
         </form>
       </Card>
 
+      <Card title="Related payments" soft>
+        {detail.payments.length === 0 ? (
+          <EmptyState message="No payments recorded against this contract yet." />
+        ) : (
+          <table className="data" aria-label="Related payments">
+            <thead>
+              <tr>
+                <th>Reference</th>
+                <th>Channel</th>
+                <th className="num">Amount</th>
+                <th>Status</th>
+                <th>Received</th>
+              </tr>
+            </thead>
+            <tbody>
+              {detail.payments.map((p) => (
+                <tr key={p.id} data-testid={`case-payment-row-${p.id}`}>
+                  <td>{p.reference_code}</td>
+                  <td>{p.source === "gateway" ? "Payment gateway" : "Staff-entered"}</td>
+                  <td className="num">{money(p.amount)}</td>
+                  <td>
+                    <StatusBadge status={p.status} />
+                  </td>
+                  <td>{new Date(p.received_at).toLocaleString()}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+      </Card>
+
       <Card title="Activity history">
         {detail.activities.length === 0 ? (
           <EmptyState message="No activity yet." />

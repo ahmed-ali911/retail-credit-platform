@@ -10,6 +10,7 @@ from app.models.collections import (
     CollectionCaseStatus,
     PromiseStatus,
 )
+from app.models.payment import PaymentSource, PaymentStatus
 
 
 class ActivityCreate(BaseModel):
@@ -60,5 +61,27 @@ class CollectionCaseOut(BaseModel):
         return format_reference("InstallmentContract", self.contract_id)
 
 
+class CasePaymentOut(BaseModel):
+    """Mock Payment Gateway feature — the Collections Timeline retains a
+    reference to every payment (staff or gateway) recorded against this
+    case's contract, so a reversed/settled gateway payment is visible
+    alongside the manually-logged activities, not just the case's own
+    ``opened_reason`` line."""
+
+    model_config = ConfigDict(from_attributes=True)
+    id: int
+    amount: float
+    external_reference: str
+    received_at: datetime
+    status: PaymentStatus
+    source: PaymentSource
+
+    @computed_field  # type: ignore[prop-decorator]
+    @property
+    def reference_code(self) -> str:
+        return format_reference("Payment", self.id)
+
+
 class CollectionCaseDetailOut(CollectionCaseOut):
     activities: list[CollectionActivityOut] = []
+    payments: list[CasePaymentOut] = []

@@ -3,6 +3,8 @@ queue. See services/gateway_reconciliation.py for why this is a distinct
 engine from /reconciliation (the bank-statement module)."""
 from __future__ import annotations
 
+from datetime import date
+
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -27,6 +29,7 @@ from app.schemas.gateway_settlement import (
 )
 from app.services import approvals as approval_service
 from app.services import gateway_reconciliation as recon_service
+from app.services import payment_gateway_client as gateway_client
 from app.services.errors import DomainError
 
 router = APIRouter(prefix="/payments", tags=["gateway settlement & reconciliation"])
@@ -66,6 +69,60 @@ def import_settlement_batch(
                     gateway_status=i.gateway_status,
                 )
                 for i in payload.items
+            ],
+            actor_id=actor.id,
+        )
+    except DomainError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=exc.message)
+    db.commit()
+    db.refresh(summary.batch)
+    return SettlementBatchImportResult(
+        batch=summary.batch,
+        items_processed=summary.items_processed,
+        matched=summary.matched,
+        exceptions=summary.exceptions,
+        missing_in_gateway=summary.missing_in_gateway,
+    )
+
+
+@router.post(
+    "/settlement-batches/pull",
+    response_model=SettlementBatchImportResult,
+    status_code=status.HTTP_201_CREATED,
+)
+def pull_settlement_batch(
+    settlement_date: date | None = Query(default=None),
+    db: Session = Depends(get_db),
+    actor: User = Depends(require_roles(*_FINANCE_ROLES)),
+):
+    """Reconciliation Screen's one-click action: fetch the gateway's own
+    daily settlement feed (``GET /gateway/settlement-batches/generate`` on
+    the separate mock-payment-gateway service) and import it — the exact
+    same comparison ``POST /settlement-batches`` runs, just without a staff
+    member having to copy the JSON by hand for the demo."""
+    try:
+        raw = gateway_client.fetch_settlement_batch(settlement_date)
+    except gateway_client.GatewayClientError as exc:
+        raise HTTPException(status_code=502, detail=str(exc))
+
+    try:
+        summary = recon_service.import_settlement_batch(
+            db,
+            batch_reference=raw["batch_reference"],
+            settlement_date=date.fromisoformat(raw["settlement_date"]),
+            currency=raw.get("currency", "KWD"),
+            items=[
+                recon_service.BatchItemInput(
+                    gateway_transaction_reference=i["gateway_transaction_reference"],
+                    merchant_reference=i["merchant_reference"],
+                    settlement_date=date.fromisoformat(i["settlement_date"]),
+                    gross_amount=i["gross_amount"],
+                    gateway_fee=i["gateway_fee"],
+                    net_amount=i["net_amount"],
+                    currency=i.get("currency", "KWD"),
+                    gateway_status=i["gateway_status"],
+                )
+                for i in raw.get("items", [])
             ],
             actor_id=actor.id,
         )
