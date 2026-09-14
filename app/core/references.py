@@ -24,6 +24,7 @@ REFERENCE_PREFIXES: dict[str, str] = {
     "InstallmentContract": "CN",
     "Payment": "PY",
     "CollectionCase": "CC",
+    "PaymentIntent": "PI",
 }
 
 _PAD = 6

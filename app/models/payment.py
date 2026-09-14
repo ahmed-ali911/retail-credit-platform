@@ -23,6 +23,22 @@ _ZERO = Decimal("0.00")
 class PaymentStatus(str, enum.Enum):
     applied = "applied"        # the whole payment was allocated
     overpaid = "overpaid"      # some of the payment had nothing left to settle
+    reversed = "reversed"      # Mock Payment Gateway feature — a settled gateway
+                                # payment whose money was taken back (REVERSED/
+                                # REFUNDED/CHARGEBACK); its allocations were undone
+                                # by compensating PaymentAllocation rows, never
+                                # deleted or overwritten.
+
+
+class PaymentSource(str, enum.Enum):
+    """Mock Payment Gateway feature — who/what caused this Payment row to be
+    created. `staff` is the pre-existing behaviour (POST /contracts/{id}/payments,
+    unchanged); `gateway` is a payment that only exists because a PaymentIntent
+    reached the configured final-allocation status (SETTLED by default) via a
+    verified gateway webhook — see services/payment_intents.py."""
+
+    staff = "staff"
+    gateway = "gateway"
 
 
 class PaymentReconciliationStatus(str, enum.Enum):
@@ -86,6 +102,19 @@ class Payment(Base):
     unallocated_amount: Mapped[Decimal] = mapped_column(
         Numeric(14, 2), nullable=False, default=_ZERO
     )
+    # --- Mock Payment Gateway feature ---
+    source: Mapped[PaymentSource] = mapped_column(
+        Enum(PaymentSource, native_enum=False, length=10),
+        default=PaymentSource.staff,
+        server_default=PaymentSource.staff.value,
+        nullable=False,
+    )
+    # Set only for source=gateway — the PaymentIntent whose SETTLED webhook
+    # created this row. Nullable so every pre-existing staff payment (and the
+    # staff-entered path going forward) is completely untouched.
+    payment_intent_id: Mapped[int | None] = mapped_column(
+        ForeignKey("payment_intents.id"), nullable=True, index=True
+    )
     created_at: Mapped[datetime] = created_at_column()
 
     contract: Mapped["InstallmentContract"] = relationship(  # noqa: F821
@@ -121,6 +150,16 @@ class PaymentAllocation(Base):
     )
     principal_amount: Mapped[Decimal] = mapped_column(
         Numeric(14, 2), nullable=False, default=_ZERO
+    )
+    # --- Mock Payment Gateway feature: reversal via compensating record ---
+    # Set on the ORIGINAL row once it has been reversed, pointing at the NEW
+    # row created to undo it (negative late_fee/profit/principal amounts that
+    # net the original back to zero). The original row is never edited beyond
+    # this one pointer, never deleted — full history stays intact. NULL on
+    # every pre-existing row and on a compensating row itself (a reversal is
+    # not itself reversed in this model).
+    reversed_by_allocation_id: Mapped[int | None] = mapped_column(
+        ForeignKey("payment_allocations.id"), nullable=True
     )
 
     payment: Mapped[Payment] = relationship(back_populates="allocations")

@@ -31,6 +31,7 @@ from app.models.payment import (
     LateFeeStatus,
     Payment,
     PaymentAllocation,
+    PaymentSource,
     PaymentStatus,
 )
 from app.models.closure import ClosureReason, ContractClosure
@@ -66,6 +67,15 @@ from app.models.ecl import (
     ECLRunStatus,
     ECLStage,
 )
+from app.models.payment_gateway import (
+    PAYMENT_INTENT_TRANSITIONS,
+    GatewayTransaction,
+    PaymentIntent,
+    PaymentIntentStatus,
+    PaymentPurpose,
+    WebhookEvent,
+    WebhookProcessingStatus,
+)
 
 __all__ = [
     "Base",
@@ -98,6 +108,7 @@ __all__ = [
     "LateFeeStatus",
     "Payment",
     "PaymentAllocation",
+    "PaymentSource",
     "PaymentStatus",
     "ClosureReason",
     "ContractClosure",
@@ -126,4 +137,11 @@ __all__ = [
     "ECLRun",
     "ECLRunStatus",
     "ECLStage",
+    "PAYMENT_INTENT_TRANSITIONS",
+    "GatewayTransaction",
+    "PaymentIntent",
+    "PaymentIntentStatus",
+    "PaymentPurpose",
+    "WebhookEvent",
+    "WebhookProcessingStatus",
 ]

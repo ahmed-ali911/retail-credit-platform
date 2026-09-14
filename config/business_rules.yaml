@@ -315,3 +315,50 @@ parameters:
         warn_only  = still generate the offer, but record the failed re-check
       Whether a failed re-check should instead route to manual referral (the
       P0-2 review endpoint) rather than hard-blocking is NOT confirmed policy.
+
+  # ---------------------------------------------------------------------------
+  # Mock Payment Gateway — ALL VALUES BELOW ARE PLACEHOLDERS.
+  # BUSINESS DECISION REQUIRED for every one of them before any real deployment.
+  # ---------------------------------------------------------------------------
+  payment_gateway_final_allocation_status:
+    value: SETTLED
+    type: str
+    description: >
+      BUSINESS DECISION REQUIRED — placeholder default. The PaymentIntentStatus
+      at which a gateway payment's amount is actually allocated to the contract
+      (installment balances updated, overdue recalculated, collections case
+      updated, profit recognised, accounting events created). Finance must
+      confirm whether this should be CAPTURED (money authorized and taken, but
+      before the gateway's own settlement cycle) or SETTLED (money has fully
+      settled to the merchant) — SETTLED is the safer default and is what this
+      demo implements. Changing this value alone re-points the trigger; no
+      code change is required. Must be one of PaymentIntentStatus's values.
+
+  payment_minimum_partial_amount:
+    value: 5.00
+    type: float
+    description: >
+      FICTIONAL PLACEHOLDER. The smallest amount (KWD) the Customer Payment
+      Screen's "another permitted partial amount" option will accept. Does not
+      apply to the current-installment / overdue / full-outstanding presets.
+
+  promise_partial_credit_enabled:
+    value: false
+    type: bool
+    description: >
+      BUSINESS DECISION REQUIRED — off by default. When true, a settled
+      gateway payment that covers only PART of an open Promise-to-Pay's
+      promised_amount marks that promise PARTIALLY_KEPT instead of leaving it
+      PENDING. Off (false) matches the platform's existing, tested
+      kept/pending/broken-only behaviour (services/collections.py) — do not
+      flip this on without Collections/Credit sign-off on what
+      PARTIALLY_KEPT should mean operationally (e.g. does it still count
+      toward escalation).
+
+  payment_intent_expiry_minutes:
+    value: 15
+    type: int
+    description: >
+      PLACEHOLDER. Minutes after creation that an INITIATED/PENDING
+      PaymentIntent (and its hosted checkout session) is treated as expired.
+      Matches the Demo Gateway Checkout's own countdown timer.

@@ -140,7 +140,12 @@ def test_downgrade_survives_same_day_origination_and_run_assessments(tmp_path):
     assert origination[2] == run_assessment[2], "expected the same contract_id"
     assert origination[3] == run_assessment[3], "expected the same as_of_date — the collision"
 
-    down = _alembic("downgrade", "-1", db_path=db_path)
+    # Target revision 0013 explicitly (not "-1"): this test is specifically
+    # about *that* migration's downgrade collapsing the duplicate row. Using
+    # "-1" silently started testing whatever the newest migration happens to
+    # be as the chain grows (it began testing 0014 the moment 0014 landed,
+    # not 0013 at all) — pin the actual subject instead.
+    down = _alembic("downgrade", "0012", db_path=db_path)
     assert down.returncode == 0, down.stdout + down.stderr
 
     con = sqlite3.connect(db_path)

@@ -17,6 +17,12 @@ class UserRole(str, enum.Enum):
     finance_officer = "finance_officer"
     customer = "customer"
     collections_officer = "collections_officer"  # Step 6
+    # Mock Payment Gateway feature — a non-interactive attribution identity for
+    # audit/actor_id on state changes triggered by a verified gateway webhook
+    # (there is no logged-in user in that flow). Never matches any route's
+    # `require_roles(...)` allow-list, so it cannot authenticate through the
+    # normal API even if someone attempted to log in as it.
+    system = "system"
 
 
 class User(Base):

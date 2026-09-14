@@ -66,6 +66,11 @@ KEY_OWNERSHIP_TRANSFERS_ON_DELIVERY = "ownership_transfers_on_delivery"
 KEY_SETTLEMENT_QUOTE_VALIDITY_DAYS = "settlement_quote_validity_days"
 # --- affordability (P0-3) ---
 KEY_OFFER_AFFORDABILITY_GATE_MODE = "offer_affordability_gate_mode"  # block | warn_only
+# --- Mock Payment Gateway — ALL placeholders, TBD Business Approval Required ---
+KEY_PAYMENT_GATEWAY_FINAL_STATUS = "payment_gateway_final_allocation_status"
+KEY_PAYMENT_MINIMUM_PARTIAL_AMOUNT = "payment_minimum_partial_amount"
+KEY_PROMISE_PARTIAL_CREDIT_ENABLED = "promise_partial_credit_enabled"
+KEY_PAYMENT_INTENT_EXPIRY_MINUTES = "payment_intent_expiry_minutes"
 
 
 def _cast(raw: str, value_type: str):

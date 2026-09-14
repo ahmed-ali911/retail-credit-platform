@@ -951,14 +951,21 @@ exist yet), any scheduled posting.
 docker compose up --build
 ```
 
-This starts Postgres, runs `alembic upgrade head`, seeds the business-rule
-parameters, creates the bootstrap `admin` user (`ADMIN_USERNAME` /
-`ADMIN_PASSWORD`, default `admin`/`admin`), and serves the API on
+**No extra step is needed** — the same one command still brings up the
+whole stack. It now starts three services: Postgres, the API, and the
+separate [Mock Payment Gateway](mock-payment-gateway/) (`mock-payment-gateway`,
+its own SQLite-backed service on port 8100). The API runs
+`alembic upgrade head`, seeds the business-rule parameters, creates the
+bootstrap `admin` user (`ADMIN_USERNAME` / `ADMIN_PASSWORD`, default
+`admin`/`admin`) and the non-interactive `system.gateway` service account
+used to attribute webhook-triggered state changes, and serves on
 **http://localhost:8000**.
 
 - Swagger UI: http://localhost:8000/docs
 - OpenAPI JSON: http://localhost:8000/openapi.json
 - Health: http://localhost:8000/health (open — no token)
+- Mock Payment Gateway: http://localhost:8100 (health at `/health`) — see
+  [mock-payment-gateway/README.md](mock-payment-gateway/README.md)
 
 Every other endpoint needs `Authorization: Bearer <token>` — see
 [Authentication & RBAC](#authentication--rbac-step-5).
@@ -977,6 +984,18 @@ alembic upgrade head
 python -m scripts.seed_config          # seed business-rule parameters
 python -m scripts.create_admin        # create the bootstrap admin (env: ADMIN_USERNAME/ADMIN_PASSWORD)
 uvicorn app.main:app --reload
+```
+
+Payment-related endpoints (`/contracts/{id}/payment-options`, `/payments/*`)
+additionally need the [Mock Payment Gateway](mock-payment-gateway/) reachable
+at `GATEWAY_BASE_URL` (default `http://mock-payment-gateway:8100`, which only
+resolves inside docker compose — for this local recipe, run it separately
+and override the env var, e.g. `export GATEWAY_BASE_URL=http://localhost:8100`):
+
+```bash
+cd mock-payment-gateway
+pip install -r requirements.txt
+uvicorn app.main:app --port 8100
 ```
 
 ## Running the frontend + backend together

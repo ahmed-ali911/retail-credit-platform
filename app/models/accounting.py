@@ -52,6 +52,18 @@ class AccountingEventType(str, enum.Enum):
     ecl_provision_released = "ecl_provision_released"
     ecl_provision_override_adjustment = "ecl_provision_override_adjustment"
 
+    # --- Mock Payment Gateway feature ---
+    # No separate "payment_settled" type: a gateway payment reaching the
+    # configured final-allocation status (SETTLED by default) is applied
+    # through the *existing* payments.py::record_payment(), which already
+    # emits `payment_received` (+ `profit_recognized`) for every payment,
+    # staff or gateway — that already *is* the PAYMENT_SETTLED event from the
+    # brief. Adding a second type for the same fact would double-book it.
+    payment_reversed = "payment_reversed"                # SETTLED -> REVERSED
+    refund_completed = "refund_completed"                # -> REFUNDED (full)
+    gateway_fee_recognized = "gateway_fee_recognized"     # the gateway's own fee, when known
+    settlement_difference = "settlement_difference"       # gateway-vs-internal reconciliation variance
+
 
 class AccountingStatus(str, enum.Enum):
     pending = "pending"     # created, not yet handed to the ERP adapter

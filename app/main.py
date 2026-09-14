@@ -16,6 +16,7 @@ from app.api import (
     customers,
     ecl,
     offers,
+    payment_gateway,
     payments,
     products,
     reconciliation,
@@ -25,7 +26,7 @@ from app.core.auth import get_current_user
 from app.core.config import get_settings
 from app.core.database import SessionLocal
 from app.services.config_service import ConfigService
-from app.services.users import ensure_admin_user
+from app.services.users import ensure_admin_user, ensure_system_user
 
 
 @asynccontextmanager
@@ -42,6 +43,9 @@ async def lifespan(app: FastAPI):
             )
             if created is not None:
                 print(f"[auth] created bootstrap admin '{created.username}'")
+            system_user = ensure_system_user(db, settings.system_gateway_username)
+            if system_user is not None:
+                print(f"[auth] created system account '{system_user.username}'")
         finally:
             db.close()
     yield
@@ -62,6 +66,12 @@ app = FastAPI(
 # /auth/login is open; /auth/me and /auth/register guard themselves.
 app.include_router(auth.router)
 
+# The Mock Payment Gateway's inbound webhook is the one other unauthenticated
+# route: the gateway has no user JWT, it authenticates via the HMAC signature
+# verified inside gateway_webhooks.py instead. Registered before _authed is
+# even defined, deliberately mirroring auth.router above.
+app.include_router(payment_gateway.webhook_router)
+
 # Everything else requires authentication; individual routes add role checks.
 _authed = [Depends(get_current_user)]
 app.include_router(customers.router, dependencies=_authed)
@@ -69,6 +79,7 @@ app.include_router(products.router, dependencies=_authed)
 app.include_router(applications.router, dependencies=_authed)
 app.include_router(offers.router, dependencies=_authed)
 app.include_router(payments.router, dependencies=_authed)
+app.include_router(payment_gateway.router, dependencies=_authed)
 app.include_router(closure.router, dependencies=_authed)
 app.include_router(collections.router, dependencies=_authed)
 app.include_router(approvals.router, dependencies=_authed)

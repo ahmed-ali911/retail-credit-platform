@@ -21,6 +21,8 @@ services:
     depends_on:
       db:
         condition: service_healthy
+      mock-payment-gateway:
+        condition: service_started
     environment:
       DATABASE_URL: postgresql+psycopg2://retail:retail@db:5432/retail_credit
       BUSINESS_RULES_FILE: config/business_rules.yaml
@@ -28,6 +30,14 @@ services:
       JWT_SECRET_KEY: dev-insecure-secret-change-me
       ADMIN_USERNAME: admin
       ADMIN_PASSWORD: admin
+      # Mock Payment Gateway integration — GATEWAY_WEBHOOK_SECRET MUST match
+      # the mock-payment-gateway service's WEBHOOK_SECRET below. Dev-only
+      # placeholder; override both for any real deployment (see .env.example).
+      GATEWAY_BASE_URL: http://mock-payment-gateway:8100
+      GATEWAY_WEBHOOK_RECEIVE_URL: http://api:8000/integrations/mock-gateway/webhooks
+      GATEWAY_WEBHOOK_SECRET: dev-insecure-shared-webhook-secret-change-me
+      FRONTEND_BASE_URL: http://localhost:5173
+      SYSTEM_GATEWAY_USERNAME: system.gateway
     ports:
       - "8000:8000"
     # Run migrations, then serve. Config params + bootstrap admin are seeded on startup.
@@ -35,5 +45,21 @@ services:
       sh -c "alembic upgrade head &&
              uvicorn app.main:app --host 0.0.0.0 --port 8000"
 
+  mock-payment-gateway:
+    build: ./mock-payment-gateway
+    environment:
+      # Own SQLite file on a dedicated volume — deliberately NOT the Postgres
+      # container above (see mock-payment-gateway/README.md: a genuinely
+      # separate service, reached only over HTTP).
+      DATABASE_URL: sqlite:////data/gateway.db
+      WEBHOOK_SECRET: dev-insecure-shared-webhook-secret-change-me
+      PUBLIC_BASE_URL: http://localhost:8100
+      DEFAULT_WEBHOOK_URL: http://api:8000/integrations/mock-gateway/webhooks
+    volumes:
+      - gatewaydata:/data
+    ports:
+      - "8100:8100"
+
 volumes:
   pgdata:
+  gatewaydata:

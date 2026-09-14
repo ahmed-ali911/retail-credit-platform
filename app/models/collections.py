@@ -39,6 +39,10 @@ class PromiseStatus(str, enum.Enum):
     pending = "pending"
     kept = "kept"
     broken = "broken"
+    # Mock Payment Gateway feature — only ever set when the config flag
+    # `promise_partial_credit_enabled` is on (off by default; TBD — Business
+    # Approval Required, see services/collections.py::evaluate_promises_after_payment).
+    partially_kept = "partially_kept"
 
 
 class CollectionCase(Base):
