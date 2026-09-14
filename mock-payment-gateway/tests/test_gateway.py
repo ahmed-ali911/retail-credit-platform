@@ -191,6 +191,34 @@ def test_unknown_checkout_token_is_404(client):
     assert resp.status_code == 404
 
 
+def test_settlement_batch_generate_includes_settled_transactions(client, capture_deliveries):
+    from datetime import date
+
+    session = _create_session(client)
+    client.post(f"/gateway/checkout/{session['token']}/simulate", data={"outcome": "success_settlement"})
+
+    resp = client.get("/gateway/settlement-batches/generate")
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert body["settlement_date"] == date.today().isoformat()
+    assert len(body["items"]) == 1
+    item = body["items"][0]
+    assert item["merchant_reference"] == "PI-000001"
+    assert item["gateway_status"] == "SETTLED"
+    assert float(item["net_amount"]) == pytest.approx(
+        float(item["gross_amount"]) - float(item["gateway_fee"]), abs=0.01
+    )
+
+
+def test_settlement_batch_generate_excludes_unsettled_transactions(client):
+    session = _create_session(client)
+    client.post(f"/gateway/checkout/{session['token']}/simulate", data={"outcome": "customer_cancel"})
+
+    resp = client.get("/gateway/settlement-batches/generate")
+    assert resp.status_code == 200
+    assert resp.json()["items"] == []
+
+
 def test_expired_session_cannot_be_simulated(client):
     session = _create_session(client)
     from app import database as database_module

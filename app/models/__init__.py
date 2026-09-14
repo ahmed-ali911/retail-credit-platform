@@ -76,6 +76,12 @@ from app.models.payment_gateway import (
     WebhookEvent,
     WebhookProcessingStatus,
 )
+from app.models.gateway_settlement import (
+    GatewayReconciliationItemStatus,
+    ReconciliationItem,
+    ReconciliationOutcome,
+    SettlementBatch,
+)
 
 __all__ = [
     "Base",
@@ -144,4 +150,8 @@ __all__ = [
     "PaymentPurpose",
     "WebhookEvent",
     "WebhookProcessingStatus",
+    "GatewayReconciliationItemStatus",
+    "ReconciliationItem",
+    "ReconciliationOutcome",
+    "SettlementBatch",
 ]

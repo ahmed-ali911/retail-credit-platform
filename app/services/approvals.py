@@ -29,6 +29,7 @@ from app.models.approval import (
     ACTION_ECL_CONFIG_UPDATE,
     ACTION_ECL_PARAMETER_OVERRIDE,
     ACTION_ECL_STAGE_OVERRIDE,
+    ACTION_GATEWAY_RECON_RESOLVE,
     ACTION_LATE_FEE_WAIVE,
     ACTION_RECON_MANUAL_MATCH,
     ACTION_SETTLEMENT_REBATE,
@@ -38,12 +39,14 @@ from app.models.approval import (
 from app.models.accounting import AccountingEventType
 from app.models.contract import InstallmentContract
 from app.models.ecl import ECLOverride, ECLOverrideStatus
+from app.models.gateway_settlement import ReconciliationItem
 from app.services import ecl_config
 from app.models.ledger import LedgerEntryType, LedgerRelatedAction
 from app.models.payment import LateFeeCharge, LateFeeStatus, Payment
 from app.models.reconciliation import ReconciliationException
 from app.services import accounting
 from app.services import closure as closure_service
+from app.services import gateway_reconciliation as gateway_recon_service
 from app.services import ledger as ledger_service
 from app.services import reconciliation as recon_service
 from app.services.audit import record_event
@@ -289,6 +292,16 @@ def _execute(db: Session, approval: ApprovalRequest, *, actor_id: int) -> None:
                 "approved_value": ov.approved_value,
                 "approval_request_id": approval.id,
             },
+        )
+        return
+
+    if approval.action_type == ACTION_GATEWAY_RECON_RESOLVE:
+        item = db.get(ReconciliationItem, int(approval.entity_id))
+        if item is None:
+            raise DomainError("Reconciliation item no longer exists", status_code=409)
+        p = approval.payload or {}
+        gateway_recon_service.apply_resolution(
+            db, item, actor_id=actor_id, reason=p.get("reason", ""), comments=p.get("comments"),
         )
         return
 

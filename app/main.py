@@ -15,6 +15,7 @@ from app.api import (
     config as config_api,
     customers,
     ecl,
+    gateway_settlement,
     offers,
     payment_gateway,
     payments,
@@ -80,6 +81,7 @@ app.include_router(applications.router, dependencies=_authed)
 app.include_router(offers.router, dependencies=_authed)
 app.include_router(payments.router, dependencies=_authed)
 app.include_router(payment_gateway.router, dependencies=_authed)
+app.include_router(gateway_settlement.router, dependencies=_authed)
 app.include_router(closure.router, dependencies=_authed)
 app.include_router(collections.router, dependencies=_authed)
 app.include_router(approvals.router, dependencies=_authed)

@@ -17,6 +17,7 @@ from app.models.payment import (
     LateFeeStatus,
     Payment,
     PaymentAllocation,
+    PaymentSource,
     PaymentStatus,
 )
 from app.models.accounting import AccountingEventType
@@ -63,7 +64,15 @@ def record_payment(
     amount: float,
     external_reference: str,
     actor_id: int | None = None,
+    source: PaymentSource = PaymentSource.staff,
+    payment_intent_id: int | None = None,
 ) -> PaymentOutcome:
+    """``source``/``payment_intent_id`` (Mock Payment Gateway feature): the
+    same engine used by the staff-entered ``POST /contracts/{id}/payments``
+    is reused wholesale for a gateway payment that has reached the
+    configured final-allocation status — see
+    ``services/gateway_webhooks.py::_apply_final_allocation``. Defaults keep
+    every pre-existing staff-payment call site completely unchanged."""
     external_reference = (external_reference or "").strip()
     if not external_reference:
         raise DomainError("external_reference is required")
@@ -127,6 +136,8 @@ def record_payment(
             if plan.unallocated_amount > _ZERO
             else PaymentStatus.applied
         ),
+        source=source,
+        payment_intent_id=payment_intent_id,
     )
     db.add(payment)
     db.flush()

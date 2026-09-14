@@ -30,6 +30,12 @@ class LedgerRelatedAction(str, enum.Enum):
     cancellation = "cancellation"
     return_ = "return"
     waiver = "waiver"
+    # Mock Payment Gateway feature — a settled gateway payment whose money was
+    # taken back (REVERSED/REFUNDED/CHARGEBACK). Compensating entries reuse
+    # the SAME entry_type as the original (principal_paid/profit_recognized/
+    # late_fee_paid) but with a NEGATIVE amount, so summing entries by type
+    # still reproduces the true balance — see services/payment_reversal.py.
+    reversal = "reversal"
 
 
 class LedgerEntry(Base):

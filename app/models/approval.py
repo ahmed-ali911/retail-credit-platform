@@ -16,6 +16,7 @@ ACTION_SETTLEMENT_REBATE = "contract.settlement_rebate"  # BDR item #7
 ACTION_ECL_STAGE_OVERRIDE = "ecl.stage_override"          # ECL module
 ACTION_ECL_PARAMETER_OVERRIDE = "ecl.parameter_override"  # ECL module
 ACTION_ECL_CONFIG_UPDATE = "ecl.config_update"            # ECL module (versioned config)
+ACTION_GATEWAY_RECON_RESOLVE = "gateway_reconciliation.resolve"  # Mock Payment Gateway feature
 
 
 class ApprovalStatus(str, enum.Enum):

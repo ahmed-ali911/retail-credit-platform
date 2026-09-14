@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import threading
 from contextlib import asynccontextmanager
+from datetime import date as date_type
 from datetime import datetime, timedelta, timezone
 from decimal import ROUND_HALF_UP, Decimal
 
@@ -39,6 +40,8 @@ from app.models import (
 from app.schemas import (
     CheckoutSessionCreate,
     CheckoutSessionOut,
+    SettlementBatchItemOut,
+    SettlementBatchOut,
     SimulatedOutcome,
     TransactionOut,
     WebhookRetryResult,
@@ -335,6 +338,46 @@ def retry_webhook(event_id: str, db: Session = Depends(get_db)):
         attempt_count=retry_log.attempt_count,
         last_response_status=retry_log.last_response_status,
         delivered=retry_log.delivered,
+    )
+
+
+@app.get("/gateway/settlement-batches/generate", response_model=SettlementBatchOut)
+def generate_settlement_batch(
+    settlement_date: date_type | None = None,
+    db: Session = Depends(get_db),
+):
+    """Mock daily settlement feed: every transaction THIS gateway settled on
+    ``settlement_date`` (default: today), in the exact shape
+    retail-credit-api's ``POST /payments/settlement-batches`` expects as its
+    ``items`` payload — a caller fetches this and POSTs it straight through.
+    Read-only; generating a batch never mutates anything in this service."""
+    target_date = settlement_date or datetime.now(timezone.utc).date()
+    rows = db.execute(
+        select(GatewayTransactionRecord).where(
+            GatewayTransactionRecord.status == GatewayTransactionStatus.settled
+        )
+    ).scalars().all()
+
+    items = [
+        SettlementBatchItemOut(
+            gateway_transaction_reference=txn.gateway_transaction_reference,
+            merchant_reference=txn.merchant_reference,
+            settlement_date=target_date.isoformat(),
+            gross_amount=txn.amount,
+            gateway_fee=txn.gateway_fee or Decimal("0.00"),
+            net_amount=Decimal(txn.amount) - Decimal(txn.gateway_fee or Decimal("0.00")),
+            currency=txn.currency,
+            gateway_status=txn.status.value,
+        )
+        for txn in rows
+        if txn.settlement_timestamp is not None and txn.settlement_timestamp.date() == target_date
+    ]
+
+    return SettlementBatchOut(
+        batch_reference=f"GW-SETTLEMENT-{target_date.isoformat()}",
+        settlement_date=target_date.isoformat(),
+        currency=items[0].currency if items else "KWD",
+        items=items,
     )
 
 

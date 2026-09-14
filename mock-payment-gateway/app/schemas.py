@@ -66,3 +66,25 @@ class WebhookRetryResult(BaseModel):
     attempt_count: int
     last_response_status: int | None
     delivered: bool
+
+
+class SettlementBatchItemOut(BaseModel):
+    gateway_transaction_reference: str
+    merchant_reference: str
+    settlement_date: str
+    gross_amount: Decimal
+    gateway_fee: Decimal
+    net_amount: Decimal
+    currency: str
+    gateway_status: str
+
+
+class SettlementBatchOut(BaseModel):
+    """The gateway's own daily settlement feed — what retail-credit-api's
+    ``POST /payments/settlement-batches`` expects as its ``items`` payload
+    (field-for-field), so a caller can pass this straight through."""
+
+    batch_reference: str
+    settlement_date: str
+    currency: str
+    items: list[SettlementBatchItemOut]

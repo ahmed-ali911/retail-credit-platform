@@ -9,10 +9,11 @@ anything in this database changes. A duplicate is acknowledged (200) without
 reprocessing; an out-of-order event is acknowledged and recorded but not
 applied; a bad signature is rejected outright.
 
-Reaching the *configured* final-allocation status (SETTLED by default) is
-where checkpoint 2 (allocation/Collections integration) plugs in — see
-``_apply_final_allocation`` below, deliberately a no-op placeholder in this
-checkpoint.
+Reaching the *configured* final-allocation status (SETTLED by default) calls
+the existing payments.py::record_payment() engine (``_apply_final_allocation``
+below); a later REVERSED/REFUNDED/CHARGEBACK calls the new
+services/payment_reversal.py (``_apply_reversal`` below) to undo it via
+compensating records.
 """
 from __future__ import annotations
 
@@ -24,6 +25,8 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
+from app.models.accounting import AccountingEventType
+from app.models.payment import PaymentSource
 from app.models.payment_gateway import (
     GatewayTransaction,
     PaymentIntent,
@@ -32,7 +35,7 @@ from app.models.payment_gateway import (
     WebhookProcessingStatus,
     can_transition,
 )
-from app.services import webhook_security
+from app.services import accounting, webhook_security
 from app.services.errors import DomainError
 
 
@@ -195,32 +198,38 @@ def process_webhook(
     #        an intent can accumulate several, e.g. AUTHORIZED then later
     #        SETTLED for a delayed-settlement demo) and transition the intent.
     try:
-        db.add(
-            GatewayTransaction(
-                payment_intent_id=intent.id,
-                gateway_transaction_reference=str(
-                    payload.get("gateway_transaction_reference") or gateway_event_id
-                ),
-                gateway_status=target_status,
-                authorized_amount=_d(payload.get("authorized_amount")),
-                captured_amount=_d(payload.get("captured_amount")),
-                settled_amount=_d(payload.get("settled_amount")),
-                gateway_fee=_d(payload.get("gateway_fee")),
-                authorization_timestamp=_parse_timestamp(payload.get("authorization_timestamp")),
-                capture_timestamp=_parse_timestamp(payload.get("capture_timestamp")),
-                settlement_timestamp=_parse_timestamp(payload.get("settlement_timestamp")),
-                failure_code=payload.get("failure_code"),
-                failure_reason=payload.get("failure_reason"),
-                raw_response_reference=str(
-                    payload.get("gateway_transaction_reference") or gateway_event_id
-                ),
-            )
+        transaction = GatewayTransaction(
+            payment_intent_id=intent.id,
+            gateway_transaction_reference=str(
+                payload.get("gateway_transaction_reference") or gateway_event_id
+            ),
+            gateway_status=target_status,
+            authorized_amount=_d(payload.get("authorized_amount")),
+            captured_amount=_d(payload.get("captured_amount")),
+            settled_amount=_d(payload.get("settled_amount")),
+            gateway_fee=_d(payload.get("gateway_fee")),
+            authorization_timestamp=_parse_timestamp(payload.get("authorization_timestamp")),
+            capture_timestamp=_parse_timestamp(payload.get("capture_timestamp")),
+            settlement_timestamp=_parse_timestamp(payload.get("settlement_timestamp")),
+            failure_code=payload.get("failure_code"),
+            failure_reason=payload.get("failure_reason"),
+            raw_response_reference=str(
+                payload.get("gateway_transaction_reference") or gateway_event_id
+            ),
         )
+        db.add(transaction)
         intent.status = target_status
         db.flush()
 
         if target_status == _final_allocation_status(db):
-            _apply_final_allocation(db, intent)
+            _apply_final_allocation(db, intent, transaction)
+        elif target_status in _REVERSAL_STATUSES:
+            _apply_reversal(db, intent, target_status)
+        # PARTIALLY_REFUNDED is recorded (the transition above already
+        # succeeded) but deliberately triggers no financial effect here — the
+        # webhook payload carries no partial-refund amount to allocate
+        # against specific installments. TBD — Business Approval Required:
+        # confirm the partial-refund amount contract before automating this.
 
         event_row.processing_status = WebhookProcessingStatus.processed
         event_row.processed_at = _utcnow()
@@ -254,6 +263,11 @@ def process_webhook(
         return WebhookOutcome(webhook_event=event_row, http_status=500, intent=None)
 
 
+_REVERSAL_STATUSES = frozenset(
+    {PaymentIntentStatus.reversed, PaymentIntentStatus.refunded, PaymentIntentStatus.chargeback}
+)
+
+
 def _final_allocation_status(db: Session) -> PaymentIntentStatus:
     from app.services.config_service import KEY_PAYMENT_GATEWAY_FINAL_STATUS, ConfigService
 
@@ -261,15 +275,53 @@ def _final_allocation_status(db: Session) -> PaymentIntentStatus:
     return PaymentIntentStatus(str(raw))
 
 
-def _apply_final_allocation(db: Session, intent: PaymentIntent) -> None:
-    """Checkpoint 2 (allocation + Collections integration) fills this in —
-    it will call payments.py::record_payment() (extended with source=gateway,
-    payment_intent_id=intent.id), the SAME allocation engine the existing
-    staff-entered payment endpoint uses, per this feature's reuse decision.
-    Deliberately a no-op in this checkpoint: the status machine, webhook
-    security, and idempotency above are fully implemented and tested now: an
-    intent CAN reach the configured final status, but nothing allocates money
-    yet — no Payment row is created linking back to this intent
-    (Payment.payment_intent_id) until checkpoint 2.
+def _apply_final_allocation(
+    db: Session, intent: PaymentIntent, transaction: GatewayTransaction
+) -> None:
+    """Reuse decision (confirmed with the user before this was written): call
+    the EXISTING payments.py::record_payment() — the same engine
+    POST /contracts/{id}/payments already uses — rather than building a
+    second, parallel allocation implementation. `external_reference` is this
+    intent's own `payment_reference`, so a redelivered webhook that somehow
+    reaches this function twice (shouldn't happen — gateway_event_id
+    idempotency and the closed transition graph both prevent it) still can't
+    double-allocate: record_payment's own idempotent-replay check catches it.
     """
-    return None
+    from app.services import payments as payments_service
+    from app.services.users import ensure_system_actor_id
+
+    settings = get_settings()
+    actor_id = ensure_system_actor_id(db, settings.system_gateway_username)
+    contract = intent.contract
+
+    outcome = payments_service.record_payment(
+        db,
+        contract,
+        amount=float(intent.requested_amount),
+        external_reference=intent.payment_reference,
+        actor_id=actor_id,
+        source=PaymentSource.gateway,
+        payment_intent_id=intent.id,
+    )
+
+    if not outcome.replayed and transaction.gateway_fee:
+        accounting.emit(
+            db,
+            event_type=AccountingEventType.gateway_fee_recognized,
+            event_reference=f"gateway-fee-{transaction.id}",
+            contract=contract,
+            amount=transaction.gateway_fee,
+            event_date=transaction.settlement_timestamp or _utcnow(),
+        )
+
+
+def _apply_reversal(db: Session, intent: PaymentIntent, target_status: PaymentIntentStatus) -> None:
+    """A settled gateway payment was taken back (REVERSED/REFUNDED/
+    CHARGEBACK) — see services/payment_reversal.py for the compensating-
+    record logic. Never runs for PARTIALLY_REFUNDED (see the caller)."""
+    from app.services.payment_reversal import reverse_settled_payment
+    from app.services.users import ensure_system_actor_id
+
+    settings = get_settings()
+    actor_id = ensure_system_actor_id(db, settings.system_gateway_username)
+    reverse_settled_payment(db, intent, final_status=target_status, actor_id=actor_id)
