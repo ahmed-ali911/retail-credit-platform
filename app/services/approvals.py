@@ -293,6 +293,40 @@ def _execute(db: Session, approval: ApprovalRequest, *, actor_id: int) -> None:
                 "approval_request_id": approval.id,
             },
         )
+
+        # A contract can only ever be governed by one ACTIVE/APPROVED override
+        # at a time. Nothing upstream blocks requesting a new one while an
+        # older one still governs (only a *pending* request is blocked — see
+        # ecl_override.py::_guards) — so this newly-approved override
+        # supersedes any other still-active/approved override on the same
+        # contract, reusing the existing CANCELLED status ("withdrawn /
+        # superseded" per its own docstring) and the existing superseded_by
+        # pointer column, rather than adding a new status.
+        siblings = db.execute(
+            select(ECLOverride).where(
+                ECLOverride.contract_id == ov.contract_id,
+                ECLOverride.id != ov.id,
+                ECLOverride.status.in_(
+                    [ECLOverrideStatus.active, ECLOverrideStatus.approved]
+                ),
+            )
+        ).scalars().all()
+        for old in siblings:
+            before_status = old.status.value
+            old.status = ECLOverrideStatus.cancelled
+            old.superseded_by = ov.id
+            old.comments = (
+                (old.comments or "") + f"\n[superseded by override #{ov.id}]"
+            ).strip()
+            record_event(
+                db,
+                user_id=actor_id,
+                action="ecl.override_superseded",
+                entity_type="ecl_override",
+                entity_id=old.id,
+                before={"status": before_status},
+                after={"status": "CANCELLED", "superseded_by": ov.id},
+            )
         return
 
     if approval.action_type == ACTION_GATEWAY_RECON_RESOLVE:

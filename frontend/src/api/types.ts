@@ -586,6 +586,7 @@ export interface EclOverride {
   effective_from: string;
   effective_to: string | null;
   review_date: string | null;
+  superseded_by: number | null;
   approval_request_id: number | null;
   requested_by: number | null;
   approved_by: number | null;

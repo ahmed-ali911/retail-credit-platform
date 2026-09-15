@@ -1079,6 +1079,7 @@ def _override_dict(o) -> dict:
         "effective_from": o.effective_from.isoformat(),
         "effective_to": o.effective_to.isoformat() if o.effective_to else None,
         "review_date": o.review_date.isoformat() if o.review_date else None,
+        "superseded_by": o.superseded_by,
         "approval_request_id": o.approval_request_id,
         "requested_by": o.requested_by,
         "approved_by": o.approved_by,

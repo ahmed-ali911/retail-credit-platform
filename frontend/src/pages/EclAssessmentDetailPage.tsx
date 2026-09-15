@@ -330,6 +330,47 @@ export function EclAssessmentDetailPage() {
         </div>
       </Card>
 
+      {d.stage_migration_history.length > 0 && (
+        <Card title="Stage migration history" soft>
+          <p className="muted">
+            This contract's stage over time — distinct from the override
+            history below: this tracks the automated engine's own
+            determination alongside what was actually provisioned (final).
+          </p>
+          <table className="data" aria-label="Stage migration history">
+            <thead>
+              <tr>
+                <th>Date</th>
+                <th className="num">Automated</th>
+                <th className="num">Final</th>
+                <th>Change</th>
+              </tr>
+            </thead>
+            <tbody>
+              {d.stage_migration_history.map((h, i) => {
+                const prevFinal = i > 0 ? d.stage_migration_history[i - 1].final : null;
+                const change =
+                  prevFinal == null || h.final == null
+                    ? "—"
+                    : h.final > prevFinal
+                      ? `▲ upgraded (${prevFinal} → ${h.final})`
+                      : h.final < prevFinal
+                        ? `▼ downgraded (${prevFinal} → ${h.final})`
+                        : "held";
+                return (
+                  <tr key={i} data-testid={`stage-migration-row-${i}`}>
+                    <td>{h.date}</td>
+                    <td className="num">{h.automated ?? NA}</td>
+                    <td className="num"><strong>{h.final ?? NA}</strong></td>
+                    <td>{change}</td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </Card>
+      )}
+
       {d.overrides.length > 0 && (
         <Card title="Overrides">
           <table className="data" aria-label="Overrides">
@@ -344,7 +385,12 @@ export function EclAssessmentDetailPage() {
                 <tr key={o.id} data-testid={`override-row-${o.id}`}>
                   <td>{o.id}</td>
                   <td>{o.override_type}</td>
-                  <td><span className="badge">{o.status}</span></td>
+                  <td>
+                    <span className="badge">{o.status}</span>
+                    {o.superseded_by != null && (
+                      <span className="muted"> → superseded by #{o.superseded_by}</span>
+                    )}
+                  </td>
                   <td>{o.reason_code}</td>
                   <td className="num">{num(o.financial_impact)}</td>
                   <td>{o.effective_from} → {o.effective_to ?? "—"}</td>

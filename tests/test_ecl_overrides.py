@@ -278,3 +278,59 @@ def test_override_adjustment_emits_its_own_accounting_event_on_post(client, clie
     assert len(ev) == 1
     assert ev[0]["contract_id"] is not None
     assert ev[0]["amount"] > 0
+
+
+# --------------------------------------------------------------------------- #
+# supersede — a new approved override on the same contract replaces the old one
+# --------------------------------------------------------------------------- #
+def test_new_approved_override_supersedes_the_old_active_one(client, client_as):
+    """Nothing blocks requesting a new override while an older one is still
+    ACTIVE (only a *pending* request is blocked). Approving the new one must
+    not leave two ACTIVE overrides governing the same contract — the old one
+    is marked CANCELLED (its own documented "withdrawn / superseded" meaning)
+    with `superseded_by` pointing at the new override."""
+    ctx = active_contract(client, national_id="OV-SUP-1")
+    cid = ctx["contract_id"]
+    _run(client)
+
+    first_approval_id = _stage_override(client, cid, stage=3).json()["id"]
+    client_as("credit_manager").post(f"/approvals/{first_approval_id}/approve")
+    first = client.get("/ecl/overrides", params={"contract_id": cid}).json()[0]
+    assert first["status"] == "ACTIVE"
+    first_id = first["id"]
+
+    second_approval_id = _stage_override(
+        client, cid, stage=2, reason_code="DATA_QUALITY_ISSUE"
+    ).json()["id"]
+    client_as("credit_manager").post(f"/approvals/{second_approval_id}/approve")
+
+    overrides = {o["id"]: o for o in client.get("/ecl/overrides", params={"contract_id": cid}).json()}
+    assert overrides[first_id]["status"] == "CANCELLED"
+    assert overrides[first_id]["superseded_by"] is not None
+    second_id = overrides[first_id]["superseded_by"]
+    assert overrides[second_id]["status"] == "ACTIVE"
+    assert overrides[second_id]["id"] != first_id
+
+    # exactly one ACTIVE override governs the contract going forward
+    active = [o for o in overrides.values() if o["status"] == "ACTIVE"]
+    assert len(active) == 1
+
+    _run(client, as_of=date.today() + timedelta(days=1))
+    assert _detail(client, cid)["final_stage"] == 2
+
+
+def test_superseding_an_override_is_on_the_audit_trail(client, client_as):
+    ctx = active_contract(client, national_id="OV-SUP-2")
+    cid = ctx["contract_id"]
+    _run(client)
+
+    first_approval_id = _stage_override(client, cid, stage=3).json()["id"]
+    client_as("credit_manager").post(f"/approvals/{first_approval_id}/approve")
+    second_approval_id = _stage_override(
+        client, cid, stage=2, reason_code="DATA_QUALITY_ISSUE"
+    ).json()["id"]
+    client_as("credit_manager").post(f"/approvals/{second_approval_id}/approve")
+
+    events = client.get("/audit/events", params={"entity_type": "ecl_override"}).json()
+    actions = {e["action"] for e in events}
+    assert "ecl.override_superseded" in actions

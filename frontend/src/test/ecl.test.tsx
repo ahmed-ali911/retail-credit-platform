@@ -199,6 +199,27 @@ describe("ECL assessment detail — automated / override / final + explainabilit
     });
   });
 
+  it("renders the stage migration history distinct from the override history", async () => {
+    const detailWithHistory = {
+      ...DETAIL,
+      stage_migration_history: [
+        { date: "2026-07-10", automated: 1, final: 1 },
+        { date: "2026-08-10", automated: 1, final: 1 },
+        { date: "2026-09-10", automated: 2, final: 2 },
+      ],
+    };
+    mockFetch([{ method: "GET", url: /\/ecl\/contracts\/7/, json: detailWithHistory }]);
+    renderWithProviders(<EclAssessmentDetailPage />, {
+      user: { role: "finance_officer" },
+      path: "/ecl/contracts/7",
+      routePath: "/ecl/contracts/:contractId",
+    });
+
+    await screen.findByTestId("ecl-why");
+    expect(screen.getByTestId("stage-migration-row-1")).toHaveTextContent("held");
+    expect(screen.getByTestId("stage-migration-row-2")).toHaveTextContent("upgraded");
+  });
+
   it("hides the override forms from a read-only role", async () => {
     mockFetch([{ method: "GET", url: /\/ecl\/contracts\/7/, json: DETAIL }]);
     renderWithProviders(<EclAssessmentDetailPage />, {
