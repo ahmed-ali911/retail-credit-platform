@@ -1,10 +1,14 @@
-"""Write-off & Recovery — eligibility + write-off REQUEST endpoints.
+"""Write-off & Recovery — eligibility, write-off REQUEST, and EXECUTION
+endpoints.
 
-Financial execution is a later checkpoint (see services/write_off.py's
-module docstring) — there is deliberately no "execute" endpoint here yet.
 Approval itself happens through the EXISTING generic
 ``POST /approvals/{id}/approve`` / ``/reject`` — no new approve/reject
 endpoint, mirroring exactly how ECL stage/parameter overrides work.
+Execution is a SEPARATE, explicit step from approval (mirrors ECLRun's own
+COMPLETED -> POSTED split) — ``POST /write-offs/requests/{id}/execute``,
+callable by the same role set as everything else here (no second
+maker-checker cycle for execution, exactly like ``POST /ecl/runs/{id}/post``
+needs no fresh approval either).
 
 Roles: Collections / Finance / Credit Manager / Admin — never
 sales_employee or credit_officer (this is a Collections/Finance decision,
@@ -23,10 +27,12 @@ from app.core.auth import require_roles
 from app.core.database import get_db
 from app.models.contract import InstallmentContract
 from app.models.user import User, UserRole
-from app.models.write_off import WriteOffRequest, WriteOffRequestStatus
+from app.models.write_off import WriteOffExecution, WriteOffRequest, WriteOffRequestStatus
 from app.schemas.approval import ApprovalRequestOut
 from app.schemas.write_off import (
     EligibilityResultOut,
+    WriteOffExecutionOut,
+    WriteOffExecutionResult,
     WriteOffRequestCancelIn,
     WriteOffRequestCreate,
     WriteOffRequestOut,
@@ -134,6 +140,48 @@ def get_write_off_request(
     if wo is None:
         raise HTTPException(status_code=404, detail="Write-off request not found")
     return wo
+
+
+@router.post("/requests/{request_id}/execute", response_model=WriteOffExecutionResult)
+def execute_write_off_request(
+    request_id: int,
+    db: Session = Depends(get_db),
+    actor: User = Depends(require_roles(*_MAKER_ROLES)),
+):
+    """Idempotent: executing an already-executed request returns the
+    existing WriteOffExecution unchanged (``replayed: true``, HTTP 200) —
+    never a second execution, never a duplicate balance movement."""
+    try:
+        outcome = write_off_service.execute_write_off(db, request_id, actor_id=actor.id)
+    except DomainError as exc:
+        raise _domain(exc)
+    db.commit()
+    db.refresh(outcome.execution)
+    return WriteOffExecutionResult(replayed=outcome.replayed, execution=outcome.execution)
+
+
+@router.get("/executions/{execution_id}", response_model=WriteOffExecutionOut)
+def get_write_off_execution(
+    execution_id: int,
+    db: Session = Depends(get_db),
+    _: User = Depends(require_roles(*_VIEW_ROLES)),
+):
+    execution = db.get(WriteOffExecution, execution_id)
+    if execution is None:
+        raise HTTPException(status_code=404, detail="Write-off execution not found")
+    return execution
+
+
+@router.get("/executions", response_model=list[WriteOffExecutionOut])
+def list_write_off_executions(
+    db: Session = Depends(get_db),
+    contract_id: int | None = Query(default=None),
+    _: User = Depends(require_roles(*_VIEW_ROLES)),
+):
+    stmt = select(WriteOffExecution).order_by(WriteOffExecution.id.desc())
+    if contract_id is not None:
+        stmt = stmt.where(WriteOffExecution.contract_id == contract_id)
+    return db.execute(stmt).scalars().all()
 
 
 @router.post("/requests/{request_id}/cancel", response_model=WriteOffRequestOut)

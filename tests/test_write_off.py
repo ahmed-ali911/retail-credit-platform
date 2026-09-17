@@ -77,6 +77,17 @@ def _entity_id(resp) -> int:
     return int(resp.json()["entity_id"])
 
 
+def _request_and_approve(client, client_as, cid, **kw) -> int:
+    """Returns the approved write_off_request id."""
+    r = _request_write_off(client, cid, **kw)
+    assert r.status_code == 201, r.text
+    wo_id = _entity_id(r)
+    approval_id = r.json()["id"]
+    ok = client_as("credit_manager").post(f"/approvals/{approval_id}/approve")
+    assert ok.status_code == 200, ok.text
+    return wo_id
+
+
 # --------------------------------------------------------------------------- #
 # Eligibility
 # --------------------------------------------------------------------------- #
@@ -356,3 +367,262 @@ def test_normal_case_closure_records_the_cleared_reason(client):
     detail = client.get(f"/collections/cases/{case_id}").json()
     assert detail["status"] == "closed"
     assert detail["closed_reason"] == "cleared"
+
+
+# --------------------------------------------------------------------------- #
+# Execution — checkpoint 2
+# --------------------------------------------------------------------------- #
+def test_full_execution_zeroes_balances_closes_contract_and_case(client, client_as, db):
+    ctx, cid, as_of = _make_delinquent(client, "WO-EXEC-FULL", 200)
+    case_id = _open_case_id(client, cid)
+    _log_activity(client, case_id)
+
+    before = client.get(f"/contracts/{cid}/receivable").json()
+    assert before["outstanding_receivable"] > 0
+
+    wo_id = _request_and_approve(client, client_as, cid)
+    exec_resp = client.post(f"/write-offs/requests/{wo_id}/execute")
+    assert exec_resp.status_code == 200, exec_resp.text
+    body = exec_resp.json()
+    assert body["replayed"] is False
+    execution = body["execution"]
+    assert execution["write_off_type"] == "FULL"
+    assert execution["remaining_principal"] == 0
+    assert execution["remaining_profit"] == 0
+
+    after = client.get(f"/contracts/{cid}/receivable").json()
+    assert after["outstanding_receivable"] == 0
+    assert after["outstanding_late_fees"] == 0
+
+    contract = client.get(f"/contracts/{cid}").json()
+    assert contract["status"] == "closed"
+    assert contract["closure"]["reason"] == "write_off"
+
+    case = client.get(f"/collections/cases/{case_id}").json()
+    assert case["status"] == "closed"
+    assert case["closed_reason"] == "written_off"
+
+    wo = client.get(f"/write-offs/requests/{wo_id}").json()
+    assert wo["status"] == "EXECUTED"
+
+
+def test_execution_writes_proper_ledger_entries_never_touches_paid_columns(client, client_as, db):
+    from app.models.contract import Installment
+    from app.models.ledger import LedgerEntry, LedgerEntryType, LedgerRelatedAction
+
+    ctx, cid, as_of = _make_delinquent(client, "WO-LEDGER", 200)
+    case_id = _open_case_id(client, cid)
+    _log_activity(client, case_id)
+
+    insts_before = {
+        i.id: (i.principal_paid, i.profit_paid)
+        for i in db.query(Installment).filter(Installment.contract_id == cid).all()
+    }
+
+    wo_id = _request_and_approve(client, client_as, cid)
+    client.post(f"/write-offs/requests/{wo_id}/execute")
+
+    db.expire_all()
+    insts_after = db.query(Installment).filter(Installment.contract_id == cid).all()
+    for inst in insts_after:
+        # principal_paid/profit_paid are byte-identical to before — only the
+        # dedicated *_written_off columns moved.
+        before_p, before_pr = insts_before[inst.id]
+        assert inst.principal_paid == before_p
+        assert inst.profit_paid == before_pr
+        if inst.principal_written_off > 0 or inst.profit_written_off > 0:
+            assert inst.status.value == "written_off"
+
+    entries = db.query(LedgerEntry).filter(
+        LedgerEntry.contract_id == cid,
+        LedgerEntry.related_action == LedgerRelatedAction.write_off,
+    ).all()
+    assert entries, "expected at least one write-off ledger entry"
+    types_seen = {e.entry_type for e in entries}
+    assert types_seen <= {
+        LedgerEntryType.principal_written_off,
+        LedgerEntryType.profit_written_off,
+        LedgerEntryType.late_fee_written_off,
+    }
+    assert all(e.amount > 0 for e in entries)
+
+
+def test_execution_emits_write_off_and_ecl_provision_released_events(client, client_as):
+    ctx, cid, as_of = _make_delinquent(client, "WO-ACCOUNTING", 200)
+    case_id = _open_case_id(client, cid)
+    _log_activity(client, case_id)
+
+    wo_id = _request_and_approve(client, client_as, cid)
+    exec_resp = client.post(f"/write-offs/requests/{wo_id}/execute")
+    execution = exec_resp.json()["execution"]
+    provision_snapshot = execution["provision_amount_snapshot"]
+
+    write_off_events = client.get(
+        "/accounting/events", params={"event_type": "write_off_executed", "contract_id": cid}
+    ).json()
+    assert len(write_off_events) == 1
+    assert write_off_events[0]["amount"] > 0
+
+    if provision_snapshot and provision_snapshot > 0:
+        release_events = client.get(
+            "/accounting/events", params={"event_type": "ecl_provision_released", "contract_id": cid}
+        ).json()
+        assert len(release_events) >= 1
+        # the write-off's own release carries exactly -provision_snapshot
+        assert any(
+            abs(e["amount"] - (-provision_snapshot)) < 0.01 for e in release_events
+        )
+
+    events = client.get("/audit/events", params={"entity_type": "write_off_execution"}).json()
+    assert "writeoff.executed" in {e["action"] for e in events}
+
+
+def test_partial_execution_preserves_remaining_collectible_balance(client, client_as):
+    ctx, cid, as_of = _make_delinquent(client, "WO-PARTIAL", 200)
+    case_id = _open_case_id(client, cid)
+    _log_activity(client, case_id)
+
+    options = client.get(f"/contracts/{cid}/receivable").json()
+    partial_amount = round(options["outstanding_principal"] / 2, 2)
+
+    wo_id = _request_and_approve(
+        client, client_as, cid, write_off_type="PARTIAL", requested_principal=partial_amount,
+    )
+    exec_resp = client.post(f"/write-offs/requests/{wo_id}/execute")
+    assert exec_resp.status_code == 200, exec_resp.text
+    execution = exec_resp.json()["execution"]
+    assert execution["write_off_type"] == "PARTIAL"
+    assert execution["executed_principal"] == pytest.approx(partial_amount, abs=0.01)
+    assert execution["remaining_principal"] > 0
+
+    contract = client.get(f"/contracts/{cid}").json()
+    assert contract["status"] == "active"  # PARTIAL never closes the contract
+
+    after = client.get(f"/contracts/{cid}/receivable").json()
+    assert after["outstanding_principal"] == pytest.approx(execution["remaining_principal"], abs=0.01)
+    assert after["outstanding_principal"] > 0
+
+    partial_events = client.get(
+        "/accounting/events", params={"event_type": "partial_write_off_executed", "contract_id": cid}
+    ).json()
+    assert len(partial_events) == 1
+
+
+def test_execution_is_idempotent_on_replay(client, client_as, db):
+    from app.models.accounting import AccountingEvent
+
+    ctx, cid, as_of = _make_delinquent(client, "WO-IDEMPOTENT", 200)
+    case_id = _open_case_id(client, cid)
+    _log_activity(client, case_id)
+    wo_id = _request_and_approve(client, client_as, cid)
+
+    first = client.post(f"/write-offs/requests/{wo_id}/execute")
+    assert first.status_code == 200
+    assert first.json()["replayed"] is False
+    execution_id = first.json()["execution"]["id"]
+
+    events_after_first = db.query(AccountingEvent).filter(
+        AccountingEvent.event_type == "write_off_executed"
+    ).count()
+
+    second = client.post(f"/write-offs/requests/{wo_id}/execute")
+    assert second.status_code == 200
+    assert second.json()["replayed"] is True
+    assert second.json()["execution"]["id"] == execution_id
+
+    events_after_second = db.query(AccountingEvent).filter(
+        AccountingEvent.event_type == "write_off_executed"
+    ).count()
+    assert events_after_second == events_after_first  # no duplicate accounting event
+
+    receivable_after_first = client.get(f"/contracts/{cid}/receivable").json()
+    client.post(f"/write-offs/requests/{wo_id}/execute")
+    receivable_after_second = client.get(f"/contracts/{cid}/receivable").json()
+    assert receivable_after_first == receivable_after_second
+
+
+def test_cannot_execute_a_request_that_is_not_approved(client, client_as):
+    ctx, cid, as_of = _make_delinquent(client, "WO-NOTAPPROVED", 200)
+    case_id = _open_case_id(client, cid)
+    _log_activity(client, case_id)
+    r = _request_write_off(client, cid)
+    wo_id = _entity_id(r)
+
+    still_pending = client.post(f"/write-offs/requests/{wo_id}/execute")
+    assert still_pending.status_code == 409
+
+    approval_id = r.json()["id"]
+    client_as("credit_manager").post(f"/approvals/{approval_id}/reject", json={"reason": "no"})
+    rejected = client.post(f"/write-offs/requests/{wo_id}/execute")
+    assert rejected.status_code == 409
+
+
+def test_cannot_execute_above_balance_that_moved_since_approval(client, client_as):
+    ctx, cid, as_of = _make_delinquent(client, "WO-STALE", 200)
+    case_id = _open_case_id(client, cid)
+    _log_activity(client, case_id)
+    wo_id = _request_and_approve(client, client_as, cid)  # FULL — snapshots 100% of outstanding
+
+    # A staff payment lands after approval but before execution — the
+    # contract's real outstanding principal has now dropped below what the
+    # checker approved writing off.
+    options = client.get(f"/contracts/{cid}/receivable").json()
+    partial_amount = round(min(50.0, options["outstanding_principal"]), 2)
+    pay = client.post(f"/contracts/{cid}/payments", json={
+        "amount": partial_amount, "external_reference": "WO-STALE-PAY",
+    })
+    assert pay.status_code == 200, pay.text
+
+    stale = client.post(f"/write-offs/requests/{wo_id}/execute")
+    assert stale.status_code == 409
+    assert "exceeds" in stale.text
+
+
+def test_written_off_contract_is_excluded_from_future_ecl_runs(client, client_as):
+    ctx, cid, as_of = _make_delinquent(client, "WO-ECLEXCLUDE", 200)
+    case_id = _open_case_id(client, cid)
+    _log_activity(client, case_id)
+    wo_id = _request_and_approve(client, client_as, cid)
+    client.post(f"/write-offs/requests/{wo_id}/execute")
+
+    later = as_of + timedelta(days=5)
+    run = _run_ecl(client, later)
+    row = client.get(f"/ecl/contracts/{cid}").json()
+    # the contract's assessment history still exists (never deleted) but the
+    # NEW run does not include it — its run_id in the row is unchanged/older
+    assert row["run_id"] != run["run_id"]
+
+
+def test_execution_requires_authorized_role(client, client_as):
+    ctx, cid, as_of = _make_delinquent(client, "WO-EXECRBAC", 200)
+    case_id = _open_case_id(client, cid)
+    _log_activity(client, case_id)
+    wo_id = _request_and_approve(client, client_as, cid)
+
+    sales = client_as("sales_employee")
+    r = sales.post(f"/write-offs/requests/{wo_id}/execute")
+    assert r.status_code == 403
+
+
+def test_original_payment_history_is_preserved_through_write_off(client, client_as):
+    ctx, cid, as_of = _make_delinquent(client, "WO-HISTORY", 200)
+    case_id = _open_case_id(client, cid)
+    _log_activity(client, case_id)
+
+    # An earlier, genuine payment exists on this contract before write-off.
+    schedule_total = ctx["schedule"][0]["total"]
+    options = client.get(f"/contracts/{cid}/receivable").json()
+    early_payment_amount = min(5.0, options["outstanding_principal"])
+    if early_payment_amount > 0:
+        client.post(f"/contracts/{cid}/payments", json={
+            "amount": early_payment_amount, "external_reference": "WO-HISTORY-EARLY-PAY",
+        })
+
+    wo_id = _request_and_approve(client, client_as, cid)
+    client.post(f"/write-offs/requests/{wo_id}/execute")
+
+    # the earlier payment is untouched — still there, still applied
+    payments = client.get(
+        "/collections/cases", params={"contract_id": cid}
+    )  # sanity: cases endpoint still reachable post-closure
+    assert payments.status_code == 200

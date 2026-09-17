@@ -93,3 +93,40 @@ class WriteOffRequestOut(BaseModel):
 
 class WriteOffRequestCancelIn(BaseModel):
     reason: str | None = None
+
+
+# --------------------------------------------------------------------------- #
+# Execution
+# --------------------------------------------------------------------------- #
+class WriteOffExecutionOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    id: int
+    write_off_request_id: int
+    contract_id: int
+    customer_id: int | None
+    write_off_type: WriteOffType
+
+    executed_principal: float
+    executed_profit: float
+    executed_late_fee: float
+    executed_other_charges: float
+
+    remaining_principal: float
+    remaining_profit: float
+    remaining_late_fee: float
+
+    ecl_stage_snapshot: int | None
+    ecl_amount_snapshot: float | None
+    provision_amount_snapshot: float | None
+
+    contract_closure_id: int | None
+    collection_case_id: int | None
+    accounting_event_id: int | None
+
+    executed_by: int | None
+    executed_at: datetime
+
+
+class WriteOffExecutionResult(BaseModel):
+    replayed: bool
+    execution: WriteOffExecutionOut

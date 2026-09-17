@@ -38,24 +38,31 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.core.auth import contract_owner_customer_id
+from app.models.accounting import AccountingEventType
 from app.models.approval import ACTION_WRITE_OFF_REQUEST, ApprovalRequest, ApprovalStatus
+from app.models.closure import ClosureReason, ContractClosure
 from app.models.collections import (
     CollectionActivity,
     CollectionActivityType,
     CollectionCase,
     PromiseStatus,
 )
-from app.models.contract import ContractStatus, InstallmentContract
+from app.models.contract import ContractStatus, InstallmentContract, InstallmentStatus
+from app.models.ledger import LedgerEntryType, LedgerRelatedAction
+from app.models.payment import LateFeeStatus
 from app.models.write_off import (
     WriteOffEligibilityStatus,
+    WriteOffExecution,
     WriteOffReasonCode,
     WriteOffRequest,
     WriteOffRequestStatus,
     WriteOffType,
 )
+from app.services import accounting
 from app.services import approvals as approval_service
 from app.services import collections as collections_service
 from app.services import config_service as cfg
+from app.services import ledger as ledger_service
 from app.services.audit import record_event
 from app.services.config_service import ConfigService
 from app.services.ecl_override import latest_assessment as ecl_latest_assessment
@@ -487,3 +494,294 @@ def cancel_request(db: Session, request_id: int, *, actor_id: int, reason: str |
         before={"status": "pending"}, after={"status": "cancelled", "reason": reason},
     )
     return wo
+
+
+# --------------------------------------------------------------------------- #
+# Execution — turns an APPROVED request into an immutable WriteOffExecution
+# --------------------------------------------------------------------------- #
+@dataclass
+class WriteOffExecutionOutcome:
+    execution: WriteOffExecution
+    replayed: bool  # True if this request was already executed — no second
+                     # execution happened; the existing record is returned
+                     # unchanged. Mirrors payments.py::PaymentOutcome.replayed
+                     # and payment_intents.py::IntentOutcome.replayed.
+
+
+def _write_off_late_fees(
+    db: Session, contract: InstallmentContract, amount: Decimal, *, execution_id: int, actor_id: int | None
+) -> Decimal:
+    """Oldest-assessed-first, mirrors payments.py::_apply_late_fee's own
+    traversal order. Returns the amount actually applied (== amount unless
+    the outstanding late-fee balance runs out first, which re-validation
+    upstream should already have prevented)."""
+    remaining = amount
+    applied = _ZERO
+    charges = sorted(
+        (c for c in contract.late_fee_charges if c.outstanding > _ZERO),
+        key=lambda c: c.assessed_at,
+    )
+    for charge in charges:
+        if remaining <= _ZERO:
+            break
+        take = min(remaining, charge.outstanding)
+        if take <= _ZERO:
+            continue
+        charge.amount_written_off = _money(charge.amount_written_off + take)
+        remaining -= take
+        applied += take
+        if charge.outstanding <= _ZERO and charge.status != LateFeeStatus.waived:
+            charge.status = LateFeeStatus.written_off
+        ledger_service.record_entry(
+            db,
+            contract_id=contract.id,
+            entry_type=LedgerEntryType.late_fee_written_off,
+            amount=take,
+            related_action=LedgerRelatedAction.write_off,
+            reference_type="write_off_execution",
+            reference_id=execution_id,
+            created_by=actor_id,
+        )
+    return applied
+
+
+def _write_off_installment_component(
+    db: Session,
+    contract: InstallmentContract,
+    *,
+    component: str,  # "principal" | "profit"
+    amount: Decimal,
+    execution_id: int,
+    actor_id: int | None,
+) -> Decimal:
+    """Oldest-installment-first — the same traversal convention
+    allocation.py's own waterfall uses. Applied as an INDEPENDENT sweep per
+    component (this request already carries separately-requested principal/
+    profit/late-fee amounts — there is no single pooled amount to interleave
+    the way a payment's waterfall does)."""
+    remaining = amount
+    applied = _ZERO
+    installments = sorted(contract.installments, key=lambda i: i.sequence_number)
+    for inst in installments:
+        if remaining <= _ZERO:
+            break
+        outstanding = inst.principal_outstanding if component == "principal" else inst.profit_outstanding
+        if outstanding <= _ZERO:
+            continue
+        take = min(remaining, outstanding)
+        if component == "principal":
+            inst.principal_written_off = _money(inst.principal_written_off + take)
+        else:
+            inst.profit_written_off = _money(inst.profit_written_off + take)
+        remaining -= take
+        applied += take
+        ledger_service.record_entry(
+            db,
+            contract_id=contract.id,
+            entry_type=(
+                LedgerEntryType.principal_written_off
+                if component == "principal"
+                else LedgerEntryType.profit_written_off
+            ),
+            amount=take,
+            related_action=LedgerRelatedAction.write_off,
+            reference_type="write_off_execution",
+            reference_id=execution_id,
+            created_by=actor_id,
+        )
+        if inst.principal_outstanding <= _ZERO and inst.profit_outstanding <= _ZERO:
+            inst.status = InstallmentStatus.written_off
+    return applied
+
+
+def execute_write_off(db: Session, request_id: int, *, actor_id: int) -> WriteOffExecutionOutcome:
+    """Turns an APPROVED WriteOffRequest into an immutable WriteOffExecution.
+
+    Idempotent: if this request was already executed, the existing
+    WriteOffExecution is returned unchanged (``replayed=True``) — no balance
+    is touched a second time. Re-validates the requested amounts against the
+    CONTRACT'S CURRENT outstanding balances (not the request-time snapshot,
+    which may be stale) before applying anything — a balance that moved
+    downward since the request (e.g. a payment landed) makes execution fail
+    loudly (409) rather than write off more than what remains.
+
+    Never touches principal_paid/profit_paid/amount_paid — only the
+    dedicated principal_written_off/profit_written_off/amount_written_off
+    columns move, each via a proper LedgerEntry (never a silent balance
+    overwrite).
+    """
+    wo = db.get(WriteOffRequest, request_id)
+    if wo is None:
+        raise DomainError("Write-off request not found", status_code=404)
+
+    existing = db.execute(
+        select(WriteOffExecution).where(WriteOffExecution.write_off_request_id == wo.id)
+    ).scalar_one_or_none()
+    if existing is not None:
+        return WriteOffExecutionOutcome(execution=existing, replayed=True)
+
+    if wo.status != WriteOffRequestStatus.approved:
+        raise DomainError(
+            f"Write-off request {wo.id} must be APPROVED to execute (status: {wo.status.value})",
+            status_code=409,
+        )
+
+    contract = db.get(InstallmentContract, wo.contract_id)
+    if contract is None:
+        raise DomainError("Contract not found", status_code=404)
+    if contract.status != ContractStatus.active:
+        raise DomainError(
+            f"Contract is no longer active (status: {contract.status.value}) — cannot execute",
+            status_code=409,
+        )
+
+    # Re-validate against CURRENT balances — they may have moved since the
+    # request was approved (e.g. a payment landed in between).
+    receivable = build_receivable(contract)
+    avail_principal = _money(receivable.outstanding_principal)
+    avail_profit = _money(receivable.outstanding_profit)
+    avail_late_fee = _money(receivable.outstanding_late_fees)
+    for label, requested, available in (
+        ("principal", wo.requested_principal, avail_principal),
+        ("profit", wo.requested_profit, avail_profit),
+        ("late_fee", wo.requested_late_fee, avail_late_fee),
+    ):
+        if _money(requested) > available:
+            raise DomainError(
+                f"Requested {label} write-off ({_money(requested)}) now exceeds the contract's "
+                f"current outstanding {label} ({available}) — balances moved since this request "
+                f"was approved; cancel and re-request instead of executing against stale amounts.",
+                status_code=409,
+            )
+
+    # --- create the execution row first, so every ledger entry below can
+    # reference its id -----------------------------------------------------
+    execution = WriteOffExecution(
+        write_off_request_id=wo.id,
+        contract_id=contract.id,
+        customer_id=wo.customer_id,
+        write_off_type=wo.write_off_type,
+        executed_by=actor_id,
+    )
+    db.add(execution)
+    db.flush()
+
+    executed_principal = _write_off_installment_component(
+        db, contract, component="principal", amount=_money(wo.requested_principal),
+        execution_id=execution.id, actor_id=actor_id,
+    )
+    executed_profit = _write_off_installment_component(
+        db, contract, component="profit", amount=_money(wo.requested_profit),
+        execution_id=execution.id, actor_id=actor_id,
+    )
+    executed_late_fee = _write_off_late_fees(
+        db, contract, _money(wo.requested_late_fee), execution_id=execution.id, actor_id=actor_id,
+    )
+    db.flush()
+
+    # Re-read post-write-off outstanding for the "remaining collectible"
+    # figures — never assumed, always recomputed from the same properties
+    # every other module reads.
+    post_receivable = build_receivable(contract)
+
+    contract_closure_id: int | None = None
+    collection_case_id: int | None = None
+    if wo.write_off_type == WriteOffType.full:
+        closure = ContractClosure(
+            contract_id=contract.id,
+            reason=ClosureReason.write_off,
+            financial_adjustment=None,
+            notes=f"Write-off request #{wo.id}, execution #{execution.id}",
+        )
+        db.add(closure)
+        db.flush()
+        contract.status = ContractStatus.closed
+        contract_closure_id = closure.id
+
+        case = collections_service.close_case_for_write_off(
+            db, contract, actor_id=actor_id, write_off_request_id=wo.id
+        )
+        collection_case_id = case.id if case else wo.snapshot_collections_case_id
+
+    # --- ECL: re-snapshot at execution time, then RELEASE the contract's
+    # current provision — reusing the EXISTING accounting-event boundary and
+    # the EXISTING ecl_provision_released event type (the same one
+    # ecl.py::post_run already emits for a downward movement). No new ECL
+    # calculation path: the next regular portfolio run (for a PARTIAL
+    # write-off, which stays active) re-assesses the contract's now-lower
+    # EAD from scratch and re-provisions it fresh, with this release as its
+    # opening balance. A FULL write-off's contract is now `closed`, so
+    # run_ecl()'s existing ContractStatus.active filter excludes it from
+    # every future run — no special-casing needed there either. -----------
+    assessment = ecl_latest_assessment(db, contract.id)
+    ecl_stage_snapshot = assessment.final_stage if assessment else None
+    ecl_amount_snapshot = _d(assessment.final_ecl) if assessment else None
+    provision_snapshot = _d(assessment.closing_provision) if assessment else None
+
+    execution.executed_principal = executed_principal
+    execution.executed_profit = executed_profit
+    execution.executed_late_fee = executed_late_fee
+    execution.executed_other_charges = _ZERO
+    execution.remaining_principal = _money(post_receivable.outstanding_principal)
+    execution.remaining_profit = _money(post_receivable.outstanding_profit)
+    execution.remaining_late_fee = _money(post_receivable.outstanding_late_fees)
+    execution.ecl_stage_snapshot = ecl_stage_snapshot
+    execution.ecl_amount_snapshot = ecl_amount_snapshot
+    execution.provision_amount_snapshot = provision_snapshot
+    execution.contract_closure_id = contract_closure_id
+    execution.collection_case_id = collection_case_id
+    db.flush()
+
+    # --- accounting-event boundary (additive; reuses accounting.emit — the
+    # SAME function/table every other module posts through) --------------
+    total_written_off = executed_principal + executed_profit + executed_late_fee
+    event_type = (
+        AccountingEventType.write_off_executed
+        if wo.write_off_type == WriteOffType.full
+        else AccountingEventType.partial_write_off_executed
+    )
+    write_off_event = accounting.emit(
+        db,
+        event_type=event_type,
+        event_reference=f"writeoff-executed-{execution.id}",
+        contract=contract,
+        amount=total_written_off,
+        event_date=_utcnow(),
+    )
+    execution.accounting_event_id = write_off_event.id
+
+    if provision_snapshot and provision_snapshot > _ZERO:
+        accounting.emit(
+            db,
+            event_type=AccountingEventType.ecl_provision_released,
+            event_reference=f"ecl-writeoff-release-{execution.id}",
+            contract=contract,
+            amount=-provision_snapshot,
+            event_date=_utcnow(),
+        )
+
+    wo.status = WriteOffRequestStatus.executed
+    db.flush()
+
+    record_event(
+        db,
+        user_id=actor_id,
+        action="writeoff.executed" if wo.write_off_type == WriteOffType.full else "writeoff.partial_executed",
+        entity_type="write_off_execution",
+        entity_id=execution.id,
+        after={
+            "write_off_request_id": wo.id,
+            "contract_id": contract.id,
+            "write_off_type": wo.write_off_type.value,
+            "executed_principal": float(executed_principal),
+            "executed_profit": float(executed_profit),
+            "executed_late_fee": float(executed_late_fee),
+            "total_written_off": float(total_written_off),
+            "remaining_principal": float(execution.remaining_principal),
+            "remaining_profit": float(execution.remaining_profit),
+            "provision_released": float(provision_snapshot) if provision_snapshot else 0.0,
+            "accounting_event_id": write_off_event.id,
+            "contract_closure_id": contract_closure_id,
+        },
+    )
+    return WriteOffExecutionOutcome(execution=execution, replayed=False)
