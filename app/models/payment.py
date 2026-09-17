@@ -58,6 +58,14 @@ class LateFeeStatus(str, enum.Enum):
     assessed = "assessed"
     waived = "waived"          # future maker-checker endpoint
     paid = "paid"
+    # Write-off & Recovery feature — distinct from `waived`: a waiver is a
+    # goodwill/service decision (existing ACTION_LATE_FEE_WAIVE maker-checker,
+    # emits late_fee_waived); a write-off is "deemed uncollectible" (the new
+    # write-off maker-checker, emits write_off_executed). Same shape as
+    # `waived` (outstanding -> 0) but a different business fact and a
+    # different accounting event, so it needs its own status rather than
+    # reusing `waived`.
+    written_off = "written_off"
 
 
 class Payment(Base):
@@ -191,6 +199,10 @@ class LateFeeCharge(Base):
     amount_paid: Mapped[Decimal] = mapped_column(
         Numeric(14, 2), nullable=False, default=_ZERO
     )
+    # Write-off & Recovery feature — mirrors amount_paid's shape.
+    amount_written_off: Mapped[Decimal] = mapped_column(
+        Numeric(14, 2), nullable=False, default=_ZERO, server_default="0"
+    )
     assessed_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=utcnow, nullable=False
     )
@@ -211,4 +223,8 @@ class LateFeeCharge(Base):
     def outstanding(self) -> Decimal:
         if self.status == LateFeeStatus.waived:
             return _ZERO
-        return (self.amount or _ZERO) - (self.amount_paid or _ZERO)
+        return (
+            (self.amount or _ZERO)
+            - (self.amount_paid or _ZERO)
+            - (self.amount_written_off or _ZERO)
+        )

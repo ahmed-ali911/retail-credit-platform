@@ -72,6 +72,12 @@ KEY_PAYMENT_MINIMUM_PARTIAL_AMOUNT = "payment_minimum_partial_amount"
 KEY_PROMISE_PARTIAL_CREDIT_ENABLED = "promise_partial_credit_enabled"
 KEY_PAYMENT_INTENT_EXPIRY_MINUTES = "payment_intent_expiry_minutes"
 
+KEY_WRITEOFF_ELIGIBILITY_DPD_THRESHOLD = "writeoff_eligibility_dpd_threshold"
+KEY_WRITEOFF_ELIGIBILITY_MIN_ECL_STAGE = "writeoff_eligibility_minimum_ecl_stage"
+KEY_WRITEOFF_MIN_COLLECTION_ACTIVITIES = "writeoff_minimum_collection_activities"
+KEY_WRITEOFF_BLOCK_IF_ACTIVE_PTP = "writeoff_block_if_active_promise_to_pay"
+KEY_WRITEOFF_PARTIAL_ALLOWED = "writeoff_partial_allowed"
+
 
 def _cast(raw: str, value_type: str):
     if value_type == "int":

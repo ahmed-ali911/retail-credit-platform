@@ -30,6 +30,7 @@ from app.models.collections import (
     CollectionActivity,
     CollectionActivityType,
     CollectionCase,
+    CollectionCaseClosureReason,
     CollectionCaseStatus,
     PromiseStatus,
 )
@@ -95,6 +96,7 @@ def close_case_if_cleared(
         return None
     case.status = CollectionCaseStatus.closed
     case.closed_at = _utcnow()
+    case.closed_reason = CollectionCaseClosureReason.cleared
     db.flush()
     record_event(
         db,
@@ -103,7 +105,48 @@ def close_case_if_cleared(
         entity_type="collection_case",
         entity_id=case.id,
         before={"status": "open"},
-        after={"status": "closed", "contract_id": contract.id},
+        after={
+            "status": "closed",
+            "closed_reason": CollectionCaseClosureReason.cleared.value,
+            "contract_id": contract.id,
+        },
+    )
+    return case
+
+
+def close_case_for_write_off(
+    db: Session, contract: InstallmentContract, *, actor_id: int | None = None, write_off_request_id: int
+) -> CollectionCase | None:
+    """Write-off & Recovery feature — called by write-off EXECUTION (a later
+    checkpoint; the function is added now alongside the rest of the domain
+    model). Closes the open case, if there is one, with the structured
+    ``written_off`` reason. Idempotent: no-op if no case is open (a written-off
+    contract need not have ever had one).
+
+    Unlike ``close_case_if_cleared``, this does not check ``_has_overdue`` —
+    a write-off is exactly the situation where overdue installments exist and
+    will never clear through ordinary collection; that is the whole reason
+    the case is being closed this way instead."""
+    case = get_open_case(db, contract.id)
+    if case is None:
+        return None
+    case.status = CollectionCaseStatus.closed
+    case.closed_at = _utcnow()
+    case.closed_reason = CollectionCaseClosureReason.written_off
+    db.flush()
+    record_event(
+        db,
+        user_id=actor_id,
+        action="collection_case.closed",
+        entity_type="collection_case",
+        entity_id=case.id,
+        before={"status": "open"},
+        after={
+            "status": "closed",
+            "closed_reason": CollectionCaseClosureReason.written_off.value,
+            "contract_id": contract.id,
+            "write_off_request_id": write_off_request_id,
+        },
     )
     return case
 

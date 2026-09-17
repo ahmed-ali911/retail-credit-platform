@@ -64,6 +64,19 @@ class AccountingEventType(str, enum.Enum):
     gateway_fee_recognized = "gateway_fee_recognized"     # the gateway's own fee, when known
     settlement_difference = "settlement_difference"       # gateway-vs-internal reconciliation variance
 
+    # --- Write-off & Recovery feature ---
+    # No separate "write_off_approved" event: the maker-checker approval
+    # itself is already fully captured on the audit trail
+    # (writeoff.approved); an accounting event is only emitted for the actual
+    # money movement, at EXECUTION (a later checkpoint — these values are
+    # added now, with the domain model, so nothing here needs to change when
+    # execution lands). Write-off's own allowance/provision treatment is NOT
+    # decided here — FINANCE/ACCOUNTING DECISION REQUIRED.
+    write_off_executed = "write_off_executed"                    # FULL write-off
+    partial_write_off_executed = "partial_write_off_executed"    # PARTIAL write-off
+    recovery_received = "recovery_received"
+    recovery_adjustment = "recovery_adjustment"    # reserved — a future recovery reversal/correction
+
 
 class AccountingStatus(str, enum.Enum):
     pending = "pending"     # created, not yet handed to the ERP adapter

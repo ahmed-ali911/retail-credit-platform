@@ -169,6 +169,7 @@ export interface CollectionCaseOut {
   opened_at: string;
   opened_reason: string;
   closed_at: string | null;
+  closed_reason: "cleared" | "written_off" | null;
   reference_code: string;
   contract_reference: string;
 }

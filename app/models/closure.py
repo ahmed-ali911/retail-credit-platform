@@ -15,6 +15,12 @@ class ClosureReason(str, enum.Enum):
     early_settlement = "early_settlement"
     cancellation = "cancellation"       # pre-delivery
     return_ = "return"                  # post-delivery
+    # Write-off & Recovery feature — a FULL write-off closes the contract
+    # exactly like early_settlement/cancellation/return already do (same
+    # ContractStatus.closed, same one-closure-per-contract invariant). A
+    # PARTIAL write-off never produces this — the contract stays `active`
+    # with its remaining balance still ordinarily collectible.
+    write_off = "write_off"
 
 
 class ContractClosure(Base):

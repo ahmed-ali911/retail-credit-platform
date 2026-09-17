@@ -21,6 +21,17 @@ class LedgerEntryType(str, enum.Enum):
     late_fee_waived = "late_fee_waived"
     down_payment_received = "down_payment_received"
     refund_issued = "refund_issued"
+    # Write-off & Recovery feature — deliberately its own entry types, not a
+    # reuse of principal_paid/profit_recognized/late_fee_paid with a negative
+    # sign (the Mock Payment Gateway reversal's pattern): nothing was PAID or
+    # UN-paid here, so tagging it "paid" (even negative) would misrepresent
+    # what actually happened in any report that sums by entry_type. Written
+    # only by write-off EXECUTION (a future checkpoint) — these entry types
+    # are added now, with the rest of the domain model, so the migration and
+    # the execution code land together later without a schema change.
+    principal_written_off = "principal_written_off"
+    profit_written_off = "profit_written_off"
+    late_fee_written_off = "late_fee_written_off"
 
 
 class LedgerRelatedAction(str, enum.Enum):
@@ -36,6 +47,9 @@ class LedgerRelatedAction(str, enum.Enum):
     # late_fee_paid) but with a NEGATIVE amount, so summing entries by type
     # still reproduces the true balance — see services/payment_reversal.py.
     reversal = "reversal"
+    # Write-off & Recovery feature — see the entry types above. Also written
+    # only by the (future) execution step.
+    write_off = "write_off"
 
 
 class LedgerEntry(Base):

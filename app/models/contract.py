@@ -23,6 +23,13 @@ class InstallmentStatus(str, enum.Enum):
     partially_paid = "partially_paid"
     overdue = "overdue"          # past due_date and not fully paid (Step 3)
     paid = "paid"
+    # Write-off & Recovery feature — set ONLY by write-off execution, never by
+    # the payment engine (`payments.py::_update_installment_status` never
+    # produces this value). Distinguishes "this balance is gone because it
+    # was formally written off" from "this balance is gone because it was
+    # paid" — both zero out principal_outstanding/profit_outstanding, but the
+    # financial story is completely different.
+    written_off = "written_off"
 
 
 class InstallmentContract(Base):
@@ -127,6 +134,22 @@ class Installment(Base):
     profit_paid: Mapped[Decimal] = mapped_column(
         Numeric(14, 2), nullable=False, default=_ZERO, server_default="0"
     )
+    # --- Write-off & Recovery feature ---
+    # Running totals, same shape as principal_paid/profit_paid, set ONLY by
+    # write-off execution (services/write_off.py) — never by the payment
+    # engine. Netted out of principal_outstanding/profit_outstanding below,
+    # which is what makes a written-off installment automatically invisible
+    # to build_receivable(), the ECL EAD calc, exposure, and the payment
+    # allocation waterfall (allocation.py already skips any installment whose
+    # outstanding is <= 0 — the exact mechanism that already protects a
+    # fully-paid installment from re-allocation) — no changes needed in any
+    # of those modules.
+    principal_written_off: Mapped[Decimal] = mapped_column(
+        Numeric(14, 2), nullable=False, default=_ZERO, server_default="0"
+    )
+    profit_written_off: Mapped[Decimal] = mapped_column(
+        Numeric(14, 2), nullable=False, default=_ZERO, server_default="0"
+    )
     status: Mapped[InstallmentStatus] = mapped_column(
         Enum(InstallmentStatus, native_enum=False, length=20),
         default=InstallmentStatus.pending,
@@ -147,11 +170,17 @@ class Installment(Base):
 
     @property
     def principal_outstanding(self) -> Decimal:
-        return _d(self.principal_component) - _d(self.principal_paid)
+        return (
+            _d(self.principal_component) - _d(self.principal_paid) - _d(self.principal_written_off)
+        )
 
     @property
     def profit_outstanding(self) -> Decimal:
-        return _d(self.profit_component) - _d(self.profit_paid)
+        return _d(self.profit_component) - _d(self.profit_paid) - _d(self.profit_written_off)
+
+    @property
+    def is_written_off(self) -> bool:
+        return _d(self.principal_written_off) > _ZERO or _d(self.profit_written_off) > _ZERO
 
     @property
     def late_fee_outstanding(self) -> Decimal:

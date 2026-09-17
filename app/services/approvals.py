@@ -33,6 +33,7 @@ from app.models.approval import (
     ACTION_LATE_FEE_WAIVE,
     ACTION_RECON_MANUAL_MATCH,
     ACTION_SETTLEMENT_REBATE,
+    ACTION_WRITE_OFF_REQUEST,
     ApprovalRequest,
     ApprovalStatus,
 )
@@ -44,6 +45,7 @@ from app.services import ecl_config
 from app.models.ledger import LedgerEntryType, LedgerRelatedAction
 from app.models.payment import LateFeeCharge, LateFeeStatus, Payment
 from app.models.reconciliation import ReconciliationException
+from app.models.write_off import WriteOffRequest, WriteOffRequestStatus
 from app.services import accounting
 from app.services import closure as closure_service
 from app.services import gateway_reconciliation as gateway_recon_service
@@ -339,6 +341,38 @@ def _execute(db: Session, approval: ApprovalRequest, *, actor_id: int) -> None:
         )
         return
 
+    if approval.action_type == ACTION_WRITE_OFF_REQUEST:
+        wo = db.get(WriteOffRequest, int(approval.entity_id))
+        if wo is None:
+            raise DomainError("Write-off request no longer exists", status_code=409)
+        if wo.status != WriteOffRequestStatus.pending:
+            raise DomainError(
+                f"Write-off request {wo.id} is already {wo.status.value}", status_code=409
+            )
+        # Deliberately a pure status transition — NO balance mutation, ledger
+        # entry, accounting event, or contract/case closure here. Approval
+        # and financial execution are two distinct, separately-controlled
+        # steps for write-off (mirrors ECLRun's own COMPLETED -> POSTED
+        # split) — execution is a later, explicit step
+        # (services/write_off.py's execution function, not yet built).
+        wo.status = WriteOffRequestStatus.approved
+        wo.approved_by = actor_id
+        wo.decided_at = _utcnow()
+        record_event(
+            db,
+            user_id=actor_id,
+            action="writeoff.approved",
+            entity_type="write_off_request",
+            entity_id=wo.id,
+            before={"status": "PENDING"},
+            after={
+                "status": "APPROVED",
+                "write_off_type": wo.write_off_type.value,
+                "approval_request_id": approval.id,
+            },
+        )
+        return
+
     if approval.action_type == ACTION_ECL_CONFIG_UPDATE:
         payload = approval.payload or {}
         try:
@@ -384,6 +418,22 @@ def _on_reject(db: Session, approval: ApprovalRequest, *, actor_id: int) -> None
                 action="ecl.override_rejected",
                 entity_type="ecl_override",
                 entity_id=ov.id,
+                before={"status": "PENDING"},
+                after={"status": "REJECTED", "approval_request_id": approval.id},
+            )
+
+    if approval.action_type == ACTION_WRITE_OFF_REQUEST:
+        wo = db.get(WriteOffRequest, int(approval.entity_id))
+        if wo is not None and wo.status == WriteOffRequestStatus.pending:
+            wo.status = WriteOffRequestStatus.rejected
+            wo.approved_by = actor_id
+            wo.decided_at = _utcnow()
+            record_event(
+                db,
+                user_id=actor_id,
+                action="writeoff.rejected",
+                entity_type="write_off_request",
+                entity_id=wo.id,
                 before={"status": "PENDING"},
                 after={"status": "REJECTED", "approval_request_id": approval.id},
             )

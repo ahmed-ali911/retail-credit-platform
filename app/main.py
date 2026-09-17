@@ -22,6 +22,7 @@ from app.api import (
     products,
     reconciliation,
     reports,
+    write_off,
 )
 from app.core.auth import get_current_user
 from app.core.config import get_settings
@@ -88,6 +89,7 @@ app.include_router(approvals.router, dependencies=_authed)
 app.include_router(reconciliation.router, dependencies=_authed)
 app.include_router(accounting.router, dependencies=_authed)
 app.include_router(ecl.router, dependencies=_authed)
+app.include_router(write_off.router, dependencies=_authed)
 app.include_router(reports.router, dependencies=_authed)
 app.include_router(config_api.router, dependencies=_authed)
 app.include_router(audit.router, dependencies=_authed)

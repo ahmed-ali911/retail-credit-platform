@@ -7,6 +7,7 @@ from pydantic import BaseModel, ConfigDict, Field, computed_field
 from app.core.references import format_reference
 from app.models.collections import (
     CollectionActivityType,
+    CollectionCaseClosureReason,
     CollectionCaseStatus,
     PromiseStatus,
 )
@@ -49,6 +50,7 @@ class CollectionCaseOut(BaseModel):
     opened_at: datetime
     opened_reason: str
     closed_at: datetime | None
+    closed_reason: CollectionCaseClosureReason | None
 
     @computed_field  # type: ignore[prop-decorator]
     @property

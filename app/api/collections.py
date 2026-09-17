@@ -139,6 +139,7 @@ def get_case(
         opened_at=case.opened_at,
         opened_reason=case.opened_reason,
         closed_at=case.closed_at,
+        closed_reason=case.closed_reason,
         activities=list(case.activities),
         payments=list(payments),
     )

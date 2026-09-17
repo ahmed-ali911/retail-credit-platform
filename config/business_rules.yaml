@@ -362,3 +362,61 @@ parameters:
       PLACEHOLDER. Minutes after creation that an INITIATED/PENDING
       PaymentIntent (and its hosted checkout session) is treated as expired.
       Matches the Demo Gateway Checkout's own countdown timer.
+
+  # ---------------------------------------------------------------------------
+  # Write-off & Recovery — ALL VALUES BELOW ARE PLACEHOLDERS.
+  # BUSINESS / RISK DECISION REQUIRED for every one of them before any real
+  # deployment. Write-off is a separate controlled decision — a contract
+  # meeting these thresholds is ELIGIBLE for a write-off request to be made;
+  # it is never written off automatically by meeting them.
+  # ---------------------------------------------------------------------------
+  writeoff_eligibility_dpd_threshold:
+    value: 180
+    type: int
+    description: >
+      BUSINESS DECISION REQUIRED — placeholder default, illustrative only
+      (not sourced from any approved policy). Days-past-due a contract's
+      worst-DPD installment must reach for the DPD eligibility indicator to
+      be satisfied. Read from the contract's latest ECLAssessment.dpd — if
+      no ECL assessment exists yet, this indicator is UNAVAILABLE, not
+      assumed "no".
+
+  writeoff_eligibility_minimum_ecl_stage:
+    value: 3
+    type: int
+    description: >
+      The minimum ECL stage (from the contract's latest ECLAssessment.
+      final_stage) for the ECL-stage eligibility indicator to be satisfied.
+      3 (credit-impaired) is the only stage that is structurally defensible
+      here under the existing three-stage engine; still marked as policy
+      because a future methodology change could alter what "3" means.
+
+  writeoff_minimum_collection_activities:
+    value: 1
+    type: int
+    description: >
+      BUSINESS DECISION REQUIRED — placeholder default. Minimum number of
+      logged CollectionActivity rows (across any case, open or closed) on
+      the contract for the "collections exhausted" eligibility indicator to
+      be satisfied. This platform has no concept of qualifying "attempt
+      types" (call vs SMS vs visit) — every logged activity counts equally
+      until Collections/Finance defines otherwise.
+
+  writeoff_block_if_active_promise_to_pay:
+    value: true
+    type: bool
+    description: >
+      BUSINESS DECISION REQUIRED — placeholder default. When true, a
+      contract with a currently PENDING Promise-to-Pay fails the
+      "no active promise" eligibility indicator (the customer has an
+      unexpired live commitment; writing off under it would normally need
+      the exception path). A broken PTP never blocks — it is shown as
+      supporting context only.
+
+  writeoff_partial_allowed:
+    value: true
+    type: bool
+    description: >
+      BUSINESS DECISION REQUIRED — placeholder default. Whether a PARTIAL
+      write-off (preserving a remaining collectible balance) may be
+      requested at all, vs. FULL write-off only.

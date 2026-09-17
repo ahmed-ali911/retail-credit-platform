@@ -35,6 +35,19 @@ class CollectionActivityType(str, enum.Enum):
     other = "other"
 
 
+class CollectionCaseClosureReason(str, enum.Enum):
+    """Structured "why was this case closed" — Write-off & Recovery feature.
+
+    Deliberately the smallest set that reflects what the platform actually
+    does today: ``close_case_if_cleared`` (no overdue left, the only closing
+    path before this feature) and the new write-off closing path. No other
+    closure reason exists anywhere in the codebase to preserve, and no
+    speculative extra values are added here."""
+
+    cleared = "cleared"            # existing behaviour — overdue cleared, nothing else outstanding
+    written_off = "written_off"    # the contract's remaining balance was written off
+
+
 class PromiseStatus(str, enum.Enum):
     pending = "pending"
     kept = "kept"
@@ -80,6 +93,9 @@ class CollectionCase(Base):
     opened_reason: Mapped[str] = mapped_column(String(255), nullable=False)
     closed_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
+    )
+    closed_reason: Mapped[CollectionCaseClosureReason | None] = mapped_column(
+        Enum(CollectionCaseClosureReason, native_enum=False, length=20), nullable=True
     )
 
     contract: Mapped["InstallmentContract"] = relationship()  # noqa: F821

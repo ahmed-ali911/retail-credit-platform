@@ -82,6 +82,15 @@ from app.models.gateway_settlement import (
     ReconciliationOutcome,
     SettlementBatch,
 )
+from app.models.write_off import (
+    Recovery,
+    WriteOffEligibilityStatus,
+    WriteOffExecution,
+    WriteOffReasonCode,
+    WriteOffRequest,
+    WriteOffRequestStatus,
+    WriteOffType,
+)
 
 __all__ = [
     "Base",
@@ -154,4 +163,11 @@ __all__ = [
     "ReconciliationItem",
     "ReconciliationOutcome",
     "SettlementBatch",
+    "Recovery",
+    "WriteOffEligibilityStatus",
+    "WriteOffExecution",
+    "WriteOffReasonCode",
+    "WriteOffRequest",
+    "WriteOffRequestStatus",
+    "WriteOffType",
 ]
