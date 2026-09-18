@@ -144,5 +144,18 @@ class AccountingEvent(Base):
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=utcnow, nullable=False
     )
+    # Chart of Accounts feature — additive, nullable, populated going forward
+    # only (existing rows stay NULL). Points at the exact domain row that
+    # caused this event, e.g. ("payment", 42) or ("write_off_execution", 7).
+    # Confirmed necessary during that feature's Checkpoint 0 audit: several
+    # amount sources (write-off's per-component split, a contract with
+    # multiple partial write-offs over time, a future return breakdown) need
+    # the precise originating row, not just `contract_id` — and parsing it
+    # back out of `event_reference` would be a fragile coupling to a naming
+    # convention rather than an explicit link. Not yet populated by any
+    # `emit()`/`emit_unscoped()` call site in this checkpoint — that lands
+    # with journal generation (Checkpoint 2), one call site at a time.
+    source_table: Mapped[str | None] = mapped_column(String(40), nullable=True)
+    source_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
 
     contract: Mapped["InstallmentContract | None"] = relationship()  # noqa: F821

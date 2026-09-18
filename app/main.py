@@ -27,6 +27,7 @@ from app.api import (
 from app.core.auth import get_current_user
 from app.core.config import get_settings
 from app.core.database import SessionLocal
+from app.services import coa as coa_service
 from app.services.config_service import ConfigService
 from app.services.users import ensure_admin_user, ensure_system_user
 
@@ -40,6 +41,12 @@ async def lifespan(app: FastAPI):
             added = ConfigService(db).seed_from_yaml(settings.business_rules_file)
             if added:
                 print(f"[config] seeded {added} business-rule parameter(s)")
+            coa_seed = coa_service.seed_demo_data(db)
+            if coa_seed["accounts_created"]:
+                print(
+                    f"[accounting] seeded {coa_seed['accounts_created']} demo chart-of-accounts "
+                    f"row(s) and {coa_seed['mappings_created']} demo posting mapping(s)"
+                )
             created = ensure_admin_user(
                 db, settings.admin_username, settings.admin_password
             )

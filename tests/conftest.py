@@ -31,6 +31,7 @@ from app.core.security import create_access_token, hash_password  # noqa: E402
 from app.main import app  # noqa: E402
 from app.models import Base  # noqa: E402
 from app.models.user import User, UserRole  # noqa: E402
+from app.services import coa as coa_service  # noqa: E402
 from app.services.config_service import ConfigService  # noqa: E402
 
 CONFIG_YAML = os.path.join(os.path.dirname(__file__), "..", "config", "business_rules.yaml")
@@ -77,6 +78,15 @@ def db(_schema):
 def seed_config(db):
     """Seed the fictitious default business-rule parameters for every test."""
     ConfigService(db).seed_from_yaml(CONFIG_YAML)
+    yield
+
+
+@pytest.fixture(autouse=True)
+def seed_chart_of_accounts(db):
+    """Seed the demo Chart of Accounts + posting-rule mappings for every
+    test — same idempotent, no-op-if-already-seeded shape as seed_config
+    above."""
+    coa_service.seed_demo_data(db)
     yield
 
 

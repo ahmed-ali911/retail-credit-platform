@@ -18,6 +18,16 @@ ACTION_ECL_PARAMETER_OVERRIDE = "ecl.parameter_override"  # ECL module
 ACTION_ECL_CONFIG_UPDATE = "ecl.config_update"            # ECL module (versioned config)
 ACTION_GATEWAY_RECON_RESOLVE = "gateway_reconciliation.resolve"  # Mock Payment Gateway feature
 ACTION_WRITE_OFF_REQUEST = "writeoff.request"  # Write-off & Recovery feature
+# Chart of Accounts feature — account/mapping rows are only ever materialised
+# at approval time (mirrors ecl_config.py::activate_version()'s "nothing
+# exists until approved" shape, not write-off's "create then flip status"
+# shape) — see services/coa.py.
+ACTION_COA_ACCOUNT_CREATE = "accounting.account_create"
+ACTION_COA_ACCOUNT_UPDATE = "accounting.account_update"
+ACTION_COA_ACCOUNT_DEACTIVATE = "accounting.account_deactivate"
+ACTION_COA_MAPPING_CREATE = "accounting.mapping_create"
+ACTION_COA_MAPPING_UPDATE = "accounting.mapping_update"
+ACTION_COA_MAPPING_DEACTIVATE = "accounting.mapping_deactivate"
 
 
 class ApprovalStatus(str, enum.Enum):

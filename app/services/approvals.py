@@ -18,13 +18,19 @@ Action types that run through it:
 """
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from decimal import Decimal
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.models.approval import (
+    ACTION_COA_ACCOUNT_CREATE,
+    ACTION_COA_ACCOUNT_DEACTIVATE,
+    ACTION_COA_ACCOUNT_UPDATE,
+    ACTION_COA_MAPPING_CREATE,
+    ACTION_COA_MAPPING_DEACTIVATE,
+    ACTION_COA_MAPPING_UPDATE,
     ACTION_CONFIG_UPDATE,
     ACTION_ECL_CONFIG_UPDATE,
     ACTION_ECL_PARAMETER_OVERRIDE,
@@ -41,6 +47,16 @@ from app.models.accounting import AccountingEventType
 from app.models.contract import InstallmentContract
 from app.models.ecl import ECLOverride, ECLOverrideStatus
 from app.models.gateway_settlement import ReconciliationItem
+from app.models.gl import (
+    AccountType,
+    AmountSource,
+    ChartOfAccount,
+    EventAccountMapping,
+    EventAccountMappingLine,
+    EventClassification,
+    NormalBalance,
+    PostingSide,
+)
 from app.services import ecl_config
 from app.models.ledger import LedgerEntryType, LedgerRelatedAction
 from app.models.payment import LateFeeCharge, LateFeeStatus, Payment
@@ -395,6 +411,192 @@ def _execute(db: Session, approval: ApprovalRequest, *, actor_id: int) -> None:
                 "changes": payload["changes"],
                 "approval_request_id": approval.id,
             },
+        )
+        return
+
+    if approval.action_type == ACTION_COA_ACCOUNT_CREATE:
+        p = approval.payload or {}
+        existing = db.execute(
+            select(ChartOfAccount).where(ChartOfAccount.account_code == p["account_code"])
+        ).scalar_one_or_none()
+        if existing is not None:
+            raise DomainError(
+                f"Account code {p['account_code']!r} was created by another request "
+                "while this one was pending",
+                status_code=409,
+            )
+        account = ChartOfAccount(
+            account_code=p["account_code"],
+            account_name=p["account_name"],
+            account_type=AccountType(p["account_type"]),
+            normal_balance=NormalBalance(p["normal_balance"]),
+            is_active=True,
+            is_demo=bool(p.get("is_demo", True)),
+            description=p["description"],
+            created_by=approval.requested_by,
+            approved_at=_utcnow(),
+            approved_by=actor_id,
+        )
+        db.add(account)
+        db.flush()
+        record_event(
+            db, user_id=actor_id, action="accounting.account_created",
+            entity_type="chart_of_account", entity_id=account.id,
+            after={"account_code": account.account_code, "approval_request_id": approval.id},
+        )
+        return
+
+    if approval.action_type == ACTION_COA_ACCOUNT_UPDATE:
+        p = approval.payload or {}
+        account = db.get(ChartOfAccount, int(approval.entity_id))
+        if account is None:
+            raise DomainError("Account no longer exists", status_code=409)
+        changes = p.get("changes", {})
+        before = {
+            "account_code": account.account_code, "account_name": account.account_name,
+            "account_type": account.account_type.value, "normal_balance": account.normal_balance.value,
+            "description": account.description,
+        }
+        if "account_code" in changes:
+            dup = db.execute(
+                select(ChartOfAccount).where(ChartOfAccount.account_code == changes["account_code"])
+            ).scalar_one_or_none()
+            if dup is not None and dup.id != account.id:
+                raise DomainError(
+                    f"Account code {changes['account_code']!r} was taken by another "
+                    "request while this one was pending",
+                    status_code=409,
+                )
+            account.account_code = changes["account_code"]
+        if "account_name" in changes:
+            account.account_name = changes["account_name"]
+        if "account_type" in changes:
+            account.account_type = AccountType(changes["account_type"])
+        if "normal_balance" in changes:
+            account.normal_balance = NormalBalance(changes["normal_balance"])
+        if "description" in changes:
+            account.description = changes["description"]
+        account.approved_at = _utcnow()
+        account.approved_by = actor_id
+        db.flush()
+        record_event(
+            db, user_id=actor_id, action="accounting.account_updated",
+            entity_type="chart_of_account", entity_id=account.id,
+            before=before, after={"changes": changes, "approval_request_id": approval.id},
+        )
+        return
+
+    if approval.action_type == ACTION_COA_ACCOUNT_DEACTIVATE:
+        account = db.get(ChartOfAccount, int(approval.entity_id))
+        if account is None:
+            raise DomainError("Account no longer exists", status_code=409)
+        if not account.is_active:
+            raise DomainError(f"Account {account.account_code} is already inactive", status_code=409)
+        # Re-check at approval time too — a mapping could have been activated
+        # against this account while the deactivation was pending.
+        still_used = db.execute(
+            select(EventAccountMappingLine.id)
+            .join(EventAccountMapping, EventAccountMappingLine.mapping_id == EventAccountMapping.id)
+            .where(
+                EventAccountMappingLine.account_id == account.id,
+                EventAccountMappingLine.is_active.is_(True),
+                EventAccountMapping.is_active.is_(True),
+            ).limit(1)
+        ).first()
+        if still_used is not None:
+            raise DomainError(
+                f"Account {account.account_code} is now referenced by an active mapping "
+                "— cannot deactivate",
+                status_code=409,
+            )
+        account.is_active = False
+        db.flush()
+        record_event(
+            db, user_id=actor_id, action="accounting.account_deactivated",
+            entity_type="chart_of_account", entity_id=account.id,
+            before={"is_active": True}, after={"is_active": False, "approval_request_id": approval.id},
+        )
+        return
+
+    if approval.action_type in (ACTION_COA_MAPPING_CREATE, ACTION_COA_MAPPING_UPDATE):
+        p = approval.payload or {}
+        event_type = AccountingEventType(p["account_event_type"])
+        current = db.execute(
+            select(EventAccountMapping).where(
+                EventAccountMapping.account_event_type == event_type,
+                EventAccountMapping.is_active.is_(True),
+            )
+        ).scalar_one_or_none()
+        expected_from_version = p.get("from_version")
+        current_version = current.version if current is not None else None
+        if current_version != expected_from_version:
+            raise DomainError(
+                f"The active mapping for {event_type.value} moved to version "
+                f"{current_version} while this proposal (based on version "
+                f"{expected_from_version}) was pending — reject and re-propose",
+                status_code=409,
+            )
+        new_mapping = EventAccountMapping(
+            account_event_type=event_type,
+            version=p["version"],
+            classification=EventClassification(p["classification"]),
+            effective_from=date.fromisoformat(p["effective_from"]),
+            effective_to=None,
+            is_active=True,
+            is_demo=bool(p.get("is_demo", True)),
+            description=p["description"],
+            change_reason=p.get("change_reason"),
+            created_by=approval.requested_by,
+            approved_at=_utcnow(),
+            approved_by=actor_id,
+            approval_request_id=approval.id,
+        )
+        db.add(new_mapping)
+        db.flush()
+        for line in p.get("lines", []):
+            db.add(
+                EventAccountMappingLine(
+                    mapping_id=new_mapping.id,
+                    line_sequence=line["line_sequence"],
+                    posting_side=PostingSide(line["posting_side"]),
+                    account_id=line["account_id"],
+                    amount_source=AmountSource(line["amount_source"]),
+                    reverse_on_negative=bool(line.get("reverse_on_negative", False)),
+                    description=line.get("description"),
+                )
+            )
+        if current is not None:
+            current.is_active = False
+            current.effective_to = date.fromisoformat(p["effective_from"])
+        db.flush()
+        record_event(
+            db, user_id=actor_id,
+            action="accounting.mapping_activated",
+            entity_type="event_account_mapping", entity_id=new_mapping.id,
+            after={
+                "account_event_type": event_type.value, "version": new_mapping.version,
+                "classification": new_mapping.classification.value,
+                "approval_request_id": approval.id,
+            },
+        )
+        return
+
+    if approval.action_type == ACTION_COA_MAPPING_DEACTIVATE:
+        p = approval.payload or {}
+        mapping = db.get(EventAccountMapping, int(p["mapping_id"]))
+        if mapping is None or not mapping.is_active:
+            raise DomainError(
+                "The mapping this request targeted is no longer the active version",
+                status_code=409,
+            )
+        mapping.is_active = False
+        mapping.effective_to = _utcnow().date()
+        db.flush()
+        record_event(
+            db, user_id=actor_id, action="accounting.mapping_deactivated",
+            entity_type="event_account_mapping", entity_id=mapping.id,
+            before={"is_active": True},
+            after={"is_active": False, "reason": p.get("reason"), "approval_request_id": approval.id},
         )
         return
 
