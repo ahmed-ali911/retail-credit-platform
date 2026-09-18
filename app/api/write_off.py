@@ -31,6 +31,9 @@ from app.models.write_off import WriteOffExecution, WriteOffRequest, WriteOffReq
 from app.schemas.approval import ApprovalRequestOut
 from app.schemas.write_off import (
     EligibilityResultOut,
+    RecoveryCreate,
+    RecoveryOut,
+    WriteOffExecutionDetailOut,
     WriteOffExecutionOut,
     WriteOffExecutionResult,
     WriteOffRequestCancelIn,
@@ -49,6 +52,9 @@ _VIEW_ROLES = (
     UserRole.admin,
 )
 _MAKER_ROLES = _VIEW_ROLES
+# Recovery is a DIRECT action (never maker-checker) — confirmed scoped to
+# Finance/Admin specifically, narrower than the general write-off maker set.
+_RECOVERY_ROLES = (UserRole.finance_officer, UserRole.admin)
 
 
 def _domain(exc: DomainError) -> HTTPException:
@@ -160,7 +166,7 @@ def execute_write_off_request(
     return WriteOffExecutionResult(replayed=outcome.replayed, execution=outcome.execution)
 
 
-@router.get("/executions/{execution_id}", response_model=WriteOffExecutionOut)
+@router.get("/executions/{execution_id}", response_model=WriteOffExecutionDetailOut)
 def get_write_off_execution(
     execution_id: int,
     db: Session = Depends(get_db),
@@ -169,7 +175,50 @@ def get_write_off_execution(
     execution = db.get(WriteOffExecution, execution_id)
     if execution is None:
         raise HTTPException(status_code=404, detail="Write-off execution not found")
-    return execution
+    recoveries = write_off_service.list_recoveries(db, execution_id)
+    total_recovered = write_off_service.recovered_to_date(db, execution_id)
+    return WriteOffExecutionDetailOut(
+        **WriteOffExecutionOut.model_validate(execution).model_dump(),
+        recoveries=recoveries,
+        total_recovered=float(total_recovered),
+        remaining_recoverable=float(execution.total_written_off - total_recovered),
+    )
+
+
+@router.post(
+    "/executions/{execution_id}/recoveries",
+    response_model=RecoveryOut,
+    status_code=status.HTTP_201_CREATED,
+)
+def record_recovery(
+    execution_id: int,
+    payload: RecoveryCreate,
+    db: Session = Depends(get_db),
+    actor: User = Depends(require_roles(*_RECOVERY_ROLES)),
+):
+    """Direct action — no maker-checker (see services/write_off.py::record_recovery
+    for why). Never reactivates the contract, reopens the collections case,
+    or affects ECL — pure recovery-income tracking."""
+    try:
+        recovery = write_off_service.record_recovery(
+            db, execution_id=execution_id, actor_id=actor.id, payload=payload
+        )
+    except DomainError as exc:
+        raise _domain(exc)
+    db.commit()
+    db.refresh(recovery)
+    return recovery
+
+
+@router.get("/executions/{execution_id}/recoveries", response_model=list[RecoveryOut])
+def get_execution_recoveries(
+    execution_id: int,
+    db: Session = Depends(get_db),
+    _: User = Depends(require_roles(*_VIEW_ROLES)),
+):
+    if db.get(WriteOffExecution, execution_id) is None:
+        raise HTTPException(status_code=404, detail="Write-off execution not found")
+    return write_off_service.list_recoveries(db, execution_id)
 
 
 @router.get("/executions", response_model=list[WriteOffExecutionOut])

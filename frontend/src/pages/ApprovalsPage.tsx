@@ -47,6 +47,14 @@ function payloadSummary(req: ApprovalRequestOut): string {
       return `ECL config: activate a new version from v${p.from_version} — ${JSON.stringify(
         p.changes,
       )}`;
+    case "writeoff.request": {
+      const total = p.requested_total as number | undefined;
+      const exception = p.is_exception ? ` — EXCEPTION (${p.eligibility_status})` : "";
+      return `${p.write_off_type} write-off on ${formatReference(
+        "InstallmentContract",
+        Number(p.contract_id ?? req.entity_id),
+      )}: ${total != null ? total : "?"} — ${p.reason_code}${exception}`;
+    }
     case "contract.settlement_rebate": {
       const pct = p.requested_rebate_pct as number | null;
       const amt = p.requested_rebate_amount as number | null;

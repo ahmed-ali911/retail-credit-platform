@@ -77,6 +77,7 @@ KEY_WRITEOFF_ELIGIBILITY_MIN_ECL_STAGE = "writeoff_eligibility_minimum_ecl_stage
 KEY_WRITEOFF_MIN_COLLECTION_ACTIVITIES = "writeoff_minimum_collection_activities"
 KEY_WRITEOFF_BLOCK_IF_ACTIVE_PTP = "writeoff_block_if_active_promise_to_pay"
 KEY_WRITEOFF_PARTIAL_ALLOWED = "writeoff_partial_allowed"
+KEY_RECOVERY_ALLOCATION_ORDER = "recovery_allocation_order"
 
 
 def _cast(raw: str, value_type: str):

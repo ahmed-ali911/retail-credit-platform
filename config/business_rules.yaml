@@ -420,3 +420,17 @@ parameters:
       BUSINESS DECISION REQUIRED — placeholder default. Whether a PARTIAL
       write-off (preserving a remaining collectible balance) may be
       requested at all, vs. FULL write-off only.
+
+  recovery_allocation_order:
+    value: ["late_fee", "profit", "principal"]
+    type: json
+    description: >
+      FINANCE / BUSINESS DECISION REQUIRED — placeholder default, illustrative
+      only. The order in which a recovery payment against a written-off
+      account is allocated across components (each filled to its own
+      remaining-recoverable capacity before moving to the next). Mirrors this
+      platform's existing ordinary-payment waterfall order for demo
+      consistency only — final recovery allocation priority (e.g. principal
+      first to reduce reported credit losses fastest) is a distinct policy
+      question Finance has not yet confirmed. Allowed values: "principal",
+      "profit", "late_fee".

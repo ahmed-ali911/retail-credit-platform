@@ -26,6 +26,7 @@ import { EclAssessmentDetailPage } from "./pages/EclAssessmentDetailPage";
 import { EclConfigPage } from "./pages/EclConfigPage";
 import { PaymentOperationsPage } from "./pages/PaymentOperationsPage";
 import { GatewayReconciliationPage } from "./pages/GatewayReconciliationPage";
+import { WriteOffRecoveryListPage } from "./pages/WriteOffRecoveryListPage";
 
 export default function App() {
   return (
@@ -54,6 +55,7 @@ export default function App() {
         <Route path="reconciliation" element={<ReconciliationPage />} />
         <Route path="payments" element={<PaymentOperationsPage />} />
         <Route path="payments/reconciliation" element={<GatewayReconciliationPage />} />
+        <Route path="write-offs" element={<WriteOffRecoveryListPage />} />
         <Route path="approvals" element={<ApprovalsPage />} />
         <Route path="collections" element={<CollectionsPage />} />
         <Route path="collections/:caseId" element={<CollectionCasePage />} />

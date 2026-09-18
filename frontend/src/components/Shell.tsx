@@ -7,6 +7,7 @@ import {
   ChevronDown,
   ClipboardCheck,
   CreditCard,
+  FileMinus2,
   FilePlus2,
   FileSignature,
   Gauge,
@@ -114,6 +115,14 @@ const NAV: NavGroup[] = [
         end: true,
         // matches app/api/collections.py's _VIEW_ROLES exactly
         roles: ["collections_officer", "credit_manager", "admin"],
+      },
+      {
+        to: "/write-offs",
+        label: "Write-offs & Recoveries",
+        icon: FileMinus2,
+        end: true,
+        // matches app/api/write_off.py's _VIEW_ROLES exactly
+        roles: ["collections_officer", "finance_officer", "credit_manager", "admin"],
       },
     ],
   },

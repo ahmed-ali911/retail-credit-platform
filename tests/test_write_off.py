@@ -626,3 +626,143 @@ def test_original_payment_history_is_preserved_through_write_off(client, client_
         "/collections/cases", params={"contract_id": cid}
     )  # sanity: cases endpoint still reachable post-closure
     assert payments.status_code == 200
+
+
+# --------------------------------------------------------------------------- #
+# Recovery — checkpoint 3
+# --------------------------------------------------------------------------- #
+def _execute_full_write_off(client, client_as, cid):
+    case_id = _open_case_id(client, cid)
+    _log_activity(client, case_id)
+    wo_id = _request_and_approve(client, client_as, cid)
+    exec_resp = client.post(f"/write-offs/requests/{wo_id}/execute")
+    assert exec_resp.status_code == 200, exec_resp.text
+    return exec_resp.json()["execution"]
+
+
+def _record_recovery(client, execution_id, **kw):
+    body = {"amount": 100.0, "external_reference": "RECOVERY-REF-1"}
+    body.update(kw)
+    return client.post(f"/write-offs/executions/{execution_id}/recoveries", json=body)
+
+
+def test_recovery_requires_no_maker_checker_but_needs_finance_role(client, client_as):
+    ctx, cid, as_of = _make_delinquent(client, "WO-RECOVERY-RBAC", 200)
+    execution = _execute_full_write_off(client, client_as, cid)
+
+    collections_officer = client_as("collections_officer")
+    denied = collections_officer.post(
+        f"/write-offs/executions/{execution['id']}/recoveries",
+        json={"amount": 10.0, "external_reference": "REF-DENIED"},
+    )
+    assert denied.status_code == 403
+
+    finance = client_as("finance_officer")
+    allowed = finance.post(
+        f"/write-offs/executions/{execution['id']}/recoveries",
+        json={"amount": 10.0, "external_reference": "REF-ALLOWED"},
+    )
+    assert allowed.status_code == 201, allowed.text
+    # a single direct call, no ApprovalRequest created for it
+    approvals = client.get("/approvals", params={"status": "pending"}).json()
+    assert not any(a["entity_type"] == "write_off_recovery" for a in approvals)
+
+
+def test_recovery_requires_mandatory_external_reference(client, client_as):
+    ctx, cid, as_of = _make_delinquent(client, "WO-RECOVERY-NOREF", 200)
+    execution = _execute_full_write_off(client, client_as, cid)
+
+    r = client.post(f"/write-offs/executions/{execution['id']}/recoveries", json={
+        "amount": 50.0, "external_reference": "   ",
+    })
+    assert r.status_code == 422
+
+
+def test_recovery_cannot_exceed_remaining_recoverable_balance(client, client_as):
+    ctx, cid, as_of = _make_delinquent(client, "WO-RECOVERY-OVER", 200)
+    execution = _execute_full_write_off(client, client_as, cid)
+    total = execution["executed_principal"] + execution["executed_profit"] + execution["executed_late_fee"]
+
+    r = _record_recovery(client, execution["id"], amount=total + 1000.0)
+    assert r.status_code == 422
+    assert "exceeds" in r.text
+
+
+def test_multiple_partial_recoveries_track_running_total_without_mutating_original(client, client_as):
+    ctx, cid, as_of = _make_delinquent(client, "WO-RECOVERY-MULTI", 200)
+    execution = _execute_full_write_off(client, client_as, cid)
+    total_written_off = execution["executed_principal"] + execution["executed_profit"] + execution["executed_late_fee"]
+    third = round(total_written_off / 3, 2)
+
+    r1 = _record_recovery(client, execution["id"], amount=third, external_reference="REC-1")
+    assert r1.status_code == 201, r1.text
+    r2 = _record_recovery(client, execution["id"], amount=third, external_reference="REC-2")
+    assert r2.status_code == 201, r2.text
+    r3 = _record_recovery(client, execution["id"], amount=third, external_reference="REC-3")
+    assert r3.status_code == 201, r3.text
+
+    detail = client.get(f"/write-offs/executions/{execution['id']}").json()
+    assert len(detail["recoveries"]) == 3
+    assert detail["total_recovered"] == pytest.approx(third * 3, abs=0.01)
+    assert detail["remaining_recoverable"] == pytest.approx(total_written_off - third * 3, abs=0.01)
+    # the ORIGINAL execution amounts are untouched — never mutated to reflect recovery
+    assert detail["executed_principal"] == pytest.approx(execution["executed_principal"], abs=0.01)
+    assert detail["executed_profit"] == pytest.approx(execution["executed_profit"], abs=0.01)
+
+
+def test_duplicate_external_reference_on_same_execution_is_rejected(client, client_as):
+    ctx, cid, as_of = _make_delinquent(client, "WO-RECOVERY-DUP", 200)
+    execution = _execute_full_write_off(client, client_as, cid)
+
+    first = _record_recovery(client, execution["id"], amount=10.0, external_reference="SAME-REF")
+    assert first.status_code == 201
+    second = _record_recovery(client, execution["id"], amount=5.0, external_reference="SAME-REF")
+    assert second.status_code == 409
+
+
+def test_recovery_emits_accounting_event_and_audit_event(client, client_as):
+    ctx, cid, as_of = _make_delinquent(client, "WO-RECOVERY-ACCT", 200)
+    execution = _execute_full_write_off(client, client_as, cid)
+
+    r = _record_recovery(client, execution["id"], amount=25.0, external_reference="RECOVERY-ACCT-REF")
+    assert r.status_code == 201
+    recovery = r.json()
+    assert recovery["accounting_event_id"] is not None
+
+    events = client.get(
+        "/accounting/events", params={"event_type": "recovery_received", "contract_id": cid}
+    ).json()
+    assert len(events) == 1
+    assert events[0]["amount"] == pytest.approx(25.0, abs=0.01)
+
+    audit = client.get("/audit/events", params={"entity_type": "write_off_recovery"}).json()
+    assert "recovery.recorded" in {e["action"] for e in audit}
+
+
+def test_recovery_never_reactivates_contract_reopens_case_or_touches_ecl(client, client_as):
+    ctx, cid, as_of = _make_delinquent(client, "WO-RECOVERY-NOSIDEEFFECT", 200)
+    case_id = _open_case_id(client, cid)
+    _log_activity(client, case_id)
+    wo_id = _request_and_approve(client, client_as, cid)
+    exec_resp = client.post(f"/write-offs/requests/{wo_id}/execute")
+    execution = exec_resp.json()["execution"]
+
+    contract_before = client.get(f"/contracts/{cid}").json()
+    case_before = client.get(f"/collections/cases/{case_id}").json()
+    ecl_before = client.get(f"/ecl/contracts/{cid}").json()
+
+    _record_recovery(client, execution["id"], amount=50.0, external_reference="RECOVERY-NOSIDE-1")
+
+    contract_after = client.get(f"/contracts/{cid}").json()
+    case_after = client.get(f"/collections/cases/{case_id}").json()
+    ecl_after = client.get(f"/ecl/contracts/{cid}").json()
+
+    assert contract_after["status"] == contract_before["status"] == "closed"
+    assert case_after["status"] == case_before["status"] == "closed"
+    assert case_after["closed_reason"] == "written_off"
+    assert ecl_after == ecl_before  # not re-assessed, not touched at all
+
+
+def test_recovery_against_nonexistent_execution_is_404(client, client_as):
+    r = _record_recovery(client, 999999, amount=10.0, external_reference="REF-404")
+    assert r.status_code == 404

@@ -35,6 +35,7 @@ from datetime import datetime, timezone
 from decimal import ROUND_HALF_UP, Decimal
 
 from sqlalchemy import func, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.core.auth import contract_owner_customer_id
@@ -51,6 +52,7 @@ from app.models.contract import ContractStatus, InstallmentContract, Installment
 from app.models.ledger import LedgerEntryType, LedgerRelatedAction
 from app.models.payment import LateFeeStatus
 from app.models.write_off import (
+    Recovery,
     WriteOffEligibilityStatus,
     WriteOffExecution,
     WriteOffReasonCode,
@@ -785,3 +787,172 @@ def execute_write_off(db: Session, request_id: int, *, actor_id: int) -> WriteOf
         },
     )
     return WriteOffExecutionOutcome(execution=execution, replayed=False)
+
+
+# --------------------------------------------------------------------------- #
+# Recovery — a DIRECT, role-gated action (never maker-checker); pure
+# recovery-income tracking against an already-written-off execution.
+# --------------------------------------------------------------------------- #
+_RECOVERY_COMPONENT_FIELDS = {
+    "principal": "executed_principal",
+    "profit": "executed_profit",
+    "late_fee": "executed_late_fee",
+}
+
+
+def recovered_to_date(db: Session, execution_id: int) -> Decimal:
+    total = db.execute(
+        select(func.coalesce(func.sum(Recovery.amount), 0)).where(
+            Recovery.write_off_execution_id == execution_id
+        )
+    ).scalar_one()
+    return _money(total)
+
+
+def _recovered_component_to_date(db: Session, execution_id: int, component: str) -> Decimal:
+    col = getattr(Recovery, f"allocated_{component}")
+    total = db.execute(
+        select(func.coalesce(func.sum(col), 0)).where(
+            Recovery.write_off_execution_id == execution_id
+        )
+    ).scalar_one()
+    return _money(total)
+
+
+def record_recovery(db: Session, *, execution_id: int, actor_id: int, payload) -> Recovery:
+    """Direct action (finance_officer/admin — see api/write_off.py), NOT
+    maker-checker: a recovery is a cash-receipt FACT being recorded, not a
+    discretionary decision, matching this codebase's existing precedent
+    (bank-line ingestion is also direct, unlike the waiver/write-off
+    decisions those facts get matched against).
+
+    Deliberately touches NOTHING beyond a new Recovery row and one
+    accounting event: never reactivates the contract (status stays
+    `closed`/`active` exactly as write-off execution left it), never
+    reopens the collections case, never creates or mutates an ECLAssessment
+    or accounting-provision figure. This is pure recovery-income tracking
+    against a receivable this platform has already, irreversibly (in this
+    checkpoint — see the module's reversal note), written off.
+
+    Never mutates WriteOffExecution's own executed_* amounts — "original
+    write-off", "total recovered" (the sum of Recovery rows), and
+    "remaining" are always three independently reconstructable figures.
+    """
+    execution = db.get(WriteOffExecution, execution_id)
+    if execution is None:
+        raise DomainError("Write-off execution not found", status_code=404)
+
+    amount = _money(getattr(payload, "amount", None))
+    if amount <= _ZERO:
+        raise DomainError("Recovery amount must be greater than zero", status_code=422)
+
+    external_reference = (getattr(payload, "external_reference", None) or "").strip()
+    if not external_reference:
+        raise DomainError(
+            "external_reference is required — a recovery must be traceable to a real "
+            "payment/cash source, never an unexplained arbitrary amount",
+            status_code=422,
+        )
+
+    total_written_off = _money(execution.total_written_off)
+    already_recovered = recovered_to_date(db, execution.id)
+    remaining_recoverable = total_written_off - already_recovered
+    if amount > remaining_recoverable:
+        raise DomainError(
+            f"Recovery amount ({amount}) exceeds the remaining recoverable written-off "
+            f"balance ({remaining_recoverable}) — original write-off {total_written_off}, "
+            f"already recovered {already_recovered}. This platform has no overpayment "
+            f"process for recoveries.",
+            status_code=422,
+        )
+
+    order = ConfigService(db).get_json(cfg.KEY_RECOVERY_ALLOCATION_ORDER) or [
+        "late_fee", "profit", "principal",
+    ]
+    allocation = {"principal": _ZERO, "profit": _ZERO, "late_fee": _ZERO}
+    remaining_amount = amount
+    for component in order:
+        field_name = _RECOVERY_COMPONENT_FIELDS.get(component)
+        if field_name is None or remaining_amount <= _ZERO:
+            continue
+        executed_amount = _money(getattr(execution, field_name))
+        capacity = executed_amount - _recovered_component_to_date(db, execution.id, component)
+        if capacity <= _ZERO:
+            continue
+        take = min(remaining_amount, capacity)
+        allocation[component] = take
+        remaining_amount -= take
+    if remaining_amount > _ZERO:
+        # Should be unreachable given the remaining_recoverable check above
+        # (component capacities always sum to it) — defensive, not a policy branch.
+        raise DomainError(
+            "Could not fully allocate the recovery amount across written-off components",
+            status_code=409,
+        )
+
+    recovery_date = getattr(payload, "recovery_date", None) or _utcnow().date()
+
+    recovery = Recovery(
+        write_off_execution_id=execution.id,
+        payment_id=getattr(payload, "payment_id", None),
+        external_reference=external_reference,
+        amount=amount,
+        currency=getattr(payload, "currency", None) or "KWD",
+        recovery_date=recovery_date,
+        channel=getattr(payload, "channel", None),
+        allocated_principal=allocation["principal"],
+        allocated_profit=allocation["profit"],
+        allocated_late_fee=allocation["late_fee"],
+        allocated_other_charges=_ZERO,
+        recorded_by=actor_id,
+    )
+    db.add(recovery)
+    try:
+        db.flush()
+    except IntegrityError as exc:
+        db.rollback()
+        raise DomainError(
+            f"A recovery with external_reference {external_reference!r} has already been "
+            f"recorded against this write-off execution",
+            status_code=409,
+        ) from exc
+
+    contract = db.get(InstallmentContract, execution.contract_id)
+    ev = accounting.emit(
+        db,
+        event_type=AccountingEventType.recovery_received,
+        event_reference=f"recovery-received-{recovery.id}",
+        contract=contract,
+        amount=amount,
+        event_date=_utcnow(),
+    )
+    recovery.accounting_event_id = ev.id
+    db.flush()
+
+    record_event(
+        db,
+        user_id=actor_id,
+        action="recovery.recorded",
+        entity_type="write_off_recovery",
+        entity_id=recovery.id,
+        after={
+            "write_off_execution_id": execution.id,
+            "contract_id": execution.contract_id,
+            "amount": float(amount),
+            "external_reference": external_reference,
+            "total_recovered_to_date": float(already_recovered + amount),
+            "remaining_recoverable": float(remaining_recoverable - amount),
+            "accounting_event_id": ev.id,
+        },
+    )
+    return recovery
+
+
+def list_recoveries(db: Session, execution_id: int) -> list[Recovery]:
+    return list(
+        db.execute(
+            select(Recovery)
+            .where(Recovery.write_off_execution_id == execution_id)
+            .order_by(Recovery.id)
+        ).scalars()
+    )

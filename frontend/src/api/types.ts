@@ -357,7 +357,7 @@ export interface SettleResult {
 export interface ContractClosureOut {
   id: number;
   contract_id: number;
-  reason: "normal" | "early_settlement" | "cancellation" | "return";
+  reason: "normal" | "early_settlement" | "cancellation" | "return" | "write_off";
   financial_adjustment: number | null;
   closed_at: string;
   notes: string | null;
@@ -417,7 +417,7 @@ export interface InstallmentOut {
   profit_outstanding: number;
   late_fee_outstanding: number;
   total_due: number;
-  status: "pending" | "partially_paid" | "overdue" | "paid";
+  status: "pending" | "partially_paid" | "overdue" | "paid" | "written_off";
 }
 
 export interface ContractOut {
@@ -792,4 +792,122 @@ export interface SettlementBatchImportResult {
   matched: number;
   exceptions: number;
   missing_in_gateway: number;
+}
+
+// --- Write-off & Recovery ------------------------------------------------- //
+export type WriteOffEligibilityStatusValue = "ELIGIBLE" | "NOT_ELIGIBLE" | "UNAVAILABLE";
+export type WriteOffRequestStatusValue =
+  | "PENDING" | "APPROVED" | "REJECTED" | "EXECUTED" | "CANCELLED";
+export type WriteOffTypeValue = "FULL" | "PARTIAL";
+
+export interface EligibilityIndicatorOut {
+  id: string;
+  name: string;
+  category: string;
+  result: "satisfied" | "not_satisfied" | "unavailable";
+  detail: string;
+}
+
+export interface EligibilityResultOut {
+  contract_id: number;
+  status: WriteOffEligibilityStatusValue;
+  indicators: EligibilityIndicatorOut[];
+  dpd: number | null;
+  ecl_stage: number | null;
+  ecl_amount: number | null;
+  provision_amount: number | null;
+  collections_case_id: number | null;
+  collections_case_status: string | null;
+}
+
+export interface WriteOffRequestOut {
+  id: number;
+  contract_id: number;
+  customer_id: number | null;
+  write_off_type: WriteOffTypeValue;
+  status: WriteOffRequestStatusValue;
+  reason_code: string;
+  justification: string;
+  evidence_ref: string | null;
+  comments: string | null;
+
+  eligibility_status: WriteOffEligibilityStatusValue;
+  eligibility_snapshot: EligibilityIndicatorOut[];
+  is_exception: boolean;
+  exception_justification: string | null;
+
+  snapshot_principal_outstanding: number;
+  snapshot_profit_outstanding: number;
+  snapshot_late_fee_outstanding: number;
+  snapshot_other_charges_outstanding: number;
+  snapshot_total_outstanding: number;
+  snapshot_dpd: number | null;
+  snapshot_ecl_stage: number | null;
+  snapshot_ecl_amount: number | null;
+  snapshot_provision_amount: number | null;
+  snapshot_collections_case_status: string | null;
+  snapshot_collections_case_id: number | null;
+
+  requested_principal: number;
+  requested_profit: number;
+  requested_late_fee: number;
+  requested_other_charges: number;
+
+  approval_request_id: number | null;
+  requested_by: number | null;
+  approved_by: number | null;
+  created_at: string;
+  decided_at: string | null;
+}
+
+export interface RecoveryOut {
+  id: number;
+  write_off_execution_id: number;
+  payment_id: number | null;
+  external_reference: string;
+  amount: number;
+  currency: string;
+  recovery_date: string;
+  channel: string | null;
+  allocated_principal: number;
+  allocated_profit: number;
+  allocated_late_fee: number;
+  allocated_other_charges: number;
+  accounting_event_id: number | null;
+  recorded_by: number | null;
+  created_at: string;
+}
+
+export interface WriteOffExecutionOut {
+  id: number;
+  write_off_request_id: number;
+  contract_id: number;
+  customer_id: number | null;
+  write_off_type: WriteOffTypeValue;
+  executed_principal: number;
+  executed_profit: number;
+  executed_late_fee: number;
+  executed_other_charges: number;
+  remaining_principal: number;
+  remaining_profit: number;
+  remaining_late_fee: number;
+  ecl_stage_snapshot: number | null;
+  ecl_amount_snapshot: number | null;
+  provision_amount_snapshot: number | null;
+  contract_closure_id: number | null;
+  collection_case_id: number | null;
+  accounting_event_id: number | null;
+  executed_by: number | null;
+  executed_at: string;
+}
+
+export interface WriteOffExecutionDetailOut extends WriteOffExecutionOut {
+  recoveries: RecoveryOut[];
+  total_recovered: number;
+  remaining_recoverable: number;
+}
+
+export interface WriteOffExecutionResult {
+  replayed: boolean;
+  execution: WriteOffExecutionOut;
 }

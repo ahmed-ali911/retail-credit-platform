@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import date, datetime
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -130,3 +130,42 @@ class WriteOffExecutionOut(BaseModel):
 class WriteOffExecutionResult(BaseModel):
     replayed: bool
     execution: WriteOffExecutionOut
+
+
+# --------------------------------------------------------------------------- #
+# Recovery
+# --------------------------------------------------------------------------- #
+class RecoveryCreate(BaseModel):
+    amount: float = Field(gt=0)
+    # Mandatory — a recovery must always be traceable to a real payment/cash
+    # source, never an unexplained arbitrary amount.
+    external_reference: str = Field(min_length=1, max_length=120)
+    payment_id: int | None = None
+    currency: str = Field(default="KWD", min_length=3, max_length=3)
+    recovery_date: date | None = None  # defaults to today
+    channel: str | None = Field(default=None, max_length=50)
+
+
+class RecoveryOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    id: int
+    write_off_execution_id: int
+    payment_id: int | None
+    external_reference: str
+    amount: float
+    currency: str
+    recovery_date: date
+    channel: str | None
+    allocated_principal: float
+    allocated_profit: float
+    allocated_late_fee: float
+    allocated_other_charges: float
+    accounting_event_id: int | None
+    recorded_by: int | None
+    created_at: datetime
+
+
+class WriteOffExecutionDetailOut(WriteOffExecutionOut):
+    recoveries: list[RecoveryOut] = []
+    total_recovered: float = 0.0
+    remaining_recoverable: float = 0.0

@@ -6,6 +6,8 @@ const GOOD = new Set([
   "approved", "paid", "active", "accepted", "applied", "closed_good",
   // Mock Payment Gateway feature
   "settled", "matched", "resolved",
+  // Write-off & Recovery feature
+  "eligible", "satisfied", "executed",
 ]);
 const WARN = new Set([
   "referred",
@@ -17,12 +19,16 @@ const WARN = new Set([
   // Mock Payment Gateway feature — in progress / needs a look, not yet good or bad
   "initiated", "authorized", "captured", "partially_refunded", "unresolved", "open",
   "status_mismatch", "date_mismatch", "missing_in_gateway",
+  // Write-off & Recovery feature — genuinely unknown, not a "no"
+  "unavailable",
 ]);
 const BAD = new Set([
   "rejected", "overdue", "expired", "broken", "overpaid",
   // Mock Payment Gateway feature
   "failed", "cancelled", "reversed", "refunded", "chargeback",
   "amount_mismatch", "missing_in_internal_system", "duplicate",
+  // Write-off & Recovery feature
+  "not_eligible", "not_satisfied", "written_off",
 ]);
 const DARK = new Set(["closed", "waived"]);
 const CURED = new Set(["cured", "kept"]);

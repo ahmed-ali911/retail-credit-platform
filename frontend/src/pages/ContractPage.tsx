@@ -11,6 +11,7 @@ import type {
 } from "../api/types";
 import { StatusBadge } from "../components/StatusBadge";
 import { GatewayPaymentCard } from "../components/GatewayPaymentCard";
+import { WriteOffCard } from "../components/WriteOffCard";
 import {
   Card,
   ErrorNote,
@@ -351,6 +352,12 @@ export function ContractPage() {
       {contract.status === "active" && (
         <GatewayPaymentCard contractId={Number(contractId)} onSettled={load} />
       )}
+
+      <WriteOffCard
+        contractId={Number(contractId)}
+        contractStatus={contract.status}
+        onChanged={load}
+      />
 
       <Card title="Closure">
         {contract.closure ? (
