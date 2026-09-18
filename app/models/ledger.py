@@ -32,6 +32,23 @@ class LedgerEntryType(str, enum.Enum):
     principal_written_off = "principal_written_off"
     profit_written_off = "profit_written_off"
     late_fee_written_off = "late_fee_written_off"
+    # return_contract() — deliberately its own entry types too, for the exact
+    # same reason as the write-off block above (confirmed the hard way: an
+    # earlier draft of this fix reused principal_paid/late_fee_paid/
+    # profit_recognized/profit_rebated, which silently broke
+    # reports.py::_recognized_profit_at_return — that function's whole
+    # purpose is to sum profit_recognized entries as "genuinely collected via
+    # a real payment or settlement", and a return collects no such payment;
+    # tagging its quote breakdown with the same types made a returned
+    # contract look like it had earned settlement-grade recognized profit).
+    # A return's principal/late-fee/profit breakdown is a snapshot of what
+    # the returned schedule's payoff quote WOULD have been, used only to
+    # explain the closure's net financial_adjustment (refund_issued, below)
+    # — never paid, never recognized, never rebated in the settlement sense.
+    return_principal_cleared = "return_principal_cleared"
+    return_late_fee_cleared = "return_late_fee_cleared"
+    return_profit_retained = "return_profit_retained"
+    return_profit_waived = "return_profit_waived"
 
 
 class LedgerRelatedAction(str, enum.Enum):

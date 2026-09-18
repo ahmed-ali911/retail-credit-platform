@@ -489,8 +489,47 @@ def return_contract(
     db.flush()
 
     # --- dual-write to the immutable ledger (Phase 1) ---
-    # One signed entry for the net adjustment (same sign convention as
-    # ContractClosure.financial_adjustment: >0 owed to customer, <0 owed by).
+    # Pre-existing gap, fixed here: settle_contract() has always written a
+    # granular principal/late-fee/profit/rebate breakdown behind its payoff
+    # figure (see the identical-shaped block above); return_contract() only
+    # ever wrote the one net refund_issued entry below, even though it
+    # computes the exact same SettlementQuote shape. That quote is never
+    # persisted anywhere else, so without these entries the components
+    # behind a return's payoff are unrecoverable the moment this call
+    # returns — not from the ledger, not from the (now all "paid")
+    # installments.
+    #
+    # Deliberately NOT the same LedgerEntryType values settle_contract()
+    # uses: reports.py::_recognized_profit_at_return specifically sums
+    # `profit_recognized` entries as proof of profit genuinely collected via
+    # a real payment/settlement — a return collects no such payment, so
+    # reusing that type here would silently inflate a returned contract's
+    # recognized-profit figure (confirmed against the test suite). These use
+    # dedicated `return_*` types instead — same "own type, not a disguised
+    # reuse" rule the write-off feature already established above.
+    for entry_type, value in (
+        (LedgerEntryType.return_principal_cleared, quote.outstanding_principal),
+        (LedgerEntryType.return_late_fee_cleared, quote.outstanding_late_fees),
+        (LedgerEntryType.return_profit_retained, quote.profit_still_charged),
+        (LedgerEntryType.return_profit_waived, quote.profit_rebate_amount),
+    ):
+        if value > _ZERO:
+            ledger_service.record_entry(
+                db,
+                contract_id=contract.id,
+                entry_type=entry_type,
+                amount=value,
+                related_action=LedgerRelatedAction.return_,
+                reference_type="contract_closure",
+                reference_id=closure.id,
+                created_by=actor_id,
+            )
+
+    # One signed entry for the net customer-facing adjustment (same sign
+    # convention as ContractClosure.financial_adjustment: >0 owed to
+    # customer, <0 owed by) — kept alongside the granular entries above,
+    # not instead of them: this is the refund/payable figure, not a
+    # duplicate of the receivable/profit breakdown.
     if net_adjustment != _ZERO:
         ledger_service.record_entry(
             db,

@@ -141,6 +141,52 @@ def test_ledger_reconciles_early_settlement_with_rebate(client, db, set_config):
 
 
 # --------------------------------------------------------------------------- #
+# Scenario 4 — return (the pre-existing gap fixed alongside the Chart of
+# Accounts feature: return_contract() now writes the same granular
+# principal/late-fee/profit breakdown settle_contract() always has, using its
+# own dedicated `return_*` entry types so it never pollutes
+# reports.py::_recognized_profit_at_return, which specifically relies on
+# `profit_recognized` meaning "collected via a real payment or settlement".
+# --------------------------------------------------------------------------- #
+def test_ledger_records_granular_return_breakdown_without_touching_recognized_profit(client, db):
+    ctx = active_contract(client, national_id="LG-RETURN")
+    cid = ctx["contract_id"]
+
+    # a partial payment first so the return has a real remaining balance
+    client.post(f"/contracts/{cid}/payments",
+                json={"amount": ctx["schedule"][0]["total"], "external_reference": "LG-RETURN-P1"})
+
+    quote = client.get(f"/contracts/{cid}/settlement-quote").json()
+
+    r = client.post(f"/contracts/{cid}/return")
+    assert r.status_code == 200, r.text
+    body = r.json()
+
+    assert _ledger_sum(db, cid, LedgerEntryType.return_principal_cleared) == D(
+        str(quote["outstanding_principal"])
+    )
+    assert _ledger_sum(db, cid, LedgerEntryType.return_late_fee_cleared) == D(
+        str(quote["outstanding_late_fees"])
+    )
+    assert _ledger_sum(db, cid, LedgerEntryType.return_profit_retained) == D(
+        str(quote["profit_still_charged"])
+    )
+    assert _ledger_sum(db, cid, LedgerEntryType.return_profit_waived) == D(
+        str(quote["profit_rebate_amount"])
+    )
+    # the net customer-facing adjustment is still recorded too, unchanged
+    assert _ledger_sum(db, cid, LedgerEntryType.refund_issued) == D(
+        str(body["closure"]["financial_adjustment"])
+    )
+
+    # the whole point of using dedicated types: a return must NEVER look like
+    # genuinely recognised profit to the report that sums profit_recognized
+    assert _ledger_sum(db, cid, LedgerEntryType.profit_recognized) == D(
+        str(ctx["schedule"][0]["profit_component"])
+    )
+
+
+# --------------------------------------------------------------------------- #
 # The read paths are explicitly NOT cut over yet
 # --------------------------------------------------------------------------- #
 def test_receivable_still_computed_the_old_way_not_from_ledger(client, db):
