@@ -383,7 +383,7 @@ Emitter: `app/services/accounting.py::emit` — **additive**, changes nothing el
 | Rule | Detail | Confirmed or Placeholder | Enforced By | Triggered Via |
 |---|---|---|---|---|
 | Posting job | walks every event **not** `posted`, hands each to the mock `GlProvider`, records `posted` + `external_gl_reference` or `failed` + `retry_count`. On-demand (not a scheduler). Idempotent. Role: `admin`. | STRUCTURE ONLY | `accounting.py::post_pending`; `erp_adapter.py::MockGlProvider` (always `ok=True`) | `POST /jobs/post-accounting-events` |
-| GL debit/credit mapping | **not stored / not computed** — one signed `amount` per event; the double-entry split is deferred to a real `GlProvider` | Open — **BDR-31** | — | — |
+| GL debit/credit mapping | **Architecture now built** — a versioned `EventAccountMapping`/`EventAccountMappingLine` per event type turns each `AccountingEvent` into a balanced `GLJournal`/`GLJournalLine` (Chart of Accounts feature, see [docs/chart-of-accounts/BRD.md](chart-of-accounts/BRD.md) / [FSD.md](chart-of-accounts/FSD.md)). Every seeded account and mapping is still an explicit **DEMO / ILLUSTRATIVE PLACEHOLDER** — the real company chart of accounts and approved debit/credit treatment remain **BDR-31** | `app/models/gl.py`, `app/services/coa.py`, `app/services/gl_journal.py` | `GET/POST /gl/*` |
 | View role | `finance_officer`, `admin` | HARD-CODED | `api/accounting.py::_VIEW_ROLES` | `GET /accounting/events` |
 
 ---
@@ -487,7 +487,7 @@ config is the DPD display grouping.
 | **Return-policy financial treatment** | Only a single signed `financial_adjustment`; no itemized profit reversal, restocking fee, condition/serial check, DP-forfeiture rule, `Refund` entity, or inventory-return record | `app/services/closure.py::return_contract` | BDR-19 / G-19 |
 | **Ownership-transfer logic** | `ownership_transfers_on_delivery` is echoed in the return response but **no code branches on it** | closure / write-off | BDR-01 |
 | **Scheduled jobs** (DPD, late fee, reminders, recognition, recon, maturity, offer/quote expiry) | All manual — `POST /jobs/assess-overdue` and `POST /jobs/post-accounting-events` only. Maturity closure only happens if a payment lands exactly on zero. | a scheduler | BDR-28 |
-| **GL chart-of-accounts / debit-credit mapping** | Not stored/computed — one signed `amount` per `AccountingEvent`; mock adapter always succeeds | `erp_adapter.py` + real `GlProvider` | BDR-31 |
+| **GL chart-of-accounts / debit-credit mapping** | Architecture built (versioned mapping → balanced journal, see [docs/chart-of-accounts/](chart-of-accounts/)); every account/mapping is still a demo placeholder — the real company chart of accounts and approved treatment are open | `app/models/gl.py` + real `GlProvider` | BDR-31 |
 | **Effective-dated config / rule-set versioning on decisions** | `ConfigParameter` updated in place; `AssessmentResult` snapshots values but has no `rule_set_version` | config + assessment | S-11 / G-34 |
 | **Product creation role gate** | `POST /products` has **no `require_roles`** — any authenticated user (incl. `customer`, `collections_officer`) can create a product | `app/api/products.py::create_product` | — (implementation gap, not a BDR) |
 | **Payment endpoint owner check** | `POST /contracts/{id}/payments` allows role `customer` but does **not** verify the contract belongs to that customer (unlike `GET /contracts/{id}/receivable`, which does) | `app/api/payments.py::record_payment` | — (implementation gap) |

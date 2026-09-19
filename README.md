@@ -1,6 +1,6 @@
 # Retail Credit & Installment Sales Platform
 
-**A FastAPI backend and React staff web app covering installment-sale origination, credit assessment, pricing, payments, collections, and bank reconciliation, behind JWT auth, RBAC, maker-checker, and a full audit trail — plus a full IFRS 9-style three-stage ECL & provisioning engine with maker-checker overrides, a separate mock payment gateway service with signed webhooks, and a maker-checker-gated write-off & recovery lifecycle.** See [docs/enterprise-assessment.md](docs/enterprise-assessment.md) for the P0 findings (S-1 through S-5) this platform closes and the accounting-event boundary for a downstream ERP (Gap Matrix G-07).
+**A FastAPI backend and React staff web app covering installment-sale origination, credit assessment, pricing, payments, collections, and bank reconciliation, behind JWT auth, RBAC, maker-checker, and a full audit trail — plus a full IFRS 9-style three-stage ECL & provisioning engine with maker-checker overrides, a separate mock payment gateway service with signed webhooks, a maker-checker-gated write-off & recovery lifecycle, and a versioned Chart of Accounts / posting-rule engine that turns every accounting event into a balanced double-entry journal (every account and mapping an explicit demo placeholder).** See [docs/enterprise-assessment.md](docs/enterprise-assessment.md) for the P0 findings (S-1 through S-5) this platform closes and [docs/chart-of-accounts/](docs/chart-of-accounts/) for the accounting-event boundary's General Ledger layer (Gap Matrix G-07 / BDR-31).
 
 This is a **retail installment-sale** platform, not a cash-loan system. The
 company never disburses cash. A customer buys a product on credit terms; a
@@ -923,18 +923,21 @@ settlement / activation didn't happen.
 - **Migration `0010`** — one new `accounting_events` table. No existing table or
   column changes.
 
-> **BUSINESS DECISION REQUIRED** (register, assessment BDR-31): the actual
-> **chart-of-accounts / debit-credit mapping** per `event_type` — Finance has not
-> confirmed it. The model deliberately stores only one signed `amount`; the
-> double-entry split is applied by the real `GlProvider` later, not here. Also
-> unconfirmed: real-time vs batched posting (on-demand job for now). For a plain
-> early settlement the closure records no `financial_adjustment` (the payoff was
-> collected in full via `/settle`), so that event's amount is `0.00` and the
-> money detail lives on the settlement `Payment` + ledger entries.
+> **Architecture now built** — see [docs/chart-of-accounts/](docs/chart-of-accounts/).
+> A versioned `EventAccountMapping` per `event_type` turns each `AccountingEvent`
+> into a balanced `GLJournal`/`GLJournalLine` (`app/models/gl.py`), with the ECL
+> portfolio roll-up (`ecl_provision_movement`) deliberately excluded from posting
+> to avoid double-counting the per-contract ECL events it summarises. **The
+> chart of accounts, account codes, and every debit/credit treatment remain
+> BUSINESS DECISION REQUIRED (register, BDR-31)** — every seeded account and
+> mapping is an explicit DEMO / ILLUSTRATIVE PLACEHOLDER, not approved company
+> policy. Also unconfirmed: real-time vs batched posting (on-demand job for
+> now, matching this section's original scope).
 
-**Out of scope:** real ERP/GL integration, the chart-of-accounts mapping,
-adapter resilience, write-off / recovery / ECL events (those actions don't
-exist yet), any scheduled posting.
+**Out of scope** (for this original boundary — see
+[docs/chart-of-accounts/BRD.md](docs/chart-of-accounts/BRD.md) §7 for the GL
+layer's own, narrower remaining gaps): real ERP/GL integration, the real
+chart-of-accounts mapping, adapter resilience, any scheduled posting.
 
 ---
 
@@ -1071,6 +1074,12 @@ Migrations:
 - [`0009_bank_reconciliation`](alembic/versions/0009_bank_reconciliation.py) — `payments.reconciliation_status` (NOT NULL, server default `unreconciled`) + `payments.gateway_reference`; `bank_statement_lines`, `reconciliation_exceptions` (P0-5)
 - [`0010_accounting_events`](alembic/versions/0010_accounting_events.py) — `accounting_events` (one new table, purely additive — Gap Matrix G-07)
 - [`0011_product_stock`](alembic/versions/0011_product_stock.py) — `products.stock_quantity` / `products.reserved_quantity` (Step 10, existing rows backfilled to the placeholder default)
+- [`0012_ecl_provision`](alembic/versions/0012_ecl_provision.py) — ECL & provision, first slice: `ecl_runs`, `ecl_assessments`; `accounting_events.contract_id` made nullable (a portfolio-level event has no single contract)
+- [`0013_ecl_provision_engine`](alembic/versions/0013_ecl_provision_engine.py) — ECL & provision engine: three-stage PD/LGD, configurable stage engine, manual overrides (maker-checker), versioned `ECLConfiguration`, movement-based provisions
+- [`0014_payment_gateway`](alembic/versions/0014_payment_gateway.py) — Mock Payment Gateway: `payment_intents`, `gateway_transactions`, `webhook_events`; extends `payments` (`source`, `payment_intent_id`), `payment_allocations` (`reversed_by_allocation_id`), `AccountingEventType`, `PromiseStatus`
+- [`0015_gateway_settlement`](alembic/versions/0015_gateway_settlement.py) — Mock Payment Gateway: `settlement_batches`, `gateway_reconciliation_items`
+- [`0016_write_off_recovery`](alembic/versions/0016_write_off_recovery.py) — Write-off & Recovery: `write_off_requests`, `write_off_executions`, `write_off_recoveries`; extends `installments`, `late_fee_charges`, `collection_cases`
+- [`0017_chart_of_accounts_gl`](alembic/versions/0017_chart_of_accounts_gl.py) — Chart of Accounts + Versioned Posting Rules + Double-Entry Journal: `chart_of_accounts`, `event_account_mappings`, `event_account_mapping_lines`, `gl_journals`, `gl_journal_lines`; extends `accounting_events` (`source_table`, `source_id`)
 
 *(P0-4 and Steps 11 & 13 added no migration — Step 11's config value is a YAML-seeded `config_parameters` row; Step 13 is read-only report queries + export libraries.)*
 
