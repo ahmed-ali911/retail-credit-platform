@@ -3,6 +3,7 @@ import { Link, NavLink, Outlet, useLocation } from "react-router-dom";
 import {
   BarChart3,
   Boxes,
+  Calculator,
   CheckSquare,
   ChevronDown,
   ClipboardCheck,
@@ -146,6 +147,14 @@ const NAV: NavGroup[] = [
         roles: ["finance_officer", "credit_manager", "admin"],
       },
       {
+        to: "/gl",
+        label: "Chart of Accounts & GL",
+        icon: Calculator,
+        end: true,
+        // matches app/api/gl.py's _VIEW_ROLES exactly
+        roles: ["finance_officer", "credit_manager", "admin"],
+      },
+      {
         to: "/reconciliation",
         label: "Bank Reconciliation",
         icon: Landmark,
@@ -247,6 +256,7 @@ const CRUMB_LABELS: Record<string, string> = {
   inventory: "Inventory",
   reports: "Reports",
   ecl: "ECL & Provision",
+  gl: "Chart of Accounts & GL",
   config: "Configuration",
   audit: "Audit Logs",
   new: "New",

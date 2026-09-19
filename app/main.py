@@ -16,6 +16,7 @@ from app.api import (
     customers,
     ecl,
     gateway_settlement,
+    gl,
     offers,
     payment_gateway,
     payments,
@@ -97,6 +98,7 @@ app.include_router(reconciliation.router, dependencies=_authed)
 app.include_router(accounting.router, dependencies=_authed)
 app.include_router(ecl.router, dependencies=_authed)
 app.include_router(write_off.router, dependencies=_authed)
+app.include_router(gl.router, dependencies=_authed)
 app.include_router(reports.router, dependencies=_authed)
 app.include_router(config_api.router, dependencies=_authed)
 app.include_router(audit.router, dependencies=_authed)

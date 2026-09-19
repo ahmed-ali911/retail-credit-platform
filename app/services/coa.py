@@ -326,7 +326,7 @@ def _validate_mapping_lines(db: Session, classification: EventClassification, ra
         sides.add(side.value)
         cleaned.append(
             {
-                "line_sequence": line.get("line_sequence", i),
+                "line_sequence": line.get("line_sequence") if line.get("line_sequence") is not None else i,
                 "posting_side": side.value,
                 "account_id": account.id,
                 "amount_source": amount_source.value,

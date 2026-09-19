@@ -30,6 +30,7 @@ from app.models.gl import GLJournal, JournalStatus
 from app.models.sales_order import SalesOrder
 from app.services import erp_adapter
 from app.services import gl_journal
+from app.services.errors import DomainError
 
 _CENTS = Decimal("0.01")
 
@@ -152,6 +153,31 @@ class PostingSummary:
     failed: int = 0
 
 
+def _post_one_journal(db: Session, journal: GLJournal) -> bool:
+    """Hands one journal to the (mock) ERP adapter and records the outcome
+    on both the journal and its underlying `AccountingEvent` (kept in sync —
+    see `post_pending`'s docstring). Returns whether it was accepted."""
+    event = db.get(AccountingEvent, journal.accounting_event_id)
+    result = erp_adapter.post_journal(event, journal, list(journal.lines))
+    if result.ok:
+        journal.journal_status = JournalStatus.posted
+        journal.external_gl_reference = result.external_gl_reference
+        journal.error_message = None
+        journal.posting_date = _utcnow()
+        journal.posted_at = _utcnow()
+        event.accounting_status = AccountingStatus.posted
+        event.external_gl_reference = result.external_gl_reference
+        event.error_message = None
+    else:
+        journal.journal_status = JournalStatus.failed
+        journal.error_message = result.error_message or "post_journal returned not-ok"
+        journal.retry_count += 1
+        event.accounting_status = AccountingStatus.failed
+        event.error_message = journal.error_message
+        event.retry_count += 1
+    return result.ok
+
+
 def post_pending(db: Session) -> PostingSummary:
     """Attempt to post every READY `GLJournal` to the (mock) ERP adapter.
     Idempotent — a `POSTED` journal is never reconsidered.
@@ -177,26 +203,33 @@ def post_pending(db: Session) -> PostingSummary:
     summary = PostingSummary()
     for journal in journals:
         summary.events_considered += 1
-        event = db.get(AccountingEvent, journal.accounting_event_id)
-        result = erp_adapter.post_journal(event, journal, list(journal.lines))
-        if result.ok:
-            journal.journal_status = JournalStatus.posted
-            journal.external_gl_reference = result.external_gl_reference
-            journal.error_message = None
-            journal.posting_date = _utcnow()
-            journal.posted_at = _utcnow()
-            event.accounting_status = AccountingStatus.posted
-            event.external_gl_reference = result.external_gl_reference
-            event.error_message = None
+        if _post_one_journal(db, journal):
             summary.posted += 1
         else:
-            journal.journal_status = JournalStatus.failed
-            journal.error_message = result.error_message or "post_journal returned not-ok"
-            journal.retry_count += 1
-            event.accounting_status = AccountingStatus.failed
-            event.error_message = journal.error_message
-            event.retry_count += 1
             summary.failed += 1
 
     db.flush()
     return summary
+
+
+def retry_failed_posting(db: Session, journal: GLJournal) -> bool:
+    """Re-attempts EXTERNAL posting for a journal that reached READY and was
+    genuinely balanced, but whose posting attempt was rejected by the GL
+    provider (`journal_status == FAILED` and `is_balanced == True`).
+
+    Deliberately narrower than re-running `generate_journal` — a journal
+    that never balanced in the first place (a generation-time failure: no
+    lines, `is_balanced == False`) or was never mapped at all is NOT
+    retried here; regenerating those is a separate, explicit, role-gated
+    operation not implemented in this checkpoint (see
+    docs/chart-of-accounts/FSD.md §8).
+    """
+    if journal.journal_status != JournalStatus.failed or not journal.is_balanced:
+        raise DomainError(
+            f"Journal {journal.id} is not eligible for a posting retry "
+            f"(status={journal.journal_status.value}, is_balanced={journal.is_balanced})",
+            status_code=409,
+        )
+    ok = _post_one_journal(db, journal)
+    db.flush()
+    return ok

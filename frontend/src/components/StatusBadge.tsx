@@ -8,6 +8,8 @@ const GOOD = new Set([
   "settled", "matched", "resolved",
   // Write-off & Recovery feature
   "eligible", "satisfied", "executed",
+  // Chart of Accounts & GL feature
+  "posted", "ready",
 ]);
 const WARN = new Set([
   "referred",
@@ -21,6 +23,8 @@ const WARN = new Set([
   "status_mismatch", "date_mismatch", "missing_in_gateway",
   // Write-off & Recovery feature — genuinely unknown, not a "no"
   "unavailable",
+  // Chart of Accounts & GL feature — preserved and visible, not a failure
+  "unmapped",
 ]);
 const BAD = new Set([
   "rejected", "overdue", "expired", "broken", "overpaid",

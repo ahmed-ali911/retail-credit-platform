@@ -32,7 +32,7 @@ function qs(params: Record<string, string>): string {
 // --------------------------------------------------------------------------- //
 // export button group (CSV / Excel / PDF) — one component, every report screen
 // --------------------------------------------------------------------------- //
-function ExportGroup({
+export function ExportGroup({
   path,
   base,
   onError,
@@ -108,7 +108,7 @@ function humanCol(c: string): string {
   return c.replace(/_/g, " ").replace(/\b\w/g, (m) => m.toUpperCase());
 }
 
-function GenericTableReport({
+export function GenericTableReport({
   endpoint,
   base,
   summaryKeys,

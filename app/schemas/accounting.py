@@ -22,6 +22,8 @@ class AccountingEventOut(BaseModel):
     error_message: str | None
     retry_count: int
     created_at: datetime
+    source_table: str | None = None
+    source_id: int | None = None
 
 
 class PostAccountingEventsResult(BaseModel):

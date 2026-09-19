@@ -911,3 +911,119 @@ export interface WriteOffExecutionResult {
   replayed: boolean;
   execution: WriteOffExecutionOut;
 }
+
+// --- Chart of Accounts & General Ledger ---
+export type AccountTypeValue = "ASSET" | "LIABILITY" | "EQUITY" | "INCOME" | "EXPENSE";
+export type NormalBalanceValue = "DEBIT" | "CREDIT";
+export type PostingSideValue = "DEBIT" | "CREDIT";
+export type EventClassificationValue = "POSTABLE" | "SUMMARY_ONLY" | "RESERVED";
+export type JournalStatusValue = "UNMAPPED" | "READY" | "POSTED" | "FAILED";
+
+export const AMOUNT_SOURCES = [
+  "event_amount", "absolute_event_amount",
+  "cash_price", "down_payment", "financed_principal", "total_contractual_profit",
+  "gross_installment_receivable",
+  "payment_principal", "payment_profit", "payment_late_fee",
+  "closure_ledger_principal", "closure_ledger_late_fee",
+  "closure_ledger_profit_recognized", "closure_ledger_profit_rebated",
+  "closure_ledger_payoff_total",
+  "closure_ledger_return_principal", "closure_ledger_return_late_fee",
+  "closure_ledger_return_profit_retained", "closure_ledger_return_profit_waived",
+  "written_off_principal", "written_off_profit", "written_off_late_fee",
+  "provision_used", "write_off_expense_excess",
+] as const;
+
+export interface ChartOfAccountOut {
+  id: number;
+  account_code: string;
+  account_name: string;
+  account_type: AccountTypeValue;
+  normal_balance: NormalBalanceValue;
+  is_active: boolean;
+  is_demo: boolean;
+  description: string;
+  created_at: string;
+  created_by: number | null;
+  approved_at: string | null;
+  approved_by: number | null;
+}
+
+export interface EventAccountMappingLineOut {
+  id: number;
+  line_sequence: number;
+  posting_side: PostingSideValue;
+  account_id: number;
+  account_code: string;
+  amount_source: string;
+  multiplier: number;
+  reverse_on_negative: boolean;
+  description: string | null;
+  is_active: boolean;
+}
+
+export interface EventAccountMappingOut {
+  id: number;
+  account_event_type: string;
+  version: number;
+  classification: EventClassificationValue;
+  effective_from: string;
+  effective_to: string | null;
+  is_active: boolean;
+  is_demo: boolean;
+  description: string;
+  change_reason: string | null;
+  created_at: string;
+  approved_at: string | null;
+  approval_request_id: number | null;
+  lines: EventAccountMappingLineOut[];
+}
+
+export interface GLJournalLineOut {
+  id: number;
+  line_sequence: number;
+  posting_side: PostingSideValue;
+  account_id: number;
+  account_code_snapshot: string;
+  account_name_snapshot: string;
+  amount: number;
+  currency: string;
+  amount_source: string;
+  contract_id: number | null;
+  customer_id: number | null;
+  description: string | null;
+}
+
+export interface GLJournalOut {
+  id: number;
+  journal_reference: string;
+  accounting_event_id: number;
+  mapping_version_id: number | null;
+  journal_status: JournalStatusValue;
+  event_date: string;
+  posting_date: string | null;
+  accounting_period: string | null;
+  currency: string;
+  total_debit: number;
+  total_credit: number;
+  is_balanced: boolean;
+  external_gl_reference: string | null;
+  error_message: string | null;
+  retry_count: number;
+  created_at: string;
+  posted_at: string | null;
+}
+
+export interface GLJournalDetailOut extends GLJournalOut {
+  lines: GLJournalLineOut[];
+  event: {
+    id: number;
+    event_type: string;
+    event_reference: string;
+    contract_id: number | null;
+    customer_id: number | null;
+    amount: number;
+    currency: string;
+    event_date: string;
+    accounting_status: string;
+  };
+}

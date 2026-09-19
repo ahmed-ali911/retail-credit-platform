@@ -27,6 +27,7 @@ import { EclConfigPage } from "./pages/EclConfigPage";
 import { PaymentOperationsPage } from "./pages/PaymentOperationsPage";
 import { GatewayReconciliationPage } from "./pages/GatewayReconciliationPage";
 import { WriteOffRecoveryListPage } from "./pages/WriteOffRecoveryListPage";
+import { ChartOfAccountsPage } from "./pages/ChartOfAccountsPage";
 
 export default function App() {
   return (
@@ -64,6 +65,7 @@ export default function App() {
         <Route path="reports" element={<ReportsPage />} />
         <Route path="ecl" element={<EclProvisionPage />} />
         <Route path="ecl/config" element={<EclConfigPage />} />
+        <Route path="gl" element={<ChartOfAccountsPage />} />
         <Route path="ecl/contracts/:contractId" element={<EclAssessmentDetailPage />} />
         <Route path="config" element={<ConfigPage />} />
         <Route path="audit" element={<AuditLogPage />} />
