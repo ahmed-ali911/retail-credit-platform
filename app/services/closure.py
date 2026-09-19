@@ -71,6 +71,8 @@ def _emit_closure_event(
         contract=contract,
         amount=closure.financial_adjustment if closure.financial_adjustment is not None else _ZERO,
         event_date=closure.closed_at,
+        source_table="contract_closure",
+        source_id=closure.id,
     )
 
 

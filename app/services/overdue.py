@@ -174,6 +174,8 @@ def assess_overdue(
             contract=contract,
             amount=charge.amount,
             event_date=charge.assessed_at,
+            source_table="late_fee_charge",
+            source_id=charge.id,
         )
     db.flush()
 

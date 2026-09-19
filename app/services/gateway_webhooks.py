@@ -312,6 +312,8 @@ def _apply_final_allocation(
             contract=contract,
             amount=transaction.gateway_fee,
             event_date=transaction.settlement_timestamp or _utcnow(),
+            source_table="gateway_transaction",
+            source_id=transaction.id,
         )
 
 

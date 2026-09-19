@@ -325,6 +325,8 @@ def confirm_delivery(db: Session, contract: InstallmentContract) -> InstallmentC
         contract=contract,
         amount=sales_order.sale_price,
         event_date=contract.activated_at,
+        source_table="sales_order",
+        source_id=sales_order.id,
     )
     accounting.emit(
         db,
@@ -333,6 +335,8 @@ def confirm_delivery(db: Session, contract: InstallmentContract) -> InstallmentC
         contract=contract,
         amount=sales_order.down_payment_amount,
         event_date=contract.activated_at,
+        source_table="sales_order",
+        source_id=sales_order.id,
     )
     db.flush()
 

@@ -198,6 +198,8 @@ def _execute(db: Session, approval: ApprovalRequest, *, actor_id: int) -> None:
                 event_reference=f"late-fee-waived-{charge.id}",
                 contract=contract,
                 amount=waived_amount,
+                source_table="late_fee_charge",
+                source_id=charge.id,
             )
         return
 

@@ -218,6 +218,8 @@ def reverse_settled_payment(
         contract=contract,
         amount=original.amount,
         event_date=_utcnow(),
+        source_table="payment",
+        source_id=original.id,
     )
 
     # --- Collections: reopen (or open fresh) a case — a case that was closed

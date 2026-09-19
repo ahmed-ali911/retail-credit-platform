@@ -287,6 +287,8 @@ def apply_resolution(
                 contract=intent.contract,
                 amount=item.variance_amount,
                 event_date=_utcnow(),
+                source_table="gateway_reconciliation_item",
+                source_id=item.id,
             )
 
     record_event(

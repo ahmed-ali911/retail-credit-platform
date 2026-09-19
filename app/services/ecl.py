@@ -509,6 +509,8 @@ def initial_assessment(
                 contract=contract,
                 amount=closing - opening,
                 event_date=_utcnow(),
+                source_table="ecl_assessment",
+                source_id=row.id,
             )
             row.accounting_event_id = ev.id
             db.flush()
@@ -650,6 +652,8 @@ def post_run(db: Session, run: ECLRun, *, actor_id: int | None = None) -> EclRun
                 contract=contract,
                 amount=base_move,
                 event_date=_utcnow(),
+                source_table="ecl_assessment",
+                source_id=a.id,
             )
             a.accounting_event_id = ev.id
 
@@ -663,6 +667,8 @@ def post_run(db: Session, run: ECLRun, *, actor_id: int | None = None) -> EclRun
                 contract=contract,
                 amount=override_adj,
                 event_date=_utcnow(),
+                source_table="ecl_assessment",
+                source_id=a.id,
             )
             if a.accounting_event_id is None:
                 a.accounting_event_id = ev.id
@@ -674,6 +680,8 @@ def post_run(db: Session, run: ECLRun, *, actor_id: int | None = None) -> EclRun
         event_reference=f"ecl-provision-movement-run-{run.id}",
         amount=roll_up,
         event_date=_utcnow(),
+        source_table="ecl_run",
+        source_id=run.id,
     )
     run.accounting_event_id = ev.id
     run.status = ECLRunStatus.posted

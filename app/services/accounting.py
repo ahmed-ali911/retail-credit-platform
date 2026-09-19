@@ -26,8 +26,10 @@ from app.models.accounting import (
 )
 from app.models.contract import InstallmentContract
 from app.models.credit_application import CreditApplication
+from app.models.gl import GLJournal, JournalStatus
 from app.models.sales_order import SalesOrder
 from app.services import erp_adapter
+from app.services import gl_journal
 
 _CENTS = Decimal("0.01")
 
@@ -58,11 +60,22 @@ def emit(
     amount,
     event_date: datetime | None = None,
     currency: str = "KWD",
+    source_table: str | None = None,
+    source_id: int | None = None,
 ) -> AccountingEvent:
     """Create one pending AccountingEvent, or return the existing one.
 
     Idempotent on `event_reference`. Callers pass the domain object's own
     timestamp as `event_date` where one exists.
+
+    `source_table`/`source_id` (Chart of Accounts feature — see
+    `app/models/accounting.py`'s column docstring) name the exact domain row
+    that caused this event, for journal generation's amount-source
+    resolvers. Journal generation (`gl_journal.generate_journal`) runs ONLY
+    on the branch that creates a genuinely new row — never on an idempotent
+    replay of an existing `event_reference` — so retrying the same business
+    action can never cause a mapping approved afterwards to reach back and
+    generate a journal for an event that predates it.
     """
     existing = db.execute(
         select(AccountingEvent).where(
@@ -81,9 +94,12 @@ def emit(
         currency=currency,
         event_date=event_date or _utcnow(),
         accounting_status=AccountingStatus.pending,
+        source_table=source_table,
+        source_id=source_id,
     )
     db.add(event)
     db.flush()
+    gl_journal.generate_journal(db, event)
     return event
 
 
@@ -95,6 +111,8 @@ def emit_unscoped(
     amount,
     event_date: datetime | None = None,
     currency: str = "KWD",
+    source_table: str | None = None,
+    source_id: int | None = None,
 ) -> AccountingEvent:
     """Like :func:`emit` but for a **portfolio-level** event that has no single
     contract (the ECL slice's ``ecl_provision_movement``, one per recalculation
@@ -118,9 +136,12 @@ def emit_unscoped(
         currency=currency,
         event_date=event_date or _utcnow(),
         accounting_status=AccountingStatus.pending,
+        source_table=source_table,
+        source_id=source_id,
     )
     db.add(event)
     db.flush()
+    gl_journal.generate_journal(db, event)
     return event
 
 
@@ -132,29 +153,48 @@ class PostingSummary:
 
 
 def post_pending(db: Session) -> PostingSummary:
-    """Attempt to post every event not already `posted`. Idempotent."""
-    rows = (
+    """Attempt to post every READY `GLJournal` to the (mock) ERP adapter.
+    Idempotent — a `POSTED` journal is never reconsidered.
+
+    Only a journal that actually balanced (`JournalStatus.ready`) is ever
+    handed to the provider — an `UNMAPPED` or `FAILED` journal (or an event
+    with no journal at all: `SUMMARY_ONLY`/`RESERVED`) is left exactly where
+    it is; there is nothing valid to post. `AccountingEvent.accounting_status`
+    (the pre-existing boundary this feature builds on top of, never
+    replaced) is kept in sync with its journal's outcome, so every
+    existing consumer of that field keeps working unchanged.
+    """
+    journals = (
         db.execute(
-            select(AccountingEvent)
-            .where(AccountingEvent.accounting_status != AccountingStatus.posted)
-            .order_by(AccountingEvent.id)
+            select(GLJournal)
+            .where(GLJournal.journal_status == JournalStatus.ready)
+            .order_by(GLJournal.id)
         )
         .scalars()
         .all()
     )
 
     summary = PostingSummary()
-    for event in rows:
+    for journal in journals:
         summary.events_considered += 1
-        result = erp_adapter.post_event(event)
+        event = db.get(AccountingEvent, journal.accounting_event_id)
+        result = erp_adapter.post_journal(event, journal, list(journal.lines))
         if result.ok:
+            journal.journal_status = JournalStatus.posted
+            journal.external_gl_reference = result.external_gl_reference
+            journal.error_message = None
+            journal.posting_date = _utcnow()
+            journal.posted_at = _utcnow()
             event.accounting_status = AccountingStatus.posted
             event.external_gl_reference = result.external_gl_reference
             event.error_message = None
             summary.posted += 1
         else:
+            journal.journal_status = JournalStatus.failed
+            journal.error_message = result.error_message or "post_journal returned not-ok"
+            journal.retry_count += 1
             event.accounting_status = AccountingStatus.failed
-            event.error_message = result.error_message or "post_event returned not-ok"
+            event.error_message = journal.error_message
             event.retry_count += 1
             summary.failed += 1
 

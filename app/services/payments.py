@@ -201,6 +201,8 @@ def record_payment(
         contract=contract,
         amount=payment.amount,
         event_date=payment.received_at,
+        source_table="payment",
+        source_id=payment.id,
     )
     profit_recognized = sum((line.profit for line in plan.allocations), _ZERO)
     if profit_recognized > _ZERO:
@@ -211,6 +213,8 @@ def record_payment(
             contract=contract,
             amount=profit_recognized,
             event_date=payment.received_at,
+            source_table="payment",
+            source_id=payment.id,
         )
 
     # Collections hook (Gap 3): a payment that covers a pending promise-to-pay's

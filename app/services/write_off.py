@@ -749,6 +749,8 @@ def execute_write_off(db: Session, request_id: int, *, actor_id: int) -> WriteOf
         contract=contract,
         amount=total_written_off,
         event_date=_utcnow(),
+        source_table="write_off_execution",
+        source_id=execution.id,
     )
     execution.accounting_event_id = write_off_event.id
 
@@ -760,6 +762,8 @@ def execute_write_off(db: Session, request_id: int, *, actor_id: int) -> WriteOf
             contract=contract,
             amount=-provision_snapshot,
             event_date=_utcnow(),
+            source_table="write_off_execution",
+            source_id=execution.id,
         )
 
     wo.status = WriteOffRequestStatus.executed
@@ -925,6 +929,8 @@ def record_recovery(db: Session, *, execution_id: int, actor_id: int, payload) -
         contract=contract,
         amount=amount,
         event_date=_utcnow(),
+        source_table="write_off_recovery",
+        source_id=recovery.id,
     )
     recovery.accounting_event_id = ev.id
     db.flush()

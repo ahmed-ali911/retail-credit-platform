@@ -9,13 +9,26 @@ assessment's "don't over-engineer for mocks" principle): retry/backoff,
 circuit-breaker, dead-letter queue, signature verification. The posting *job*
 (`POST /jobs/post-accounting-events`) records `failed` + `retry_count` and is
 safe to re-run; that is the whole recovery story for now.
+
+``post_journal`` (Chart of Accounts feature) is what ``accounting.py::
+post_pending`` actually calls now — a real ERP posting needs the debit/credit
+lines, not just the flat signed amount ``post_event`` alone could carry (the
+business transaction that generated the event, per design rule #12, stays
+entirely separate from this — the caller passes both). ``post_event`` is kept
+on the interface for backward compatibility (a legitimate, simpler mock
+primitive some future caller may still want) but is no longer on the path
+``post_pending`` exercises.
 """
 from __future__ import annotations
 
 import uuid
 from dataclasses import dataclass
+from typing import TYPE_CHECKING
 
 from app.models.accounting import AccountingEvent
+
+if TYPE_CHECKING:
+    from app.models.gl import GLJournal, GLJournalLine
 
 
 @dataclass
@@ -31,11 +44,24 @@ class GlProvider:
     def post_event(self, event: AccountingEvent) -> PostResult:  # pragma: no cover
         raise NotImplementedError
 
+    def post_journal(
+        self, event: AccountingEvent, journal: "GLJournal", lines: list["GLJournalLine"]
+    ) -> PostResult:  # pragma: no cover
+        raise NotImplementedError
+
 
 class MockGlProvider(GlProvider):
-    """Always accepts the event and returns a fake GL reference."""
+    """Always accepts the event/journal and returns a fake GL reference."""
 
     def post_event(self, event: AccountingEvent) -> PostResult:
+        return PostResult(
+            ok=True,
+            external_gl_reference=f"MOCK-GL-{uuid.uuid4()}",
+        )
+
+    def post_journal(
+        self, event: AccountingEvent, journal: "GLJournal", lines: list["GLJournalLine"]
+    ) -> PostResult:
         return PostResult(
             ok=True,
             external_gl_reference=f"MOCK-GL-{uuid.uuid4()}",
@@ -49,3 +75,9 @@ _provider: GlProvider = MockGlProvider()
 
 def post_event(event: AccountingEvent) -> PostResult:
     return _provider.post_event(event)
+
+
+def post_journal(
+    event: AccountingEvent, journal: "GLJournal", lines: list["GLJournalLine"]
+) -> PostResult:
+    return _provider.post_journal(event, journal, lines)
